@@ -23,10 +23,15 @@ private:
         kNeutral,
         kListening,
         kThinking,
-        kHappy,
-        kSad,
+        kSmileGentle,
+        kPlayfulWink,
+        kEcstaticLaugh,
+        kSadEmpathy,
+        kSadCrying,
         kAngry,
         kSurprised,
+        kSkeptical,
+        kShy,
         kSleepy,
         kSleeping,
         kWakingUp,
@@ -39,6 +44,9 @@ private:
     lv_obj_t* right_top_lid_ = nullptr;
     lv_obj_t* left_bottom_lid_ = nullptr;
     lv_obj_t* right_bottom_lid_ = nullptr;
+    lv_obj_t* teardrop_ = nullptr;
+    lv_obj_t* left_blush_ = nullptr;
+    lv_obj_t* right_blush_ = nullptr;
     lv_obj_t* chat_line_ = nullptr;
     lv_timer_t* animation_timer_ = nullptr;
     FaceMode face_mode_ = FaceMode::kNeutral;
@@ -55,7 +63,10 @@ private:
     int current_look_y_ = 0;
     int target_look_x_ = 0;
     int target_look_y_ = 0;
-    int current_eye_height_ = 36;
+    int current_left_height_ = 36;
+    int current_right_height_ = 36;
+    int current_left_y_offset_ = 0;
+    int current_right_y_offset_ = 0;
     bool has_chat_text_ = false;
 
     static void AnimationTimerCallback(lv_timer_t* timer);
