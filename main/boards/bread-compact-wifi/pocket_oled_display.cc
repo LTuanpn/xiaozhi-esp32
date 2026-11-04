@@ -116,8 +116,10 @@ void PocketOledDisplay::SetupUI() {
 }
 
 void PocketOledDisplay::AnimationTimerCallback(lv_timer_t* timer) {
-    auto* display = static_cast<PocketOledDisplay*>(timer->user_data);
-    display->UpdateAnimationFrame();
+    auto* display = static_cast<PocketOledDisplay*>(lv_timer_get_user_data(timer));
+    if (display != nullptr) {
+        display->UpdateAnimationFrame();
+    }
 }
 
 void PocketOledDisplay::SetStatus(const char* status) {
