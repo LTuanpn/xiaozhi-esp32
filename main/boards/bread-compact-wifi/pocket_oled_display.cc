@@ -29,6 +29,10 @@ int Ease(int current, int target) {
     }
     return current + std::min(-1, delta / 3);
 }
+
+int32_t NormalizeAngle(int32_t angle) {
+    return ((angle % 3600) + 3600) % 3600;
+}
 }  // namespace
 
 PocketOledDisplay::PocketOledDisplay(esp_lcd_panel_io_handle_t panel_io,
@@ -351,7 +355,7 @@ void PocketOledDisplay::UpdateAnimationFrame() {
     }
 
     // 5. Look Around (Autonomous curious eye shifts)
-    if (animation_tick_ >= next_idle_tick_ && face_mode_ == FaceMode::kNeutral && !is_speaking_) {
+    if (animation_tick_ >= next_idle_tick_ && (face_mode_ == FaceMode::kNeutral || face_mode_ == FaceMode::kSleepy) && !is_speaking_) {
         target_look_x_ = static_cast<int>(NextRandom() % (max_look_x * 2 + 1)) - max_look_x;
         target_look_y_ = static_cast<int>(NextRandom() % (max_look_y * 2 + 1)) - max_look_y;
         next_idle_tick_ = animation_tick_ + 50 + (NextRandom() % 80);
@@ -372,9 +376,6 @@ void PocketOledDisplay::UpdateAnimationFrame() {
     } else if (face_mode_ == FaceMode::kSadEmpathy || face_mode_ == FaceMode::kSadCrying) {
         target_look_x_ = 0;
         target_look_y_ = 3;  // Eyes looking down with sadness
-    } else if (face_mode_ == FaceMode::kSleepy) {
-        target_look_x_ = 0;
-        target_look_y_ = 3;  // Pupils looking down sluggishly
     } else if (face_mode_ == FaceMode::kAngry) {
         target_look_x_ = 0;
         target_look_y_ = 2;  // Eyes lowered slightly for focused angry furrow
@@ -402,10 +403,8 @@ void PocketOledDisplay::UpdateAnimationFrame() {
         target_left_height = 2;
         target_right_height = 2;
     } else if (face_mode_ == FaceMode::kSleepy) {
-        target_left_height = 32;
-        target_right_height = 32;
-        target_left_y_offset = 2;
-        target_right_y_offset = 2;
+        target_left_height = eye_height;
+        target_right_height = eye_height;
     } else if (face_mode_ == FaceMode::kPlayfulWink) {
         target_left_height = eye_height;
         target_right_height = 22;
@@ -416,13 +415,11 @@ void PocketOledDisplay::UpdateAnimationFrame() {
         target_right_height = 20;
         target_right_y_offset = 4;
     } else if (face_mode_ == FaceMode::kSurprised || face_mode_ == FaceMode::kWakingUp) {
-        target_left_height = 40;
-        target_right_height = 40;
+        target_left_height = 42;
+        target_right_height = 42;
     } else if (face_mode_ == FaceMode::kEcstaticLaugh) {
-        target_left_height = 28;
-        target_right_height = 28;
-        target_left_y_offset = 2;
-        target_right_y_offset = 2;
+        target_left_height = eye_height;
+        target_right_height = eye_height;
     } else if (face_mode_ == FaceMode::kSadCrying || face_mode_ == FaceMode::kSadEmpathy) {
         target_left_height = eye_height - 4;
         target_right_height = eye_height - 4;
@@ -440,7 +437,7 @@ void PocketOledDisplay::UpdateAnimationFrame() {
     current_left_y_offset_ = Ease(current_left_y_offset_, target_left_y_offset);
     current_right_y_offset_ = Ease(current_right_y_offset_, target_right_y_offset);
 
-    // 7. Animations: Laugh bounce, Sobbing tremble for crying, speaking bounce, or thinking shiver
+    // 7. Animations: Laugh bounce, Sobbing tremble for crying, speaking bounce, thinking shiver, or surprise shock
     int animation_x = 0;
     int animation_y = 0;
     if (is_speaking_) {
@@ -452,6 +449,8 @@ void PocketOledDisplay::UpdateAnimationFrame() {
     }
     if (face_mode_ == FaceMode::kThinking) {
         animation_x = ((animation_tick_ / 4) % 2 == 0) ? -1 : 1;
+    } else if (face_mode_ == FaceMode::kSurprised) {
+        animation_x = (animation_tick_ % 2 == 0) ? -1 : 1;  // Shock vibration
     }
 
     const int left_x = base_x + current_look_x_ + animation_x;
@@ -487,19 +486,19 @@ void PocketOledDisplay::UpdateAnimationFrame() {
     int pupil_w = 18;
     int pupil_h = 22;
 
-    // Pupil Shock Dilation in kSurprised: contract first 160ms, then expand!
+    // Pupil Shock Dilation in kSurprised: contract first 720ms (18 ticks), then expand!
     if (face_mode_ == FaceMode::kSurprised) {
         uint32_t elapsed = (animation_tick_ > surprised_start_tick_) ? (animation_tick_ - surprised_start_tick_) : 0;
-        if (elapsed < 4) {
-            pupil_w = 10;
-            pupil_h = 12;
+        if (elapsed < 18) {
+            pupil_w = 8;
+            pupil_h = 10;
         } else {
-            pupil_w = 22;
+            pupil_w = 24;
             pupil_h = 26;
         }
     } else if (face_mode_ == FaceMode::kEcstaticLaugh) {
-        pupil_w = 16;
-        pupil_h = 16;
+        pupil_w = 18;
+        pupil_h = 20;
     }
 
     if (show_left_pupil) {
@@ -576,47 +575,61 @@ void PocketOledDisplay::UpdateAnimationFrame() {
             constexpr int lid_h = 30;
             lv_obj_remove_flag(left_top_lid_, LV_OBJ_FLAG_HIDDEN);
             lv_obj_remove_flag(right_top_lid_, LV_OBJ_FLAG_HIDDEN);
-            lv_obj_set_pos(left_top_lid_, left_x - 8, left_y - 26);
+
+            // Left lid
+            lv_obj_set_pos(left_top_lid_, left_x - 8, left_y - 27);
             lv_obj_set_size(left_top_lid_, lid_w, lid_h);
-            lv_obj_set_pos(right_top_lid_, right_x - 8, right_y - 26);
+            lv_obj_set_style_transform_pivot_x(left_top_lid_, lid_w / 2, 0);
+            lv_obj_set_style_transform_pivot_y(left_top_lid_, lid_h / 2, 0);
+            lv_obj_set_style_transform_rotation(left_top_lid_, NormalizeAngle(140), 0);
+
+            // Right lid
+            lv_obj_set_pos(right_top_lid_, right_x - 8, right_y - 27);
             lv_obj_set_size(right_top_lid_, lid_w, lid_h);
-            lv_obj_set_style_transform_rotation(left_top_lid_, 140, 0);
-            lv_obj_set_style_transform_rotation(right_top_lid_, -140, 0);
+            lv_obj_set_style_transform_pivot_x(right_top_lid_, lid_w / 2, 0);
+            lv_obj_set_style_transform_pivot_y(right_top_lid_, lid_h / 2, 0);
+            lv_obj_set_style_transform_rotation(right_top_lid_, NormalizeAngle(-140), 0);
+
         } else if (face_mode_ == FaceMode::kSadEmpathy || face_mode_ == FaceMode::kSadCrying) {
             // Droopy sad eyelids slanting down outwards - perfectly symmetrical
             constexpr int lid_w = 60;
             constexpr int lid_h = 30;
             lv_obj_remove_flag(left_top_lid_, LV_OBJ_FLAG_HIDDEN);
             lv_obj_remove_flag(right_top_lid_, LV_OBJ_FLAG_HIDDEN);
-            lv_obj_set_pos(left_top_lid_, left_x - 8, left_y - 26);
+
+            // Left lid
+            lv_obj_set_pos(left_top_lid_, left_x - 8, left_y - 27);
             lv_obj_set_size(left_top_lid_, lid_w, lid_h);
-            lv_obj_set_pos(right_top_lid_, right_x - 8, right_y - 26);
+            lv_obj_set_style_transform_pivot_x(left_top_lid_, lid_w / 2, 0);
+            lv_obj_set_style_transform_pivot_y(left_top_lid_, lid_h / 2, 0);
+            lv_obj_set_style_transform_rotation(left_top_lid_, NormalizeAngle(-140), 0);
+
+            // Right lid
+            lv_obj_set_pos(right_top_lid_, right_x - 8, right_y - 27);
             lv_obj_set_size(right_top_lid_, lid_w, lid_h);
-            lv_obj_set_style_transform_rotation(left_top_lid_, -140, 0);
-            lv_obj_set_style_transform_rotation(right_top_lid_, 140, 0);
+            lv_obj_set_style_transform_pivot_x(right_top_lid_, lid_w / 2, 0);
+            lv_obj_set_style_transform_pivot_y(right_top_lid_, lid_h / 2, 0);
+            lv_obj_set_style_transform_rotation(right_top_lid_, NormalizeAngle(140), 0);
+
         } else if (face_mode_ == FaceMode::kSleepy) {
-            // True heavy sleepy ptosis: upper lids drop horizontally over top 45% of eyes!
-            const int sleepy_bob = ((animation_tick_ / 25) % 2 == 0) ? 0 : 1;
+            // Sleepy ptosis: ONLY top lid drops horizontally covering top 1/3 (12px), bottom lid remains hidden!
+            constexpr int sleepy_cover = 12;
             lv_obj_remove_flag(left_top_lid_, LV_OBJ_FLAG_HIDDEN);
             lv_obj_remove_flag(right_top_lid_, LV_OBJ_FLAG_HIDDEN);
-            lv_obj_set_pos(left_top_lid_, left_x - 2, left_y - 2 + sleepy_bob);
-            lv_obj_set_size(left_top_lid_, eye_width + 4, 16);
-            lv_obj_set_pos(right_top_lid_, right_x - 2, right_y - 2 + sleepy_bob);
-            lv_obj_set_size(right_top_lid_, eye_width + 4, 16);
-            lv_obj_set_style_transform_rotation(left_top_lid_, 0, 0);
-            lv_obj_set_style_transform_rotation(right_top_lid_, 0, 0);
 
-            lv_obj_remove_flag(left_bottom_lid_, LV_OBJ_FLAG_HIDDEN);
-            lv_obj_remove_flag(right_bottom_lid_, LV_OBJ_FLAG_HIDDEN);
-            lv_obj_set_pos(left_bottom_lid_, left_x - 2, left_y + current_left_height_ - 4);
-            lv_obj_set_size(left_bottom_lid_, eye_width + 4, 10);
-            lv_obj_set_pos(right_bottom_lid_, right_x - 2, right_y + current_right_height_ - 4);
-            lv_obj_set_size(right_bottom_lid_, eye_width + 4, 10);
+            lv_obj_set_pos(left_top_lid_, left_x - 2, left_y - 2);
+            lv_obj_set_size(left_top_lid_, eye_width + 4, sleepy_cover + 2);
+            lv_obj_set_style_transform_rotation(left_top_lid_, 0, 0);
+
+            lv_obj_set_pos(right_top_lid_, right_x - 2, right_y - 2);
+            lv_obj_set_size(right_top_lid_, eye_width + 4, sleepy_cover + 2);
+            lv_obj_set_style_transform_rotation(right_top_lid_, 0, 0);
         }
 
-        // Laugh / SmileGentle / Speaking: Lower eyelid squinting pushing up smiling cheeks!
+        // Cheerful Laugh / Gentle Smile / Speaking: Lower eyelid cheek bump
         if (face_mode_ == FaceMode::kEcstaticLaugh) {
-            constexpr int cover_height = 14;
+            // Subtle smiling cheek curve at bottom (only 5px)
+            constexpr int cover_height = 8;
             lv_obj_remove_flag(left_bottom_lid_, LV_OBJ_FLAG_HIDDEN);
             lv_obj_remove_flag(right_bottom_lid_, LV_OBJ_FLAG_HIDDEN);
             lv_obj_set_pos(left_bottom_lid_, left_x - 2, left_y + current_left_height_ - cover_height + 4);
