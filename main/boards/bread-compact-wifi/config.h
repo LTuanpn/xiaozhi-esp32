@@ -49,8 +49,8 @@
 #error "OLED display type is not selected"
 #endif
 
-#define DISPLAY_MIRROR_X true
-#define DISPLAY_MIRROR_Y true
+#define DISPLAY_MIRROR_X false
+#define DISPLAY_MIRROR_Y false
 
 
 // A MCP Test: Control a lamp

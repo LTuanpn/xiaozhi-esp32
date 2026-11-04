@@ -153,6 +153,23 @@ private:
     // 物联网初始化，逐步迁移到 MCP 协议
     void InitializeTools() {
         static LampController lamp(LAMP_GPIO);
+        auto& mcp_server = McpServer::GetInstance();
+        mcp_server.AddTool("self.screen.flip", "Flip or rotate the OLED screen 180 degrees",
+            PropertyList(),
+            [this](const PropertyList& properties) -> ReturnValue {
+                static bool current_flip = false;
+                current_flip = !current_flip;
+                esp_lcd_panel_mirror(panel_, current_flip, current_flip);
+                return true;
+            });
+        mcp_server.AddTool("self.screen.set_rotation", "Set rotation degree of the screen, e.g. 0 or 180",
+            PropertyList({Property("degree", kPropertyTypeInteger, 0, 0, 180)}),
+            [this](const PropertyList& properties) -> ReturnValue {
+                int degree = properties["degree"].value<int>();
+                bool mirror = (degree == 180);
+                esp_lcd_panel_mirror(panel_, mirror, mirror);
+                return true;
+            });
     }
 
 public:
