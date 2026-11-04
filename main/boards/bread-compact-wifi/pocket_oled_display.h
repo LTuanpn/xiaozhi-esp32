@@ -19,6 +19,8 @@ public:
 
 private:
     enum class FaceMode {
+        kSleeping,
+        kWakingUp,
         kNeutral,
         kListening,
         kThinking,
@@ -39,12 +41,14 @@ private:
     lv_obj_t* right_bottom_lid_ = nullptr;
     lv_obj_t* chat_line_ = nullptr;
     lv_timer_t* animation_timer_ = nullptr;
-    FaceMode face_mode_ = FaceMode::kNeutral;
+    FaceMode face_mode_ = FaceMode::kSleeping;
     uint32_t animation_tick_ = 0;
     uint32_t random_state_ = 0x57414C4C;
     uint32_t next_blink_tick_ = 45;
     uint32_t blink_until_tick_ = 0;
     uint32_t next_idle_tick_ = 30;
+    uint32_t last_active_tick_ = 0;
+    uint32_t wake_up_until_tick_ = 0;
     int current_look_x_ = 0;
     int current_look_y_ = 0;
     int target_look_x_ = 0;
