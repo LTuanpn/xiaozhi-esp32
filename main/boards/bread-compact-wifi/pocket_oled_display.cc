@@ -7,7 +7,7 @@
 
 namespace {
 constexpr uint32_t kAnimationPeriodMs = 40;
-constexpr uint32_t kAutoSleepTimeoutTicks = 45000 / kAnimationPeriodMs; // 45 giây không hoạt động = 1125 ticks
+constexpr uint32_t kAutoSleepTimeoutTicks = 45000 / kAnimationPeriodMs; // 45s = 1125 ticks
 
 void PrepareShape(lv_obj_t* object) {
     lv_obj_remove_style_all(object);
@@ -51,13 +51,23 @@ PocketOledDisplay::~PocketOledDisplay() {
 }
 
 void PocketOledDisplay::SetupUI() {
-    OledDisplay::SetupUI();
+    if (setup_ui_called_) {
+        return;
+    }
+    // Chi danh dau da SetupUI, TUYET DOI KHONG goi OledDisplay::SetupUI() de loai bo 100% dong ho va icon cu
+    Display::SetupUI();
 
     DisplayLockGuard lock(this);
     auto* screen = lv_screen_active();
+    lv_obj_clean(screen);
+    lv_obj_set_style_bg_color(screen, lv_color_black(), 0);
+    lv_obj_set_style_bg_opa(screen, LV_OPA_COVER, 0);
 
+    // Face layer bao phu toan man hinh (128x64) nen den sau tham
     face_layer_ = lv_obj_create(screen);
     PrepareShape(face_layer_);
+    lv_obj_set_pos(face_layer_, 0, 0);
+    lv_obj_set_size(face_layer_, 128, 64);
     lv_obj_set_style_bg_color(face_layer_, lv_color_black(), 0);
     lv_obj_set_style_bg_opa(face_layer_, LV_OPA_COVER, 0);
     lv_obj_set_style_border_width(face_layer_, 0, 0);
@@ -71,23 +81,25 @@ void PocketOledDisplay::SetupUI() {
     left_bottom_lid_ = lv_obj_create(face_layer_);
     right_bottom_lid_ = lv_obj_create(face_layer_);
 
+    // Khoi tao doi mat TO TRON (radius = 16)
     for (auto* eye : {left_eye_, right_eye_}) {
         PrepareShape(eye);
         lv_obj_set_style_bg_color(eye, lv_color_white(), 0);
         lv_obj_set_style_bg_opa(eye, LV_OPA_COVER, 0);
-        lv_obj_set_style_radius(eye, 8, 0);
+        lv_obj_set_style_radius(eye, 16, 0); // Mat to tron tria
     }
     for (auto* lid : {left_top_lid_, right_top_lid_, left_bottom_lid_, right_bottom_lid_}) {
         PrepareShape(lid);
         lv_obj_set_style_bg_color(lid, lv_color_black(), 0);
         lv_obj_set_style_bg_opa(lid, LV_OPA_COVER, 0);
-        lv_obj_set_style_radius(lid, 6, 0);
+        lv_obj_set_style_radius(lid, 10, 0);
         lv_obj_add_flag(lid, LV_OBJ_FLAG_HIDDEN);
     }
 
-    chat_line_ = lv_label_create(screen);
-    lv_obj_set_pos(chat_line_, 0, 48);
-    lv_obj_set_size(chat_line_, 128, 16);
+    // Dong text phu de nam gon o day vung xanh (y = 52, cao 12)
+    chat_line_ = lv_label_create(face_layer_);
+    lv_obj_set_pos(chat_line_, 0, 52);
+    lv_obj_set_size(chat_line_, 128, 12);
     lv_obj_set_style_bg_color(chat_line_, lv_color_black(), 0);
     lv_obj_set_style_bg_opa(chat_line_, LV_OPA_COVER, 0);
     lv_obj_set_style_text_color(chat_line_, lv_color_white(), 0);
@@ -97,7 +109,7 @@ void PocketOledDisplay::SetupUI() {
     lv_label_set_long_mode(chat_line_, LV_LABEL_LONG_SCROLL_CIRCULAR);
     lv_label_set_text(chat_line_, "zZz...");
 
-    // Mac dinh khi khoi dong la NHAM MAT NGU
+    // Mac dinh KHOI DONG LA NHAM MAT NGU
     face_mode_ = FaceMode::kSleeping;
     current_eye_height_ = 2;
     last_active_tick_ = 0;
@@ -108,23 +120,26 @@ void PocketOledDisplay::SetupUI() {
 }
 
 void PocketOledDisplay::SetStatus(const char* status) {
-    OledDisplay::SetStatus(status);
     DisplayLockGuard lock(this);
 
     if (status == nullptr) {
         return;
     }
 
-    last_active_tick_ = animation_tick_;
-
-    // Neu dang ngu ma co trang thai khac Standby -> Thuc giac
+    // Neu dang ngu ma co trang thai goi/nghe (LISTENING hoac SPEAKING) -> Thuc giac
     if (face_mode_ == FaceMode::kSleeping) {
-        if (std::strcmp(status, Lang::Strings::STANDBY) != 0) {
-            wake_up_until_tick_ = animation_tick_ + 25; // 1 giay giat minh tinh ngu
+        if (std::strcmp(status, Lang::Strings::LISTENING) == 0 ||
+            std::strcmp(status, Lang::Strings::SPEAKING) == 0) {
+            last_active_tick_ = animation_tick_;
+            wake_up_until_tick_ = animation_tick_ + 25; // 1 giay giat minh mo to mat
             SetFaceMode(FaceMode::kWakingUp);
             return;
         }
+        // Neu van la STANDBY hay CONNECTING nen thi van tiep tuc ngu
+        return;
     }
+
+    last_active_tick_ = animation_tick_;
 
     if (std::strcmp(status, Lang::Strings::LISTENING) == 0) {
         SetFaceMode(FaceMode::kListening);
@@ -149,8 +164,11 @@ void PocketOledDisplay::SetStatus(const char* status) {
 }
 
 bool PocketOledDisplay::SetEmotion(const char* emotion) {
-    OledDisplay::SetEmotion(emotion);
     DisplayLockGuard lock(this);
+    if (emotion == nullptr) {
+        return false;
+    }
+
     last_active_tick_ = animation_tick_;
 
     if (face_mode_ == FaceMode::kSleeping) {
@@ -165,19 +183,18 @@ bool PocketOledDisplay::SetEmotion(const char* emotion) {
 
 void PocketOledDisplay::SetChatMessage(const char* role, const char* content) {
     DisplayLockGuard lock(this);
-    last_active_tick_ = animation_tick_;
 
     has_chat_text_ = content != nullptr && content[0] != '\0';
     if (chat_line_ != nullptr) {
         lv_label_set_text(chat_line_, has_chat_text_ ? content : "");
     }
 
-    if (has_chat_text_) {
+    if (has_chat_text_ && role != nullptr && std::strcmp(role, "assistant") == 0) {
+        last_active_tick_ = animation_tick_;
         if (face_mode_ == FaceMode::kSleeping) {
             wake_up_until_tick_ = animation_tick_ + 25;
             SetFaceMode(FaceMode::kWakingUp);
-        } else if (role != nullptr && std::strcmp(role, "assistant") == 0 &&
-                   (face_mode_ == FaceMode::kNeutral || face_mode_ == FaceMode::kListening)) {
+        } else {
             SetFaceMode(FaceMode::kSpeaking);
         }
     }
@@ -208,14 +225,9 @@ void PocketOledDisplay::ApplyLayout() {
     }
 
     lv_obj_set_pos(face_layer_, 0, 0);
-    lv_obj_set_size(face_layer_, 128, 48);
-    lv_obj_set_style_radius(left_eye_, 9, 0);
-    lv_obj_set_style_radius(right_eye_, 9, 0);
-    current_eye_height_ = std::min(current_eye_height_, 36);
-    lv_obj_move_foreground(face_layer_);
-    if (chat_line_ != nullptr) {
-        lv_obj_move_foreground(chat_line_);
-    }
+    lv_obj_set_size(face_layer_, 128, 64);
+    lv_obj_set_style_radius(left_eye_, 16, 0);
+    lv_obj_set_style_radius(right_eye_, 16, 0);
     UpdateAnimationFrame();
 }
 
@@ -225,17 +237,19 @@ void PocketOledDisplay::UpdateAnimationFrame() {
     }
     ++animation_tick_;
 
-    constexpr int face_width = 128;
-    constexpr int eye_width = 44;
-    constexpr int eye_height = 36;
+    // Thiet ke toa do CHUAN CHO DAI MAU XANH:
+    // Dải vàng: y = 0 -> 15 (TẮT ĐEN HOÀN TOÀN)
+    // Dải xanh: y = 16 -> 63
+    constexpr int eye_width = 40;
+    constexpr int eye_height = 34; // Mat cao 34px, nam hoan toan tu y=17 den y=51 (100% XANH DƯƠNG)
     constexpr int eye_gap = 12;
     const int pair_width = eye_width * 2 + eye_gap;
-    const int base_x = (face_width - pair_width) / 2;
-    const int base_y = (48 - eye_height) / 2;
-    constexpr int max_look_x = 7;
-    constexpr int max_look_y = 4;
+    const int base_x = (128 - pair_width) / 2; // = 18
+    const int base_y = 17; // Bat dau o y = 17 trong dai mau xanh
+    constexpr int max_look_x = 6;
+    constexpr int max_look_y = 3;
 
-    // 1. Kiem tra tu dong ngu (Auto-Sleep sau 45 giay khong hoat dong)
+    // 1. Tu dong ngu sau 45 giay khong hoat dong
     if (face_mode_ == FaceMode::kNeutral) {
         if (animation_tick_ >= last_active_tick_ + kAutoSleepTimeoutTicks) {
             SetFaceMode(FaceMode::kSleeping);
@@ -245,14 +259,14 @@ void PocketOledDisplay::UpdateAnimationFrame() {
         }
     }
 
-    // 2. Kiem tra tinh trang Thuc giac (Waking up)
+    // 2. Tinh trang Thuc giac (Waking up)
     if (face_mode_ == FaceMode::kWakingUp) {
         if (animation_tick_ >= wake_up_until_tick_) {
             SetFaceMode(FaceMode::kListening);
         }
     }
 
-    // 3. Logic chop mat (Blink) - chi chop khi khong ngu
+    // 3. Logic chop mat (Blink) - chi chop khi tinh
     bool blink = false;
     if (face_mode_ != FaceMode::kSleeping) {
         if (animation_tick_ >= next_blink_tick_) {
@@ -262,13 +276,13 @@ void PocketOledDisplay::UpdateAnimationFrame() {
         blink = (animation_tick_ < blink_until_tick_);
     }
 
-    // 4. Logic huong nhin (Look X/Y)
+    // 4. Huong nhin (Look X / Y)
     if (face_mode_ == FaceMode::kSleeping) {
         target_look_x_ = 0;
         target_look_y_ = 0;
     } else if (face_mode_ == FaceMode::kWakingUp) {
         target_look_x_ = 0;
-        target_look_y_ = -2; // Mat mo to tron xoe huong len tren
+        target_look_y_ = -2; // Mat mo to huong len tren
     } else if (face_mode_ == FaceMode::kNeutral) {
         if (animation_tick_ >= next_idle_tick_) {
             target_look_x_ = static_cast<int>(NextRandom() % (max_look_x * 2 + 1)) - max_look_x;
@@ -292,34 +306,29 @@ void PocketOledDisplay::UpdateAnimationFrame() {
     current_look_x_ = Ease(current_look_x_, target_look_x_);
     current_look_y_ = Ease(current_look_y_, target_look_y_);
 
-    // 5. Logic chieu cao mat (Eye Height) & nhip tho (Breathing)
+    // 5. Chieu cao mat (Eye Height)
     int target_height = eye_height;
     if (face_mode_ == FaceMode::kSleeping) {
-        // Nhip tho: Cu moi 2.5s mi mat nhap nho nhe nhang 1px
-        int breath = ((animation_tick_ / 25) % 3 == 0) ? 1 : 0;
-        target_height = 2 + breath;
+        target_height = 2; // Ngu say nham tit mat (2px)
     } else if (blink) {
         target_height = 2;
     } else if (face_mode_ == FaceMode::kWakingUp || face_mode_ == FaceMode::kSurprised) {
-        target_height = eye_height + 5; // Mo to kinh ngac
+        target_height = eye_height; // Mo to het co
     } else if (face_mode_ == FaceMode::kListening) {
-        target_height = eye_height + 3;
+        target_height = eye_height;
     } else if (face_mode_ == FaceMode::kSleepy) {
-        target_height = 7; // Lim dim
+        target_height = 6; // Lim dim
     }
     current_eye_height_ = Ease(current_eye_height_, target_height);
 
-    // 6. Hieu ung rung nhe / nhap nho
+    // 6. Hieu ung nhap nho / rung nhe
     int animation_x = 0;
     int animation_y = 0;
     if (face_mode_ == FaceMode::kSpeaking) {
-        // Nhap nho vui ve theo giong noi
         animation_y = ((animation_tick_ / 3) % 2 == 0) ? -1 : 1;
     } else if (face_mode_ == FaceMode::kThinking) {
-        // Rung nhe boi roi suy nghi
         animation_x = ((animation_tick_ / 4) % 2 == 0) ? -1 : 1;
     } else if (face_mode_ == FaceMode::kWakingUp) {
-        // Rung nhe phan khich khi thuc giac
         animation_x = ((animation_tick_ / 2) % 2 == 0) ? -1 : 1;
     }
 
@@ -327,6 +336,11 @@ void PocketOledDisplay::UpdateAnimationFrame() {
     const int right_x = left_x + eye_width + eye_gap;
     const int eye_y =
         base_y + (eye_height - current_eye_height_) / 2 + current_look_y_ + animation_y;
+
+    // Radius dong theo chieu cao: khi mat to radius = 16, khi nham mat radius nho lai
+    int current_radius = std::min(16, current_eye_height_ / 2);
+    lv_obj_set_style_radius(left_eye_, current_radius, 0);
+    lv_obj_set_style_radius(right_eye_, current_radius, 0);
 
     lv_obj_set_pos(left_eye_, left_x, eye_y);
     lv_obj_set_size(left_eye_, eye_width, current_eye_height_);
@@ -340,7 +354,7 @@ void PocketOledDisplay::UpdateAnimationFrame() {
 
     // 7. Mi mat cam xuc (Angry / Sad / Happy / Speaking)
     constexpr int lid_height = 10;
-    if (!blink && (face_mode_ == FaceMode::kAngry || face_mode_ == FaceMode::kSad)) {
+    if (face_mode_ != FaceMode::kSleeping && !blink && (face_mode_ == FaceMode::kAngry || face_mode_ == FaceMode::kSad)) {
         const bool angry = face_mode_ == FaceMode::kAngry;
         const int lid_width = eye_width + 8;
         lv_obj_remove_flag(left_top_lid_, LV_OBJ_FLAG_HIDDEN);
@@ -353,8 +367,8 @@ void PocketOledDisplay::UpdateAnimationFrame() {
         lv_obj_set_style_transform_rotation(right_top_lid_, angry ? 140 : -140, 0);
     }
 
-    if (!blink && (face_mode_ == FaceMode::kHappy || face_mode_ == FaceMode::kSpeaking)) {
-        constexpr int cover_height = 17;
+    if (face_mode_ != FaceMode::kSleeping && !blink && (face_mode_ == FaceMode::kHappy || face_mode_ == FaceMode::kSpeaking)) {
+        constexpr int cover_height = 16;
         lv_obj_remove_flag(left_bottom_lid_, LV_OBJ_FLAG_HIDDEN);
         lv_obj_remove_flag(right_bottom_lid_, LV_OBJ_FLAG_HIDDEN);
         lv_obj_set_pos(left_bottom_lid_, left_x - 2,
