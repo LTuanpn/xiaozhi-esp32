@@ -11,6 +11,10 @@
 #include "assets/lang_config.h"
 
 #include <esp_log.h>
+#include <cstdio>
+#include <cstring>
+#include <freertos/FreeRTOS.h>
+#include <freertos/task.h>
 #include <driver/i2c_master.h>
 #include <esp_lcd_panel_ops.h>
 #include <esp_lcd_panel_vendor.h>
@@ -170,6 +174,46 @@ private:
                 esp_lcd_panel_mirror(panel_, mirror, mirror);
                 return true;
             });
+        mcp_server.AddTool("self.screen.set_emotion", "Set emotion of the robot display (e.g. happy, sad, angry, laugh, cry, wink, sleep, neutral)",
+            PropertyList({Property("emotion", kPropertyTypeString, "happy")}),
+            [this](const PropertyList& properties) -> ReturnValue {
+                std::string emotion = properties["emotion"].value<std::string>();
+                if (display_ != nullptr) {
+                    display_->SetEmotion(emotion.c_str());
+                }
+                return true;
+            });
+    }
+
+    void InitializeSerialCli() {
+        xTaskCreate([](void* arg) {
+            auto* display = static_cast<Display*>(arg);
+            char buf[64];
+            int idx = 0;
+            while (true) {
+                int c = getchar();
+                if (c != EOF && c > 0) {
+                    if (c == '\r' || c == '\n') {
+                        if (idx > 0) {
+                            buf[idx] = '\0';
+                            ESP_LOGI(TAG, "Serial CLI command: %s", buf);
+                            if (display != nullptr) {
+                                const char* cmd = buf;
+                                if (std::strncmp(cmd, "face ", 5) == 0) {
+                                    cmd += 5;
+                                }
+                                display->SetEmotion(cmd);
+                            }
+                            idx = 0;
+                        }
+                    } else if (idx < static_cast<int>(sizeof(buf)) - 1) {
+                        buf[idx++] = static_cast<char>(c);
+                    }
+                } else {
+                    vTaskDelay(pdMS_TO_TICKS(50));
+                }
+            }
+        }, "serial_cli", 3072, display_, 1, nullptr);
     }
 
 public:
@@ -182,6 +226,7 @@ public:
         InitializeSsd1306Display();
         InitializeButtons();
         InitializeTools();
+        InitializeSerialCli();
     }
 
     virtual Led* GetLed() override {
