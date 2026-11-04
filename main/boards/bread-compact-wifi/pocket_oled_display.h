@@ -35,6 +35,16 @@ private:
         kSleepy,
         kSleeping,
         kWakingUp,
+        kLove,
+        kDizzy,
+        kScared,
+        kExcited,
+        kSmug,
+        kBored,
+        kFurious,
+        kPout,
+        kMusic,
+        kScanning,
     };
 
     lv_obj_t* face_layer_ = nullptr;
@@ -52,6 +62,22 @@ private:
     lv_obj_t* right_tear_ = nullptr;
     lv_obj_t* left_blush_ = nullptr;
     lv_obj_t* right_blush_ = nullptr;
+    lv_obj_t* left_heart_a_ = nullptr;
+    lv_obj_t* left_heart_b_ = nullptr;
+    lv_obj_t* right_heart_a_ = nullptr;
+    lv_obj_t* right_heart_b_ = nullptr;
+    lv_obj_t* left_dizzy_a_ = nullptr;
+    lv_obj_t* left_dizzy_b_ = nullptr;
+    lv_obj_t* right_dizzy_a_ = nullptr;
+    lv_obj_t* right_dizzy_b_ = nullptr;
+    lv_obj_t* left_sparkle_a_ = nullptr;
+    lv_obj_t* left_sparkle_b_ = nullptr;
+    lv_obj_t* right_sparkle_a_ = nullptr;
+    lv_obj_t* right_sparkle_b_ = nullptr;
+    lv_obj_t* laser_line_ = nullptr;
+    lv_obj_t* smoke_puff_[4] = {nullptr, nullptr, nullptr, nullptr};
+    lv_obj_t* music_note_[2] = {nullptr, nullptr};
+    lv_obj_t* sweat_drop_ = nullptr;
     lv_obj_t* chat_line_ = nullptr;
     lv_timer_t* animation_timer_ = nullptr;
 
