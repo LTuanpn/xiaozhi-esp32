@@ -23,11 +23,13 @@ private:
         kNeutral,
         kListening,
         kThinking,
-        kSpeaking,
         kHappy,
         kSad,
         kAngry,
+        kSurprised,
         kSleepy,
+        kSleeping,
+        kWakingUp,
     };
 
     lv_obj_t* face_layer_ = nullptr;
@@ -40,7 +42,11 @@ private:
     lv_obj_t* chat_line_ = nullptr;
     lv_timer_t* animation_timer_ = nullptr;
     FaceMode face_mode_ = FaceMode::kNeutral;
+    FaceMode emotion_mode_ = FaceMode::kNeutral;
+    bool is_speaking_ = false;
     uint32_t animation_tick_ = 0;
+    uint32_t last_active_tick_ = 0;
+    uint32_t wake_up_until_tick_ = 0;
     uint32_t random_state_ = 0x57414C4C;
     uint32_t next_blink_tick_ = 45;
     uint32_t blink_until_tick_ = 0;
@@ -49,7 +55,7 @@ private:
     int current_look_y_ = 0;
     int target_look_x_ = 0;
     int target_look_y_ = 0;
-    int current_eye_height_ = 2;
+    int current_eye_height_ = 36;
     bool has_chat_text_ = false;
 
     static void AnimationTimerCallback(lv_timer_t* timer);
@@ -58,6 +64,7 @@ private:
     void SetFaceMode(FaceMode mode);
     FaceMode FaceModeFromEmotion(const char* emotion) const;
     uint32_t NextRandom();
+    void WakeUp();
 };
 
 #endif  // POCKET_OLED_DISPLAY_H
