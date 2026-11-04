@@ -1,6 +1,6 @@
 #include "wifi_board.h"
 #include "codecs/no_audio_codec.h"
-#include "display/oled_display.h"
+#include "pocket_oled_display.h"
 #include "system_reset.h"
 #include "application.h"
 #include "button.h"
@@ -97,7 +97,7 @@ private:
         ESP_LOGI(TAG, "Turning display on");
         ESP_ERROR_CHECK(esp_lcd_panel_disp_on_off(panel_, true));
 
-        display_ = new OledDisplay(panel_io_, panel_, DISPLAY_WIDTH, DISPLAY_HEIGHT, DISPLAY_MIRROR_X, DISPLAY_MIRROR_Y);
+        display_ = new PocketOledDisplay(panel_io_, panel_, DISPLAY_WIDTH, DISPLAY_HEIGHT, DISPLAY_MIRROR_X, DISPLAY_MIRROR_Y);
     }
 
     void InitializeButtons() {
