@@ -42,15 +42,14 @@ private:
     lv_obj_t* right_eye_ = nullptr;
     lv_obj_t* left_pupil_ = nullptr;
     lv_obj_t* right_pupil_ = nullptr;
-    lv_obj_t* left_catchlight_ = nullptr;
-    lv_obj_t* right_catchlight_ = nullptr;
     lv_obj_t* left_top_lid_ = nullptr;
     lv_obj_t* right_top_lid_ = nullptr;
     lv_obj_t* left_bottom_lid_ = nullptr;
     lv_obj_t* right_bottom_lid_ = nullptr;
     lv_obj_t* left_crescent_mask_ = nullptr;
     lv_obj_t* right_crescent_mask_ = nullptr;
-    lv_obj_t* teardrop_ = nullptr;
+    lv_obj_t* left_tear_ = nullptr;
+    lv_obj_t* right_tear_ = nullptr;
     lv_obj_t* left_blush_ = nullptr;
     lv_obj_t* right_blush_ = nullptr;
     lv_obj_t* chat_line_ = nullptr;
@@ -67,7 +66,6 @@ private:
     uint32_t next_blink_tick_ = 45;
     uint32_t blink_until_tick_ = 0;
     uint32_t next_idle_tick_ = 30;
-    uint32_t next_quirk_tick_ = 160;
 
     int current_look_x_ = 0;
     int current_look_y_ = 0;

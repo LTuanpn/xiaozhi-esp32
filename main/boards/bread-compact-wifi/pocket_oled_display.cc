@@ -72,10 +72,10 @@ void PocketOledDisplay::SetupUI() {
         PrepareShape(eye);
         lv_obj_set_style_bg_color(eye, lv_color_white(), 0);
         lv_obj_set_style_bg_opa(eye, LV_OPA_COVER, 0);
-        lv_obj_set_style_radius(eye, 10, 0);
+        lv_obj_set_style_radius(eye, 8, 0);
     }
 
-    // 2. Black Pupils (Deep expressive pupils with depth)
+    // 2. Black Pupils (Pure deep black, moving smoothly with eyes)
     left_pupil_ = lv_obj_create(face_layer_);
     right_pupil_ = lv_obj_create(face_layer_);
     for (auto* pupil : {left_pupil_, right_pupil_}) {
@@ -85,17 +85,7 @@ void PocketOledDisplay::SetupUI() {
         lv_obj_set_style_radius(pupil, 4, 0);
     }
 
-    // 3. Catchlights (Sparkling white reflection highlights)
-    left_catchlight_ = lv_obj_create(face_layer_);
-    right_catchlight_ = lv_obj_create(face_layer_);
-    for (auto* light : {left_catchlight_, right_catchlight_}) {
-        PrepareShape(light);
-        lv_obj_set_style_bg_color(light, lv_color_white(), 0);
-        lv_obj_set_style_bg_opa(light, LV_OPA_COVER, 0);
-        lv_obj_set_style_radius(light, 2, 0);
-    }
-
-    // 4. Crescent Masks (For TRUE curved sleeping eyes and laughing eyes)
+    // 3. Crescent Masks (For TRUE curved sleeping eyes and laughing eyes)
     left_crescent_mask_ = lv_obj_create(face_layer_);
     right_crescent_mask_ = lv_obj_create(face_layer_);
     for (auto* mask : {left_crescent_mask_, right_crescent_mask_}) {
@@ -106,7 +96,7 @@ void PocketOledDisplay::SetupUI() {
         lv_obj_add_flag(mask, LV_OBJ_FLAG_HIDDEN);
     }
 
-    // 5. Eyelids (Angled top lids for angry / sad, lower lids for squinting)
+    // 4. Eyelids (Angled top lids for angry / sad, lower lids for squinting)
     left_top_lid_ = lv_obj_create(face_layer_);
     right_top_lid_ = lv_obj_create(face_layer_);
     left_bottom_lid_ = lv_obj_create(face_layer_);
@@ -119,15 +109,18 @@ void PocketOledDisplay::SetupUI() {
         lv_obj_add_flag(lid, LV_OBJ_FLAG_HIDDEN);
     }
 
-    // 6. Teardrop for crying
-    teardrop_ = lv_obj_create(face_layer_);
-    PrepareShape(teardrop_);
-    lv_obj_set_style_bg_color(teardrop_, lv_color_white(), 0);
-    lv_obj_set_style_bg_opa(teardrop_, LV_OPA_COVER, 0);
-    lv_obj_set_style_radius(teardrop_, 3, 0);
-    lv_obj_add_flag(teardrop_, LV_OBJ_FLAG_HIDDEN);
+    // 5. Dual Teardrops for crying (both eyes)
+    left_tear_ = lv_obj_create(face_layer_);
+    right_tear_ = lv_obj_create(face_layer_);
+    for (auto* tear : {left_tear_, right_tear_}) {
+        PrepareShape(tear);
+        lv_obj_set_style_bg_color(tear, lv_color_white(), 0);
+        lv_obj_set_style_bg_opa(tear, LV_OPA_COVER, 0);
+        lv_obj_set_style_radius(tear, 3, 0);
+        lv_obj_add_flag(tear, LV_OBJ_FLAG_HIDDEN);
+    }
 
-    // 7. Blushing marks
+    // 6. Blushing marks
     left_blush_ = lv_label_create(face_layer_);
     right_blush_ = lv_label_create(face_layer_);
     for (auto* blush : {left_blush_, right_blush_}) {
@@ -137,7 +130,7 @@ void PocketOledDisplay::SetupUI() {
         lv_obj_add_flag(blush, LV_OBJ_FLAG_HIDDEN);
     }
 
-    // 8. Chat / Status Line with Circular Marquee Scrolling
+    // 7. Chat / Status Line with Circular Marquee Scrolling
     chat_line_ = lv_label_create(screen);
     lv_obj_set_pos(chat_line_, 0, 48);
     lv_obj_set_size(chat_line_, 128, 16);
@@ -222,7 +215,6 @@ bool PocketOledDisplay::SetEmotion(const char* emotion) {
     WakeUp();
     emotion_mode_ = FaceModeFromEmotion(emotion);
     SetFaceMode(emotion_mode_);
-    // Show test or server emotion for at least 5 seconds before returning to living idle
     temporary_emotion_until_tick_ = animation_tick_ + (5000 / kAnimationPeriodMs);
     return true;
 }
@@ -293,8 +285,8 @@ void PocketOledDisplay::ApplyLayout() {
 
     lv_obj_set_pos(face_layer_, 0, 0);
     lv_obj_set_size(face_layer_, 128, 48);
-    lv_obj_set_style_radius(left_eye_, 10, 0);
-    lv_obj_set_style_radius(right_eye_, 10, 0);
+    lv_obj_set_style_radius(left_eye_, 8, 0);
+    lv_obj_set_style_radius(right_eye_, 8, 0);
     current_left_height_ = std::min(current_left_height_, 36);
     current_right_height_ = std::min(current_right_height_, 36);
     lv_obj_move_foreground(face_layer_);
@@ -320,14 +312,14 @@ void PocketOledDisplay::UpdateAnimationFrame() {
     constexpr int max_look_x = 7;
     constexpr int max_look_y = 4;
 
-    // 1. Temporary Emotion Timeout (returns to living idle after test command or short emotion)
+    // 1. Temporary Emotion Timeout (returns to idle after test command or short emotion)
     if (temporary_emotion_until_tick_ > 0 && animation_tick_ >= temporary_emotion_until_tick_ && !is_speaking_) {
         temporary_emotion_until_tick_ = 0;
         emotion_mode_ = FaceMode::kNeutral;
         SetFaceMode(FaceMode::kNeutral);
     }
 
-    // 2. Autonomous Living Transitions: Sleepy after 35s, Sleeping after 50s
+    // 2. Autonomous Sleep: Sleepy after 35s, Sleeping after 50s (NO random quirk cycling!)
     if (face_mode_ != FaceMode::kSleeping && face_mode_ != FaceMode::kWakingUp && temporary_emotion_until_tick_ == 0) {
         if (animation_tick_ >= last_active_tick_ + kAutoSleepTimeoutTicks) {
             SetFaceMode(FaceMode::kSleeping);
@@ -341,32 +333,14 @@ void PocketOledDisplay::UpdateAnimationFrame() {
         }
     }
 
-    // 3. Autonomous Quirks (Micro-expressions while idle on desk)
-    if (face_mode_ == FaceMode::kNeutral && !is_speaking_ && temporary_emotion_until_tick_ == 0) {
-        if (animation_tick_ >= next_quirk_tick_) {
-            uint32_t quirk = NextRandom() % 3;
-            if (quirk == 0) {
-                SetFaceMode(FaceMode::kSmileGentle);
-                temporary_emotion_until_tick_ = animation_tick_ + 50;  // 2.0s
-            } else if (quirk == 1) {
-                SetFaceMode(FaceMode::kPlayfulWink);
-                temporary_emotion_until_tick_ = animation_tick_ + 38;  // 1.5s
-            } else {
-                SetFaceMode(FaceMode::kSkeptical);
-                temporary_emotion_until_tick_ = animation_tick_ + 50;  // 2.0s
-            }
-            next_quirk_tick_ = animation_tick_ + 200 + (NextRandom() % 250);  // every 8-18 seconds
-        }
-    }
-
-    // 4. Waking Up Transition
+    // 3. Waking Up Transition
     if (face_mode_ == FaceMode::kWakingUp) {
         if (animation_tick_ >= wake_up_until_tick_) {
             SetFaceMode(FaceMode::kNeutral);
         }
     }
 
-    // 5. Natural Blinking (Smooth squash)
+    // 4. Natural Blinking (Smooth squash)
     bool blink = false;
     if (face_mode_ != FaceMode::kSleeping && face_mode_ != FaceMode::kPlayfulWink && face_mode_ != FaceMode::kEcstaticLaugh) {
         if (animation_tick_ >= next_blink_tick_) {
@@ -376,7 +350,7 @@ void PocketOledDisplay::UpdateAnimationFrame() {
         blink = animation_tick_ < blink_until_tick_;
     }
 
-    // 6. Look Around (Autonomous curious eye shifts)
+    // 5. Look Around (Autonomous curious eye shifts)
     if (animation_tick_ >= next_idle_tick_ && face_mode_ == FaceMode::kNeutral && !is_speaking_) {
         target_look_x_ = static_cast<int>(NextRandom() % (max_look_x * 2 + 1)) - max_look_x;
         target_look_y_ = static_cast<int>(NextRandom() % (max_look_y * 2 + 1)) - max_look_y;
@@ -397,10 +371,10 @@ void PocketOledDisplay::UpdateAnimationFrame() {
         target_look_y_ = 3;
     } else if (face_mode_ == FaceMode::kSadEmpathy || face_mode_ == FaceMode::kSadCrying) {
         target_look_x_ = 0;
-        target_look_y_ = 2;
+        target_look_y_ = 3;  // Eyes looking down with sadness
     } else if (face_mode_ == FaceMode::kAngry) {
         target_look_x_ = 0;
-        target_look_y_ = 2;
+        target_look_y_ = 2;  // Eyes lowered slightly for focused angry furrow
     } else if (is_speaking_ || face_mode_ == FaceMode::kWakingUp || face_mode_ == FaceMode::kSmileGentle ||
                face_mode_ == FaceMode::kEcstaticLaugh || face_mode_ == FaceMode::kPlayfulWink) {
         target_look_x_ = 0;
@@ -410,7 +384,7 @@ void PocketOledDisplay::UpdateAnimationFrame() {
     current_look_x_ = Ease(current_look_x_, target_look_x_);
     current_look_y_ = Ease(current_look_y_, target_look_y_);
 
-    // 7. Multi-tier Eye Heights
+    // 6. Multi-tier Eye Heights
     int target_left_height = eye_height;
     int target_right_height = eye_height;
     int target_left_y_offset = 0;
@@ -463,11 +437,13 @@ void PocketOledDisplay::UpdateAnimationFrame() {
     current_left_y_offset_ = Ease(current_left_y_offset_, target_left_y_offset);
     current_right_y_offset_ = Ease(current_right_y_offset_, target_right_y_offset);
 
-    // 8. Bobbing animation when speaking or shaking when thinking
+    // 7. Animations: Sobbing tremble for crying, speaking bounce, or thinking shiver
     int animation_x = 0;
     int animation_y = 0;
     if (is_speaking_) {
         animation_y = ((animation_tick_ / 3) % 2 == 0) ? -1 : 1;
+    } else if (face_mode_ == FaceMode::kSadCrying) {
+        animation_y = (animation_tick_ % 4 < 2) ? -1 : 0;  // Sobbing tremble
     }
     if (face_mode_ == FaceMode::kThinking) {
         animation_x = ((animation_tick_ / 4) % 2 == 0) ? -1 : 1;
@@ -485,9 +461,9 @@ void PocketOledDisplay::UpdateAnimationFrame() {
     lv_obj_set_pos(right_eye_, right_x, right_y);
     lv_obj_set_size(right_eye_, eye_width, current_right_height_);
 
-    // Base eye radius
-    int left_radius = 10;
-    int right_radius = 10;
+    // Base eye radius (14 for curved sleep/laugh, 8 for normal crisp Huy Vector eyes)
+    int left_radius = 8;
+    int right_radius = 8;
     if (face_mode_ == FaceMode::kSleeping || face_mode_ == FaceMode::kEcstaticLaugh) {
         left_radius = 14;
         right_radius = 14;
@@ -495,28 +471,11 @@ void PocketOledDisplay::UpdateAnimationFrame() {
     lv_obj_set_style_radius(left_eye_, left_radius, 0);
     lv_obj_set_style_radius(right_eye_, right_radius, 0);
 
-    // 9. Wall-E Curiosity Tilt Angles
-    int left_tilt = 0;
-    int right_tilt = 0;
-    if (face_mode_ == FaceMode::kAngry) {
-        left_tilt = -60;
-        right_tilt = 60;
-    } else if (face_mode_ == FaceMode::kSadEmpathy || face_mode_ == FaceMode::kSadCrying) {
-        left_tilt = 50;
-        right_tilt = -50;
-    } else if (face_mode_ == FaceMode::kNeutral) {
-        if (current_look_x_ < -2) {
-            left_tilt = 35;
-            right_tilt = 20;
-        } else if (current_look_x_ > 2) {
-            left_tilt = -20;
-            right_tilt = -35;
-        }
-    }
-    lv_obj_set_style_transform_rotation(left_eye_, left_tilt, 0);
-    lv_obj_set_style_transform_rotation(right_eye_, right_tilt, 0);
+    // Keep body coordinates aligned without full eye rotation to avoid distortions
+    lv_obj_set_style_transform_rotation(left_eye_, 0, 0);
+    lv_obj_set_style_transform_rotation(right_eye_, 0, 0);
 
-    // 10. Pupils and Catchlights
+    // 8. Black Pupils (Deep expressive black pupils moving smoothly with eyes)
     const bool show_left_pupil = !blink && face_mode_ != FaceMode::kSleeping && face_mode_ != FaceMode::kEcstaticLaugh;
     const bool show_right_pupil = !blink && face_mode_ != FaceMode::kSleeping &&
                                   face_mode_ != FaceMode::kEcstaticLaugh && face_mode_ != FaceMode::kPlayfulWink;
@@ -526,38 +485,29 @@ void PocketOledDisplay::UpdateAnimationFrame() {
 
     if (show_left_pupil) {
         lv_obj_remove_flag(left_pupil_, LV_OBJ_FLAG_HIDDEN);
-        lv_obj_remove_flag(left_catchlight_, LV_OBJ_FLAG_HIDDEN);
         const int pupil_x = left_x + (eye_width - pupil_w) / 2 + current_look_x_ * 3 / 4;
         const int pupil_y = left_y + (current_left_height_ - pupil_h) / 2 + current_look_y_ * 3 / 4;
         lv_obj_set_pos(left_pupil_, pupil_x, pupil_y);
         lv_obj_set_size(left_pupil_, pupil_w, pupil_h);
-        lv_obj_set_pos(left_catchlight_, pupil_x + pupil_w - 7, pupil_y + 3);
-        lv_obj_set_size(left_catchlight_, 5, 5);
     } else {
         lv_obj_add_flag(left_pupil_, LV_OBJ_FLAG_HIDDEN);
-        lv_obj_add_flag(left_catchlight_, LV_OBJ_FLAG_HIDDEN);
     }
 
     if (show_right_pupil) {
         lv_obj_remove_flag(right_pupil_, LV_OBJ_FLAG_HIDDEN);
-        lv_obj_remove_flag(right_catchlight_, LV_OBJ_FLAG_HIDDEN);
         const int pupil_x = right_x + (eye_width - pupil_w) / 2 + current_look_x_ * 3 / 4;
         const int pupil_y = right_y + (current_right_height_ - pupil_h) / 2 + current_look_y_ * 3 / 4;
         lv_obj_set_pos(right_pupil_, pupil_x, pupil_y);
         lv_obj_set_size(right_pupil_, pupil_w, pupil_h);
-        lv_obj_set_pos(right_catchlight_, pupil_x + pupil_w - 7, pupil_y + 3);
-        lv_obj_set_size(right_catchlight_, 5, 5);
     } else {
         lv_obj_add_flag(right_pupil_, LV_OBJ_FLAG_HIDDEN);
-        lv_obj_add_flag(right_catchlight_, LV_OBJ_FLAG_HIDDEN);
     }
 
-    // 11. Crescent Masks (For TRUE curved sleeping eyes and laughing eyes)
+    // 9. Crescent Masks (For TRUE curved sleeping eyes and laughing eyes)
     lv_obj_add_flag(left_crescent_mask_, LV_OBJ_FLAG_HIDDEN);
     lv_obj_add_flag(right_crescent_mask_, LV_OBJ_FLAG_HIDDEN);
 
     if (face_mode_ == FaceMode::kSleeping) {
-        // Breathing sleep crescent: offset oscillates between -3px and -4px
         const int breath_offset = ((animation_tick_ / 25) % 2 == 0) ? -4 : -3;
         lv_obj_remove_flag(left_crescent_mask_, LV_OBJ_FLAG_HIDDEN);
         lv_obj_remove_flag(right_crescent_mask_, LV_OBJ_FLAG_HIDDEN);
@@ -566,7 +516,6 @@ void PocketOledDisplay::UpdateAnimationFrame() {
         lv_obj_set_pos(right_crescent_mask_, right_x, right_y + breath_offset);
         lv_obj_set_size(right_crescent_mask_, eye_width, current_right_height_);
     } else if (face_mode_ == FaceMode::kEcstaticLaugh) {
-        // Laughing inverted crescent curves
         const int laugh_bounce = ((animation_tick_ / 4) % 2 == 0) ? 1 : -1;
         lv_obj_remove_flag(left_crescent_mask_, LV_OBJ_FLAG_HIDDEN);
         lv_obj_remove_flag(right_crescent_mask_, LV_OBJ_FLAG_HIDDEN);
@@ -575,22 +524,25 @@ void PocketOledDisplay::UpdateAnimationFrame() {
         lv_obj_set_pos(right_crescent_mask_, right_x, right_y + 4 + laugh_bounce);
         lv_obj_set_size(right_crescent_mask_, eye_width, current_right_height_);
     } else if (face_mode_ == FaceMode::kPlayfulWink) {
-        // Right eye is a playful wink crescent
         lv_obj_remove_flag(right_crescent_mask_, LV_OBJ_FLAG_HIDDEN);
         lv_obj_set_pos(right_crescent_mask_, right_x, right_y + 4);
         lv_obj_set_size(right_crescent_mask_, eye_width, current_right_height_);
     }
 
-    // 12. Teardrop for crying
-    lv_obj_add_flag(teardrop_, LV_OBJ_FLAG_HIDDEN);
+    // 10. Dual Teardrops for crying (falling smoothly under BOTH eyes)
+    lv_obj_add_flag(left_tear_, LV_OBJ_FLAG_HIDDEN);
+    lv_obj_add_flag(right_tear_, LV_OBJ_FLAG_HIDDEN);
     if (face_mode_ == FaceMode::kSadCrying && !blink) {
-        lv_obj_remove_flag(teardrop_, LV_OBJ_FLAG_HIDDEN);
+        lv_obj_remove_flag(left_tear_, LV_OBJ_FLAG_HIDDEN);
+        lv_obj_remove_flag(right_tear_, LV_OBJ_FLAG_HIDDEN);
         int tear_slide_y = (animation_tick_ % 14);
-        lv_obj_set_pos(teardrop_, right_x + eye_width + 2, right_y + 8 + tear_slide_y);
-        lv_obj_set_size(teardrop_, 6, 8);
+        lv_obj_set_pos(left_tear_, left_x + 19, left_y + current_left_height_ + tear_slide_y - 2);
+        lv_obj_set_size(left_tear_, 6, 8);
+        lv_obj_set_pos(right_tear_, right_x + 19, right_y + current_right_height_ + tear_slide_y - 2);
+        lv_obj_set_size(right_tear_, 6, 8);
     }
 
-    // 13. Blushing marks when shy
+    // 11. Blushing marks when shy
     lv_obj_add_flag(left_blush_, LV_OBJ_FLAG_HIDDEN);
     lv_obj_add_flag(right_blush_, LV_OBJ_FLAG_HIDDEN);
     if (face_mode_ == FaceMode::kShy && !blink) {
@@ -600,15 +552,16 @@ void PocketOledDisplay::UpdateAnimationFrame() {
         lv_obj_set_pos(right_blush_, right_x + 8, right_y + current_right_height_ - 2);
     }
 
-    // 14. Eyelids (Top & Bottom)
+    // 12. Eyelids (Top & Bottom)
     for (auto* lid : {left_top_lid_, right_top_lid_, left_bottom_lid_, right_bottom_lid_}) {
         lv_obj_add_flag(lid, LV_OBJ_FLAG_HIDDEN);
         lv_obj_set_style_transform_rotation(lid, 0, 0);
     }
 
-    constexpr int lid_height = 10;
+    constexpr int lid_height = 12;
     if (face_mode_ != FaceMode::kSleeping && face_mode_ != FaceMode::kEcstaticLaugh && !blink) {
         if (face_mode_ == FaceMode::kAngry) {
+            // Huy Vector 14-degree clean furrowed eyebrow cut
             const int lid_width = eye_width + 8;
             lv_obj_remove_flag(left_top_lid_, LV_OBJ_FLAG_HIDDEN);
             lv_obj_remove_flag(right_top_lid_, LV_OBJ_FLAG_HIDDEN);
@@ -616,19 +569,10 @@ void PocketOledDisplay::UpdateAnimationFrame() {
             lv_obj_set_size(left_top_lid_, lid_width, lid_height);
             lv_obj_set_pos(right_top_lid_, right_x - 4, right_y - 2);
             lv_obj_set_size(right_top_lid_, lid_width, lid_height);
-            lv_obj_set_style_transform_rotation(left_top_lid_, -150, 0);
-            lv_obj_set_style_transform_rotation(right_top_lid_, 150, 0);
-        } else if (face_mode_ == FaceMode::kSadEmpathy) {
-            const int lid_width = eye_width + 6;
-            lv_obj_remove_flag(left_top_lid_, LV_OBJ_FLAG_HIDDEN);
-            lv_obj_remove_flag(right_top_lid_, LV_OBJ_FLAG_HIDDEN);
-            lv_obj_set_pos(left_top_lid_, left_x - 3, left_y - 2);
-            lv_obj_set_size(left_top_lid_, lid_width, lid_height);
-            lv_obj_set_pos(right_top_lid_, right_x - 3, right_y - 2);
-            lv_obj_set_size(right_top_lid_, lid_width, lid_height);
-            lv_obj_set_style_transform_rotation(left_top_lid_, 100, 0);
-            lv_obj_set_style_transform_rotation(right_top_lid_, -100, 0);
-        } else if (face_mode_ == FaceMode::kSadCrying) {
+            lv_obj_set_style_transform_rotation(left_top_lid_, -140, 0);
+            lv_obj_set_style_transform_rotation(right_top_lid_, 140, 0);
+        } else if (face_mode_ == FaceMode::kSadEmpathy || face_mode_ == FaceMode::kSadCrying) {
+            // Droopy sad eyelids slanting down outwards
             const int lid_width = eye_width + 8;
             lv_obj_remove_flag(left_top_lid_, LV_OBJ_FLAG_HIDDEN);
             lv_obj_remove_flag(right_top_lid_, LV_OBJ_FLAG_HIDDEN);
@@ -636,8 +580,8 @@ void PocketOledDisplay::UpdateAnimationFrame() {
             lv_obj_set_size(left_top_lid_, lid_width, lid_height);
             lv_obj_set_pos(right_top_lid_, right_x - 4, right_y - 2);
             lv_obj_set_size(right_top_lid_, lid_width, lid_height);
-            lv_obj_set_style_transform_rotation(left_top_lid_, 180, 0);
-            lv_obj_set_style_transform_rotation(right_top_lid_, -180, 0);
+            lv_obj_set_style_transform_rotation(left_top_lid_, 140, 0);
+            lv_obj_set_style_transform_rotation(right_top_lid_, -140, 0);
         }
 
         // Lower eyelid squinting when smiling gently or speaking
