@@ -125,10 +125,11 @@ void PocketOledDisplay::SetStatus(const char* status) {
     }
 }
 
-void PocketOledDisplay::SetEmotion(const char* emotion) {
+bool PocketOledDisplay::SetEmotion(const char* emotion) {
     OledDisplay::SetEmotion(emotion);
     DisplayLockGuard lock(this);
     SetFaceMode(FaceModeFromEmotion(emotion));
+    return true;
 }
 
 void PocketOledDisplay::SetChatMessage(const char* role, const char* content) {
