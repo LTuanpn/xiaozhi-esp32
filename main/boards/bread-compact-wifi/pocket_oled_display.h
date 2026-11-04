@@ -16,6 +16,7 @@ public:
     bool SetEmotion(const char* emotion) override;
     void SetChatMessage(const char* role, const char* content) override;
     void ClearChatMessages() override;
+    void RemoveChatMessage(const char* role, const char* content) override;
 
 private:
     enum class FaceMode {

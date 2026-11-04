@@ -132,7 +132,9 @@ void PocketOledDisplay::SetStatus(const char* status) {
     // Nếu đang ngủ: CHỈ thức giấc khi có tương tác nghe (LISTENING) hoặc nói (SPEAKING)
     if (face_mode_ == FaceMode::kSleeping) {
         if (std::strcmp(status, Lang::Strings::LISTENING) == 0 ||
-            std::strcmp(status, Lang::Strings::SPEAKING) == 0) {
+            std::strcmp(status, Lang::Strings::SPEAKING) == 0 ||
+            std::strcmp(status, Lang::Strings::WIFI_CONFIG_MODE) == 0 ||
+            Contains(status, "Wi-Fi") || Contains(status, "Config")) {
             last_active_tick_ = animation_tick_;
             wake_up_until_tick_ = animation_tick_ + 25; // 1 giây thức giấc mở to mắt
             SetFaceMode(FaceMode::kWakingUp);
@@ -230,6 +232,19 @@ void PocketOledDisplay::ClearChatMessages() {
     }
     if (face_mode_ != FaceMode::kSleeping && face_mode_ != FaceMode::kWakingUp) {
         SetFaceMode(FaceMode::kNeutral);
+    }
+}
+
+void PocketOledDisplay::RemoveChatMessage(const char* role, const char* content) {
+    DisplayLockGuard lock(this);
+    has_chat_text_ = false;
+    if (chat_line_ != nullptr) {
+        lv_label_set_long_mode(chat_line_, LV_LABEL_LONG_CLIP);
+        if (face_mode_ == FaceMode::kSleeping) {
+            lv_label_set_text(chat_line_, "zZz...");
+        } else {
+            lv_label_set_text(chat_line_, "");
+        }
     }
 }
 

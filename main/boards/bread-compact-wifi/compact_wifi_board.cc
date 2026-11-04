@@ -109,6 +109,9 @@ private:
             }
             app.ToggleChatState();
         });
+        boot_button_.OnLongPress([this]() {
+            EnterWifiConfigMode();
+        });
         touch_button_.OnPressDown([this]() {
             Application::GetInstance().StartListening();
         });
