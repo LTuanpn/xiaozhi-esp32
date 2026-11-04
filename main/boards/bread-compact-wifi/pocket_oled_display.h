@@ -62,6 +62,7 @@ private:
     uint32_t last_active_tick_ = 0;
     uint32_t wake_up_until_tick_ = 0;
     uint32_t temporary_emotion_until_tick_ = 0;
+    uint32_t surprised_start_tick_ = 0;
     uint32_t random_state_ = 0x57414C4C;
     uint32_t next_blink_tick_ = 45;
     uint32_t blink_until_tick_ = 0;
