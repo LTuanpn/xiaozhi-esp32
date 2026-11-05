@@ -89,64 +89,7 @@ void PocketOledDisplay::SetupUI() {
         lv_obj_set_style_radius(pupil, 4, 0);
     }
 
-    // 3. Crescent Masks (For TRUE curved sleeping eyes and laughing eyes)
-    left_crescent_mask_ = lv_obj_create(face_layer_);
-    right_crescent_mask_ = lv_obj_create(face_layer_);
-    for (auto* mask : {left_crescent_mask_, right_crescent_mask_}) {
-        PrepareShape(mask);
-        lv_obj_set_style_bg_color(mask, lv_color_black(), 0);
-        lv_obj_set_style_bg_opa(mask, LV_OPA_COVER, 0);
-        lv_obj_set_style_radius(mask, 14, 0);
-        lv_obj_add_flag(mask, LV_OBJ_FLAG_HIDDEN);
-    }
-
-    // 4. Eyelids (Angled top lids for angry / sad, lower lids for squinting)
-    left_top_lid_ = lv_obj_create(face_layer_);
-    right_top_lid_ = lv_obj_create(face_layer_);
-    left_bottom_lid_ = lv_obj_create(face_layer_);
-    right_bottom_lid_ = lv_obj_create(face_layer_);
-    for (auto* lid : {left_top_lid_, right_top_lid_, left_bottom_lid_, right_bottom_lid_}) {
-        PrepareShape(lid);
-        lv_obj_set_style_bg_color(lid, lv_color_black(), 0);
-        lv_obj_set_style_bg_opa(lid, LV_OPA_COVER, 0);
-        lv_obj_set_style_radius(lid, 4, 0);
-        lv_obj_add_flag(lid, LV_OBJ_FLAG_HIDDEN);
-    }
-
-    // 5. Dual Teardrops for crying (both eyes)
-    left_tear_ = lv_obj_create(face_layer_);
-    right_tear_ = lv_obj_create(face_layer_);
-    for (auto* tear : {left_tear_, right_tear_}) {
-        PrepareShape(tear);
-        lv_obj_set_style_bg_color(tear, lv_color_white(), 0);
-        lv_obj_set_style_bg_opa(tear, LV_OPA_COVER, 0);
-        lv_obj_set_style_radius(tear, 3, 0);
-        lv_obj_add_flag(tear, LV_OBJ_FLAG_HIDDEN);
-    }
-
-    // 6. Blushing marks
-    left_blush_ = lv_label_create(face_layer_);
-    right_blush_ = lv_label_create(face_layer_);
-    for (auto* blush : {left_blush_, right_blush_}) {
-        lv_label_set_text(blush, "///");
-        lv_obj_set_style_text_color(blush, lv_color_white(), 0);
-        lv_obj_set_style_text_font(blush, &lv_font_montserrat_14, 0);
-        lv_obj_add_flag(blush, LV_OBJ_FLAG_HIDDEN);
-    }
-
-    // 7. Special Expression Elements: Hearts, Dizzy X, Sparkles, Laser, Smoke, Sweat
-    left_heart_a_ = lv_obj_create(face_layer_);
-    left_heart_b_ = lv_obj_create(face_layer_);
-    right_heart_a_ = lv_obj_create(face_layer_);
-    right_heart_b_ = lv_obj_create(face_layer_);
-    for (auto* h : {left_heart_a_, left_heart_b_, right_heart_a_, right_heart_b_}) {
-        PrepareShape(h);
-        lv_obj_set_style_bg_color(h, lv_color_white(), 0);
-        lv_obj_set_style_bg_opa(h, LV_OPA_COVER, 0);
-        lv_obj_set_style_radius(h, 8, 0);
-        lv_obj_add_flag(h, LV_OBJ_FLAG_HIDDEN);
-    }
-
+    // 3. Sparkles & Dizzy X (Drawn inside eyes, underneath eyelids)
     left_dizzy_a_ = lv_obj_create(face_layer_);
     left_dizzy_b_ = lv_obj_create(face_layer_);
     right_dizzy_a_ = lv_obj_create(face_layer_);
@@ -169,6 +112,73 @@ void PocketOledDisplay::SetupUI() {
         lv_obj_set_style_bg_opa(s, LV_OPA_COVER, 0);
         lv_obj_set_style_radius(s, 2, 0);
         lv_obj_add_flag(s, LV_OBJ_FLAG_HIDDEN);
+    }
+
+    // 4. Crescent Masks (For TRUE curved sleeping eyes and laughing eyes)
+    left_crescent_mask_ = lv_obj_create(face_layer_);
+    right_crescent_mask_ = lv_obj_create(face_layer_);
+    for (auto* mask : {left_crescent_mask_, right_crescent_mask_}) {
+        PrepareShape(mask);
+        lv_obj_set_style_bg_color(mask, lv_color_black(), 0);
+        lv_obj_set_style_bg_opa(mask, LV_OPA_COVER, 0);
+        lv_obj_set_style_radius(mask, 14, 0);
+        lv_obj_add_flag(mask, LV_OBJ_FLAG_HIDDEN);
+    }
+
+    // 5. Eyelids (Angled top lids for angry / sad, lower lids for squinting)
+    left_top_lid_ = lv_obj_create(face_layer_);
+    right_top_lid_ = lv_obj_create(face_layer_);
+    left_bottom_lid_ = lv_obj_create(face_layer_);
+    right_bottom_lid_ = lv_obj_create(face_layer_);
+    for (auto* lid : {left_top_lid_, right_top_lid_, left_bottom_lid_, right_bottom_lid_}) {
+        PrepareShape(lid);
+        lv_obj_set_style_bg_color(lid, lv_color_black(), 0);
+        lv_obj_set_style_bg_opa(lid, LV_OPA_COVER, 0);
+        lv_obj_set_style_radius(lid, 4, 0);
+        lv_obj_add_flag(lid, LV_OBJ_FLAG_HIDDEN);
+    }
+
+    // 6. Dual Teardrops for crying (both eyes, above eyelids)
+    left_tear_ = lv_obj_create(face_layer_);
+    right_tear_ = lv_obj_create(face_layer_);
+    for (auto* tear : {left_tear_, right_tear_}) {
+        PrepareShape(tear);
+        lv_obj_set_style_bg_color(tear, lv_color_white(), 0);
+        lv_obj_set_style_bg_opa(tear, LV_OPA_COVER, 0);
+        lv_obj_set_style_radius(tear, 3, 0);
+        lv_obj_add_flag(tear, LV_OBJ_FLAG_HIDDEN);
+    }
+
+    // 7. Blushing marks & FX Labels (For symbols like ?, !, $, ♪, battery)
+    left_blush_ = lv_label_create(face_layer_);
+    right_blush_ = lv_label_create(face_layer_);
+    for (auto* blush : {left_blush_, right_blush_}) {
+        lv_label_set_text(blush, "///");
+        lv_obj_set_style_text_color(blush, lv_color_white(), 0);
+        lv_obj_set_style_text_font(blush, &lv_font_montserrat_14, 0);
+        lv_obj_add_flag(blush, LV_OBJ_FLAG_HIDDEN);
+    }
+
+    fx_label_a_ = lv_label_create(face_layer_);
+    fx_label_b_ = lv_label_create(face_layer_);
+    for (auto* lbl : {fx_label_a_, fx_label_b_}) {
+        lv_label_set_text(lbl, "");
+        lv_obj_set_style_text_color(lbl, lv_color_white(), 0);
+        lv_obj_set_style_text_font(lbl, &lv_font_montserrat_14, 0);
+        lv_obj_add_flag(lbl, LV_OBJ_FLAG_HIDDEN);
+    }
+
+    // 8. Foreground Special Expression Elements: Hearts, Laser, Smoke, Sweat, Extra Shapes
+    left_heart_a_ = lv_obj_create(face_layer_);
+    left_heart_b_ = lv_obj_create(face_layer_);
+    right_heart_a_ = lv_obj_create(face_layer_);
+    right_heart_b_ = lv_obj_create(face_layer_);
+    for (auto* h : {left_heart_a_, left_heart_b_, right_heart_a_, right_heart_b_}) {
+        PrepareShape(h);
+        lv_obj_set_style_bg_color(h, lv_color_white(), 0);
+        lv_obj_set_style_bg_opa(h, LV_OPA_COVER, 0);
+        lv_obj_set_style_radius(h, 8, 0);
+        lv_obj_add_flag(h, LV_OBJ_FLAG_HIDDEN);
     }
 
     sweat_drop_ = lv_obj_create(face_layer_);
@@ -212,7 +222,7 @@ void PocketOledDisplay::SetupUI() {
         lv_obj_add_flag(extra_shape_[i], LV_OBJ_FLAG_HIDDEN);
     }
 
-    // 8. Chat / Status Line with Circular Marquee Scrolling
+    // 9. Chat / Status Line with Circular Marquee Scrolling
     chat_line_ = lv_label_create(screen);
     lv_obj_set_pos(chat_line_, 0, 48);
     lv_obj_set_size(chat_line_, 128, 16);
@@ -401,7 +411,7 @@ void PocketOledDisplay::UpdateAnimationFrame() {
         SetFaceMode(FaceMode::kNeutral);
     }
 
-    // 2. Autonomous Sleep: Sleepy after 35s, Sleeping after 50s (NO random quirk cycling!)
+    // 2. Autonomous Sleep: Sleepy after 35s, Sleeping after 50s
     if (face_mode_ != FaceMode::kSleeping && face_mode_ != FaceMode::kWakingUp && temporary_emotion_until_tick_ == 0) {
         if (animation_tick_ >= last_active_tick_ + kAutoSleepTimeoutTicks) {
             SetFaceMode(FaceMode::kSleeping);
@@ -424,7 +434,10 @@ void PocketOledDisplay::UpdateAnimationFrame() {
 
     // 4. Natural Blinking (Smooth squash)
     bool blink = false;
-    if (face_mode_ != FaceMode::kSleeping && face_mode_ != FaceMode::kPlayfulWink && face_mode_ != FaceMode::kEcstaticLaugh) {
+    if (face_mode_ != FaceMode::kSleeping && face_mode_ != FaceMode::kPlayfulWink &&
+        face_mode_ != FaceMode::kEcstaticLaugh && face_mode_ != FaceMode::kHeartbroken &&
+        face_mode_ != FaceMode::kLove && face_mode_ != FaceMode::kSneezing &&
+        face_mode_ != FaceMode::kRebooting && face_mode_ != FaceMode::kGameOver) {
         if (animation_tick_ >= next_blink_tick_) {
             blink_until_tick_ = animation_tick_ + 3;  // 120ms blink
             next_blink_tick_ = animation_tick_ + 70 + (NextRandom() % 100);
@@ -439,9 +452,10 @@ void PocketOledDisplay::UpdateAnimationFrame() {
         next_idle_tick_ = animation_tick_ + 50 + (NextRandom() % 80);
     }
 
-    if (face_mode_ == FaceMode::kSleeping || face_mode_ == FaceMode::kLove || face_mode_ == FaceMode::kDizzy ||
-        face_mode_ == FaceMode::kScared || face_mode_ == FaceMode::kLoadingBuffer || face_mode_ == FaceMode::kRebooting ||
-        face_mode_ == FaceMode::kZenMeditation || face_mode_ == FaceMode::kGameOver || face_mode_ == FaceMode::kHypnotized) {
+    if (face_mode_ == FaceMode::kSleeping || face_mode_ == FaceMode::kLove || face_mode_ == FaceMode::kHeartbroken ||
+        face_mode_ == FaceMode::kDizzy || face_mode_ == FaceMode::kScared || face_mode_ == FaceMode::kLoadingBuffer ||
+        face_mode_ == FaceMode::kRebooting || face_mode_ == FaceMode::kZenMeditation ||
+        face_mode_ == FaceMode::kGameOver || face_mode_ == FaceMode::kHypnotized) {
         target_look_x_ = 0;
         target_look_y_ = 0;
     } else if (face_mode_ == FaceMode::kThinking) {
@@ -455,22 +469,28 @@ void PocketOledDisplay::UpdateAnimationFrame() {
         target_look_y_ = 3;
     } else if (face_mode_ == FaceMode::kSadEmpathy || face_mode_ == FaceMode::kSadCrying || face_mode_ == FaceMode::kCryingStream) {
         target_look_x_ = 0;
-        target_look_y_ = 3;  // Eyes looking down with sadness
-    } else if (face_mode_ == FaceMode::kAngry || face_mode_ == FaceMode::kFurious) {
+        target_look_y_ = 3;
+    } else if (face_mode_ == FaceMode::kAngry || face_mode_ == FaceMode::kFurious || face_mode_ == FaceMode::kFireFury) {
         target_look_x_ = 0;
-        target_look_y_ = 2;  // Eyes lowered slightly for focused angry furrow
+        target_look_y_ = 2;
     } else if (face_mode_ == FaceMode::kSmug) {
-        target_look_x_ = 5;  // Looking up-right with pride
+        target_look_x_ = 5;
         target_look_y_ = -3;
     } else if (face_mode_ == FaceMode::kSideEye) {
-        target_look_x_ = 7;  // Extreme bombastic side-eye
+        target_look_x_ = 7;
         target_look_y_ = 0;
     } else if (face_mode_ == FaceMode::kScheming) {
-        target_look_x_ = ((animation_tick_ / 15) % 2 == 0) ? -4 : 4;  // Sly shifty eyes
+        target_look_x_ = ((animation_tick_ / 15) % 2 == 0) ? -4 : 4;
         target_look_y_ = 1;
     } else if (face_mode_ == FaceMode::kWhispering) {
-        target_look_x_ = -5;
+        target_look_x_ = ((animation_tick_ / 18) % 2 == 0) ? -5 : 5;
+        target_look_y_ = 1;
+    } else if (face_mode_ == FaceMode::kTargetLocked) {
+        target_look_x_ = 0;
         target_look_y_ = 0;
+    } else if (face_mode_ == FaceMode::kDisgusted) {
+        target_look_x_ = -3;
+        target_look_y_ = -2;
     } else if (face_mode_ == FaceMode::kParanoid) {
         target_look_x_ = (animation_tick_ % 8 < 4) ? -6 : 6;
         target_look_y_ = (animation_tick_ % 6 < 3) ? -3 : 3;
@@ -493,7 +513,7 @@ void PocketOledDisplay::UpdateAnimationFrame() {
         } else if (bored_phase == 1) {
             target_look_x_ = 6; target_look_y_ = 2;
         } else {
-            target_look_x_ = 0; target_look_y_ = -4;  // Eye roll upwards
+            target_look_x_ = 0; target_look_y_ = -4;
         }
     } else if (face_mode_ == FaceMode::kScanning) {
         target_look_x_ = ((animation_tick_ / 6) % 2 == 0) ? -6 : 6;
@@ -503,7 +523,7 @@ void PocketOledDisplay::UpdateAnimationFrame() {
         target_look_y_ = -1;
     } else if (face_mode_ == FaceMode::kPout) {
         target_look_x_ = 0;
-        target_look_y_ = 2;  // Looking slightly up pleadingly
+        target_look_y_ = 2;
     } else if (face_mode_ == FaceMode::kMusic) {
         target_look_x_ = 0;
         target_look_y_ = 1;
@@ -517,9 +537,11 @@ void PocketOledDisplay::UpdateAnimationFrame() {
     current_look_x_ = Ease(current_look_x_, target_look_x_);
     current_look_y_ = Ease(current_look_y_, target_look_y_);
 
-    // 6. Multi-tier Eye Heights
+    // 6. Multi-tier Eye Heights & Squash-and-Stretch Widths
     int target_left_height = eye_height;
     int target_right_height = eye_height;
+    int target_left_width = eye_width;
+    int target_right_width = eye_width;
     int target_left_y_offset = 0;
     int target_right_y_offset = 0;
 
@@ -531,26 +553,71 @@ void PocketOledDisplay::UpdateAnimationFrame() {
     } else if (blink) {
         target_left_height = 2;
         target_right_height = 2;
-    } else if (face_mode_ == FaceMode::kLove) {
+        target_left_width = 48;
+        target_right_width = 48;
+    } else if (face_mode_ == FaceMode::kLove || face_mode_ == FaceMode::kHeartbroken) {
         target_left_height = 0;
         target_right_height = 0;
-    } else if (face_mode_ == FaceMode::kLoadingBuffer || face_mode_ == FaceMode::kRebooting) {
-        target_left_height = target_right_height = 4;
+    } else if (face_mode_ == FaceMode::kRebooting) {
+        int ph = animation_tick_ % 30;
+        if (ph < 10) {
+            target_left_height = target_right_height = 2;
+            target_left_width = target_right_width = 50;
+        } else if (ph < 20) {
+            target_left_height = target_right_height = 2;
+            target_left_width = target_right_width = 8;
+        } else {
+            target_left_height = target_right_height = eye_height;
+            target_left_width = target_right_width = eye_width;
+        }
+    } else if (face_mode_ == FaceMode::kLoadingBuffer) {
+        target_left_height = target_right_height = 30;
+        target_left_width = target_right_width = 44;
     } else if (face_mode_ == FaceMode::kLowBattery) {
         target_left_height = target_right_height = 14;
+        target_left_width = target_right_width = 46;
         target_left_y_offset = target_right_y_offset = 8;
     } else if (face_mode_ == FaceMode::kFacepalm) {
         target_left_height = 0;
         target_right_height = 20;
         target_right_y_offset = 4;
-    } else if (face_mode_ == FaceMode::kInnocent || face_mode_ == FaceMode::kShockedJawdrop) {
-        target_left_height = target_right_height = 42;
+    } else if (face_mode_ == FaceMode::kTargetLocked) {
+        target_left_height = 14;
+        target_left_width = 46;
+        target_left_y_offset = 2;
+        target_right_height = 38;
+        target_right_width = 42;
+    } else if (face_mode_ == FaceMode::kDisgusted) {
+        target_left_height = 14;
+        target_right_height = 22;
+        target_left_width = 46;
+        target_left_y_offset = 5;
+        target_right_y_offset = 2;
+    } else if (face_mode_ == FaceMode::kWhispering) {
+        target_left_height = target_right_height = 26;
         target_left_y_offset = target_right_y_offset = -2;
+    } else if (face_mode_ == FaceMode::kSneezing) {
+        int ph = animation_tick_ % 35;
+        if (ph < 22) {
+            target_left_height = target_right_height = 36 + (ph / 3);
+            target_left_width = target_right_width = 42;
+            target_left_y_offset = target_right_y_offset = -(ph / 4);
+        } else {
+            target_left_height = target_right_height = 4;
+            target_left_width = target_right_width = 50;
+            target_left_y_offset = target_right_y_offset = 8;
+        }
+    } else if (face_mode_ == FaceMode::kInnocent || face_mode_ == FaceMode::kShockedJawdrop || face_mode_ == FaceMode::kIdeaEureka) {
+        target_left_height = target_right_height = 40;
+        target_left_width = target_right_width = 42;
+        target_left_y_offset = target_right_y_offset = (face_mode_ == FaceMode::kShockedJawdrop) ? -3 : 2;
     } else if (face_mode_ == FaceMode::kExhausted) {
         target_left_height = target_right_height = 10;
+        target_left_width = target_right_width = 48;
         target_left_y_offset = target_right_y_offset = 12;
     } else if (face_mode_ == FaceMode::kStealthNinja) {
         target_left_height = target_right_height = 8;
+        target_left_width = target_right_width = 48;
     } else if (face_mode_ == FaceMode::kZenMeditation) {
         target_left_height = target_right_height = 18;
     } else if (face_mode_ == FaceMode::kMatrixGlitch) {
@@ -560,14 +627,17 @@ void PocketOledDisplay::UpdateAnimationFrame() {
     } else if (face_mode_ == FaceMode::kSleepy || face_mode_ == FaceMode::kBored) {
         target_left_height = eye_height;
         target_right_height = eye_height;
-    } else if (face_mode_ == FaceMode::kPlayfulWink) {
+    } else if (face_mode_ == FaceMode::kPlayfulWink || face_mode_ == FaceMode::kTongueOut) {
         target_left_height = eye_height;
         target_right_height = 22;
+        target_right_width = 46;
         target_right_y_offset = 4;
     } else if (face_mode_ == FaceMode::kSkeptical || face_mode_ == FaceMode::kConfusedQuestion || face_mode_ == FaceMode::kDrunk) {
         target_left_height = eye_height + 4;
+        target_left_width = 42;
         target_left_y_offset = -2;
         target_right_height = 20;
+        target_right_width = 46;
         target_right_y_offset = 5;
     } else if (face_mode_ == FaceMode::kSmug) {
         target_left_height = eye_height;
@@ -576,12 +646,18 @@ void PocketOledDisplay::UpdateAnimationFrame() {
     } else if (face_mode_ == FaceMode::kSurprised || face_mode_ == FaceMode::kWakingUp) {
         target_left_height = 42;
         target_right_height = 42;
+        target_left_width = 40;
+        target_right_width = 40;
     } else if (face_mode_ == FaceMode::kScanning) {
         target_left_height = 26;
         target_right_height = 26;
+        target_left_width = 46;
+        target_right_width = 46;
     } else if (face_mode_ == FaceMode::kScared) {
         target_left_height = 30;
         target_right_height = 30;
+        target_left_width = 42;
+        target_right_width = 42;
     } else if (face_mode_ == FaceMode::kExcited || face_mode_ == FaceMode::kPout) {
         target_left_height = eye_height + 2;
         target_right_height = eye_height + 2;
@@ -597,12 +673,13 @@ void PocketOledDisplay::UpdateAnimationFrame() {
         target_left_height = eye_height - 4;
         target_right_height = eye_height - 4;
         target_left_y_offset = 3;
-        target_left_y_offset = 3;
         target_right_y_offset = 3;
     }
 
     current_left_height_ = Ease(current_left_height_, target_left_height);
     current_right_height_ = Ease(current_right_height_, target_right_height);
+    current_left_width_ = Ease(current_left_width_, target_left_width);
+    current_right_width_ = Ease(current_right_width_, target_right_width);
     current_left_y_offset_ = Ease(current_left_y_offset_, target_left_y_offset);
     current_right_y_offset_ = Ease(current_right_y_offset_, target_right_y_offset);
 
@@ -613,17 +690,17 @@ void PocketOledDisplay::UpdateAnimationFrame() {
         animation_y = ((animation_tick_ / 3) % 2 == 0) ? -1 : 1;
     } else if (face_mode_ == FaceMode::kEcstaticLaugh) {
         animation_y = ((animation_tick_ / 3) % 2 == 0) ? -2 : 1;
-    } else if (face_mode_ == FaceMode::kSadCrying) {
-        animation_y = (animation_tick_ % 4 < 2) ? -1 : 0;  // Sobbing tremble
+    } else if (face_mode_ == FaceMode::kSadCrying || face_mode_ == FaceMode::kHeartbroken) {
+        animation_y = (animation_tick_ % 4 < 2) ? -1 : 0;
     } else if (face_mode_ == FaceMode::kExcited) {
-        animation_y = ((animation_tick_ / 3) % 2 == 0) ? -3 : 0;  // Star jump bounce
+        animation_y = ((animation_tick_ / 3) % 2 == 0) ? -3 : 0;
     } else if (face_mode_ == FaceMode::kMusic) {
-        animation_x = ((animation_tick_ / 10) % 2 == 0) ? -3 : 3;  // Groove sway
+        animation_x = ((animation_tick_ / 10) % 2 == 0) ? -3 : 3;
         animation_y = ((animation_tick_ / 5) % 2 == 0) ? -1 : 1;
     } else if (face_mode_ == FaceMode::kSmug) {
-        animation_y = ((animation_tick_ / 10) % 2 == 0) ? -1 : 0;  // Confident subtle nod
+        animation_y = ((animation_tick_ / 10) % 2 == 0) ? -1 : 0;
     } else if (face_mode_ == FaceMode::kDizzy) {
-        animation_x = ((animation_tick_ / 4) % 4 < 2) ? -2 : 2;  // Dizzy wobble
+        animation_x = ((animation_tick_ / 4) % 4 < 2) ? -2 : 2;
         animation_y = ((animation_tick_ / 6) % 4 < 2) ? -2 : 2;
     } else if (face_mode_ == FaceMode::kPout) {
         animation_y = ((animation_tick_ / 8) % 2 == 0) ? -1 : 0;
@@ -631,7 +708,7 @@ void PocketOledDisplay::UpdateAnimationFrame() {
         animation_x = (animation_tick_ % 2 == 0) ? -1 : 1;
         animation_y = (animation_tick_ % 2 == 0) ? 1 : -1;
     } else if (face_mode_ == FaceMode::kHeadache || face_mode_ == FaceMode::kOverheat) {
-        animation_x = (animation_tick_ % 4 < 2) ? -1 : 1;
+        animation_x = (animation_tick_ % 4 < 2) ? -2 : 2;
     } else if (face_mode_ == FaceMode::kThunderShock) {
         animation_x = (animation_tick_ % 2 == 0) ? -3 : 3;
         animation_y = (animation_tick_ % 3 == 0) ? -2 : 2;
@@ -645,42 +722,44 @@ void PocketOledDisplay::UpdateAnimationFrame() {
         animation_x = ((animation_tick_ / 15) % 2 == 0) ? -2 : 2;
         animation_y = ((animation_tick_ / 10) % 2 == 0) ? -2 : 2;
     } else if (face_mode_ == FaceMode::kSneezing) {
-        int ph = animation_tick_ % 30;
-        if (ph > 26) animation_x = 3;
+        int ph = animation_tick_ % 35;
+        if (ph >= 22 && ph < 28) {
+            animation_x = (ph % 2 == 0) ? -3 : 3;
+            animation_y = 4;
+        }
     }
 
     if (face_mode_ == FaceMode::kThinking) {
         animation_x = ((animation_tick_ / 4) % 2 == 0) ? -1 : 1;
     } else if (face_mode_ == FaceMode::kSurprised) {
-        animation_x = (animation_tick_ % 2 == 0) ? -1 : 1;  // Shock vibration
-    } else if (face_mode_ == FaceMode::kFurious) {
-        animation_x = (animation_tick_ % 2 == 0) ? -2 : 2;  // Furious rage shake
+        animation_x = (animation_tick_ % 2 == 0) ? -1 : 1;
+    } else if (face_mode_ == FaceMode::kFurious || face_mode_ == FaceMode::kFireFury) {
+        animation_x = (animation_tick_ % 2 == 0) ? -2 : 2;
         animation_y = (animation_tick_ % 3 == 0) ? -1 : 1;
     } else if (face_mode_ == FaceMode::kScared) {
-        animation_x = (animation_tick_ % 2 == 0) ? -2 : 2;  // Panic shiver
+        animation_x = (animation_tick_ % 2 == 0) ? -2 : 2;
         animation_y = (animation_tick_ % 2 == 0) ? 1 : -1;
     }
 
-    const int left_x = base_x + current_look_x_ + animation_x;
-    const int right_x = left_x + eye_width + eye_gap;
+    const int left_x = base_x + (eye_width - current_left_width_) / 2 + current_look_x_ + animation_x;
+    const int right_x = base_x + eye_width + eye_gap + (eye_width - current_right_width_) / 2 + current_look_x_ + animation_x;
     const int left_y =
         base_y + (eye_height - current_left_height_) / 2 + current_look_y_ + animation_y + current_left_y_offset_;
     const int right_y =
         base_y + (eye_height - current_right_height_) / 2 + current_look_y_ + animation_y + current_right_y_offset_;
 
-    if (face_mode_ == FaceMode::kLove) {
+    if (face_mode_ == FaceMode::kLove || face_mode_ == FaceMode::kHeartbroken) {
         lv_obj_add_flag(left_eye_, LV_OBJ_FLAG_HIDDEN);
         lv_obj_add_flag(right_eye_, LV_OBJ_FLAG_HIDDEN);
     } else {
         lv_obj_remove_flag(left_eye_, LV_OBJ_FLAG_HIDDEN);
         lv_obj_remove_flag(right_eye_, LV_OBJ_FLAG_HIDDEN);
         lv_obj_set_pos(left_eye_, left_x, left_y);
-        lv_obj_set_size(left_eye_, eye_width, current_left_height_);
+        lv_obj_set_size(left_eye_, current_left_width_, current_left_height_);
         lv_obj_set_pos(right_eye_, right_x, right_y);
-        lv_obj_set_size(right_eye_, eye_width, current_right_height_);
+        lv_obj_set_size(right_eye_, current_right_width_, current_right_height_);
     }
 
-    // Base eye radius (14 for curved sleep, 8 for normal crisp Huy Vector eyes)
     int left_radius = 8;
     int right_radius = 8;
     if (face_mode_ == FaceMode::kSleeping) {
@@ -690,27 +769,29 @@ void PocketOledDisplay::UpdateAnimationFrame() {
     lv_obj_set_style_radius(left_eye_, left_radius, 0);
     lv_obj_set_style_radius(right_eye_, right_radius, 0);
 
-    // Keep body coordinates aligned without full eye rotation to avoid distortions
     lv_obj_set_style_transform_rotation(left_eye_, 0, 0);
     lv_obj_set_style_transform_rotation(right_eye_, 0, 0);
 
     // 8. Black Pupils (Deep expressive black pupils moving smoothly with eyes)
     const bool show_left_pupil = !blink && face_mode_ != FaceMode::kSleeping && face_mode_ != FaceMode::kLove &&
-                                 face_mode_ != FaceMode::kDizzy && face_mode_ != FaceMode::kLoadingBuffer &&
-                                 face_mode_ != FaceMode::kRebooting && face_mode_ != FaceMode::kGameOver &&
-                                 face_mode_ != FaceMode::kFacepalm && face_mode_ != FaceMode::kZenMeditation;
+                                 face_mode_ != FaceMode::kHeartbroken && face_mode_ != FaceMode::kDizzy &&
+                                 face_mode_ != FaceMode::kLoadingBuffer && face_mode_ != FaceMode::kRebooting &&
+                                 face_mode_ != FaceMode::kGameOver && face_mode_ != FaceMode::kFacepalm &&
+                                 face_mode_ != FaceMode::kZenMeditation && face_mode_ != FaceMode::kHypnotized &&
+                                 !(face_mode_ == FaceMode::kSneezing && (animation_tick_ % 35) >= 22);
     const bool show_right_pupil = !blink && face_mode_ != FaceMode::kSleeping && face_mode_ != FaceMode::kPlayfulWink &&
-                                  face_mode_ != FaceMode::kLove && face_mode_ != FaceMode::kDizzy &&
-                                  face_mode_ != FaceMode::kLoadingBuffer && face_mode_ != FaceMode::kRebooting &&
-                                  face_mode_ != FaceMode::kGameOver && face_mode_ != FaceMode::kTongueOut &&
-                                  face_mode_ != FaceMode::kZenMeditation;
+                                  face_mode_ != FaceMode::kLove && face_mode_ != FaceMode::kHeartbroken &&
+                                  face_mode_ != FaceMode::kDizzy && face_mode_ != FaceMode::kLoadingBuffer &&
+                                  face_mode_ != FaceMode::kRebooting && face_mode_ != FaceMode::kGameOver &&
+                                  face_mode_ != FaceMode::kTongueOut && face_mode_ != FaceMode::kZenMeditation &&
+                                  face_mode_ != FaceMode::kHypnotized &&
+                                  !(face_mode_ == FaceMode::kSneezing && (animation_tick_ % 35) >= 22);
 
     int left_pupil_w = 18;
     int left_pupil_h = 22;
     int right_pupil_w = 18;
     int right_pupil_h = 22;
 
-    // Pupil Shock Dilation & Expression Custom Sizes
     if (face_mode_ == FaceMode::kSurprised) {
         uint32_t elapsed = (animation_tick_ > surprised_start_tick_) ? (animation_tick_ - surprised_start_tick_) : 0;
         if (elapsed < 18) {
@@ -720,21 +801,26 @@ void PocketOledDisplay::UpdateAnimationFrame() {
             left_pupil_w = right_pupil_w = 24;
             left_pupil_h = right_pupil_h = 26;
         }
-    } else if (face_mode_ == FaceMode::kFurious) {
+    } else if (face_mode_ == FaceMode::kFurious || face_mode_ == FaceMode::kFireFury) {
         left_pupil_w = right_pupil_w = 12;
         left_pupil_h = right_pupil_h = 14;
-    } else if (face_mode_ == FaceMode::kScared) {
+    } else if (face_mode_ == FaceMode::kScared || face_mode_ == FaceMode::kThunderShock) {
         left_pupil_w = right_pupil_w = 8;
         left_pupil_h = right_pupil_h = 8;
+    } else if (face_mode_ == FaceMode::kTargetLocked) {
+        left_pupil_w = 14;
+        left_pupil_h = 10;
+        right_pupil_w = 8;
+        right_pupil_h = 8;
     } else if (face_mode_ == FaceMode::kPout) {
         left_pupil_w = right_pupil_w = 26;
         left_pupil_h = right_pupil_h = 28;
-    } else if (face_mode_ == FaceMode::kExcited) {
-        left_pupil_w = right_pupil_w = 22;
-        left_pupil_h = right_pupil_h = 24;
-    } else if (face_mode_ == FaceMode::kSkeptical) {
+    } else if (face_mode_ == FaceMode::kExcited || face_mode_ == FaceMode::kMoneyEyes || face_mode_ == FaceMode::kSunnyDazzle) {
+        left_pupil_w = right_pupil_w = 24;
+        left_pupil_h = right_pupil_h = 26;
+    } else if (face_mode_ == FaceMode::kSkeptical || face_mode_ == FaceMode::kDisgusted) {
         left_pupil_w = 18;
-        left_pupil_h = 22;
+        left_pupil_h = 18;
         right_pupil_w = 16;
         right_pupil_h = 12;
     } else if (face_mode_ == FaceMode::kEcstaticLaugh) {
@@ -743,7 +829,7 @@ void PocketOledDisplay::UpdateAnimationFrame() {
     } else if (face_mode_ == FaceMode::kShockedJawdrop) {
         left_pupil_w = right_pupil_w = 8;
         left_pupil_h = right_pupil_h = 8;
-    } else if (face_mode_ == FaceMode::kInnocent) {
+    } else if (face_mode_ == FaceMode::kInnocent || face_mode_ == FaceMode::kAngelBlessing) {
         left_pupil_w = right_pupil_w = 22;
         left_pupil_h = right_pupil_h = 24;
     } else if (face_mode_ == FaceMode::kParanoid) {
@@ -761,7 +847,7 @@ void PocketOledDisplay::UpdateAnimationFrame() {
 
     if (show_left_pupil) {
         lv_obj_remove_flag(left_pupil_, LV_OBJ_FLAG_HIDDEN);
-        left_pupil_pos_x = left_x + (eye_width - left_pupil_w) / 2 + current_look_x_ * 3 / 4;
+        left_pupil_pos_x = left_x + (current_left_width_ - left_pupil_w) / 2 + current_look_x_ * 3 / 4;
         left_pupil_pos_y = left_y + (current_left_height_ - left_pupil_h) / 2 + current_look_y_ * 3 / 4;
         lv_obj_set_pos(left_pupil_, left_pupil_pos_x, left_pupil_pos_y);
         lv_obj_set_size(left_pupil_, left_pupil_w, left_pupil_h);
@@ -771,7 +857,7 @@ void PocketOledDisplay::UpdateAnimationFrame() {
 
     if (show_right_pupil) {
         lv_obj_remove_flag(right_pupil_, LV_OBJ_FLAG_HIDDEN);
-        right_pupil_pos_x = right_x + (eye_width - right_pupil_w) / 2 + current_look_x_ * 3 / 4;
+        right_pupil_pos_x = right_x + (current_right_width_ - right_pupil_w) / 2 + current_look_x_ * 3 / 4;
         right_pupil_pos_y = right_y + (current_right_height_ - right_pupil_h) / 2 + current_look_y_ * 3 / 4;
         lv_obj_set_pos(right_pupil_, right_pupil_pos_x, right_pupil_pos_y);
         lv_obj_set_size(right_pupil_, right_pupil_w, right_pupil_h);
@@ -779,7 +865,7 @@ void PocketOledDisplay::UpdateAnimationFrame() {
         lv_obj_add_flag(right_pupil_, LV_OBJ_FLAG_HIDDEN);
     }
 
-    // 9. Crescent Masks (ONLY for TRUE curved sleeping eyes and playful wink)
+    // 9. Crescent Masks (For TRUE curved sleeping eyes and playful wink)
     lv_obj_add_flag(left_crescent_mask_, LV_OBJ_FLAG_HIDDEN);
     lv_obj_add_flag(right_crescent_mask_, LV_OBJ_FLAG_HIDDEN);
 
@@ -788,16 +874,16 @@ void PocketOledDisplay::UpdateAnimationFrame() {
         lv_obj_remove_flag(left_crescent_mask_, LV_OBJ_FLAG_HIDDEN);
         lv_obj_remove_flag(right_crescent_mask_, LV_OBJ_FLAG_HIDDEN);
         lv_obj_set_pos(left_crescent_mask_, left_x, left_y + breath_offset);
-        lv_obj_set_size(left_crescent_mask_, eye_width, current_left_height_);
+        lv_obj_set_size(left_crescent_mask_, current_left_width_, current_left_height_);
         lv_obj_set_pos(right_crescent_mask_, right_x, right_y + breath_offset);
-        lv_obj_set_size(right_crescent_mask_, eye_width, current_right_height_);
-    } else if (face_mode_ == FaceMode::kPlayfulWink) {
+        lv_obj_set_size(right_crescent_mask_, current_right_width_, current_right_height_);
+    } else if (face_mode_ == FaceMode::kPlayfulWink || face_mode_ == FaceMode::kTongueOut) {
         lv_obj_remove_flag(right_crescent_mask_, LV_OBJ_FLAG_HIDDEN);
         lv_obj_set_pos(right_crescent_mask_, right_x, right_y + 4);
-        lv_obj_set_size(right_crescent_mask_, eye_width, current_right_height_);
+        lv_obj_set_size(right_crescent_mask_, current_right_width_, current_right_height_);
     }
 
-    // 10. Dual Teardrops for crying (falling smoothly under BOTH eyes)
+    // 10. Dual Teardrops for crying
     lv_obj_add_flag(left_tear_, LV_OBJ_FLAG_HIDDEN);
     lv_obj_add_flag(right_tear_, LV_OBJ_FLAG_HIDDEN);
     if (face_mode_ == FaceMode::kSadCrying && !blink) {
@@ -810,10 +896,11 @@ void PocketOledDisplay::UpdateAnimationFrame() {
         lv_obj_set_size(right_tear_, 6, 8);
     }
 
-    // 11. Blushing marks when shy, love, or pout
+    // 11. Blushing marks when shy, love, pout, or drunk
     lv_obj_add_flag(left_blush_, LV_OBJ_FLAG_HIDDEN);
     lv_obj_add_flag(right_blush_, LV_OBJ_FLAG_HIDDEN);
-    if ((face_mode_ == FaceMode::kShy || face_mode_ == FaceMode::kLove || face_mode_ == FaceMode::kPout) && !blink) {
+    if ((face_mode_ == FaceMode::kShy || face_mode_ == FaceMode::kLove ||
+         face_mode_ == FaceMode::kPout || face_mode_ == FaceMode::kDrunk) && !blink) {
         lv_obj_remove_flag(left_blush_, LV_OBJ_FLAG_HIDDEN);
         lv_obj_remove_flag(right_blush_, LV_OBJ_FLAG_HIDDEN);
         int blush_y = (face_mode_ == FaceMode::kLove) ? (base_y + eye_height - 2) : (left_y + current_left_height_ - 2);
@@ -821,7 +908,13 @@ void PocketOledDisplay::UpdateAnimationFrame() {
         lv_obj_set_pos(right_blush_, right_x + 8, blush_y);
     }
 
-    // Hide special expression objects by default
+    // Hide special expression objects by default and reset styles
+    for (auto* lbl : {fx_label_a_, fx_label_b_}) {
+        if (lbl) {
+            lv_obj_add_flag(lbl, LV_OBJ_FLAG_HIDDEN);
+            lv_obj_set_style_text_color(lbl, lv_color_white(), 0);
+        }
+    }
     for (auto* h : {left_heart_a_, left_heart_b_, right_heart_a_, right_heart_b_}) {
         if (h) lv_obj_add_flag(h, LV_OBJ_FLAG_HIDDEN);
     }
@@ -840,13 +933,18 @@ void PocketOledDisplay::UpdateAnimationFrame() {
         if (music_note_[i]) lv_obj_add_flag(music_note_[i], LV_OBJ_FLAG_HIDDEN);
     }
     for (int i = 0; i < 6; ++i) {
-        if (extra_shape_[i]) lv_obj_add_flag(extra_shape_[i], LV_OBJ_FLAG_HIDDEN);
+        if (extra_shape_[i]) {
+            lv_obj_add_flag(extra_shape_[i], LV_OBJ_FLAG_HIDDEN);
+            lv_obj_set_style_bg_color(extra_shape_[i], lv_color_white(), 0);
+            lv_obj_set_style_bg_opa(extra_shape_[i], LV_OPA_COVER, 0);
+            lv_obj_set_style_border_width(extra_shape_[i], 0, 0);
+            lv_obj_set_style_transform_rotation(extra_shape_[i], 0, 0);
+        }
     }
 
     // 12. Mode-Specific Visual Elements
-    if (face_mode_ == FaceMode::kLove && !blink) {
-        // Dual beating cartoon hearts
-        int pulse = (animation_tick_ % 14 < 7) ? 2 : -1;
+    if ((face_mode_ == FaceMode::kLove || face_mode_ == FaceMode::kHeartbroken) && !blink) {
+        int pulse = (face_mode_ == FaceMode::kLove) ? ((animation_tick_ % 14 < 7) ? 2 : -1) : 0;
         int hw = 12 + pulse;
         int hh = 22 + pulse * 2;
         int l_cx = left_x + eye_width / 2;
@@ -863,31 +961,46 @@ void PocketOledDisplay::UpdateAnimationFrame() {
                 lv_obj_set_style_transform_pivot_y(h, hh / 2, 0);
             }
         }
+        int split = (face_mode_ == FaceMode::kHeartbroken) ? 2 : 0;
         if (left_heart_a_) {
-            lv_obj_set_pos(left_heart_a_, l_cx - hw / 2, l_cy - hh / 2);
+            lv_obj_set_pos(left_heart_a_, l_cx - hw / 2 - split, l_cy - hh / 2);
             lv_obj_set_style_transform_rotation(left_heart_a_, NormalizeAngle(450), 0);
         }
         if (left_heart_b_) {
-            lv_obj_set_pos(left_heart_b_, l_cx - hw / 2, l_cy - hh / 2);
+            lv_obj_set_pos(left_heart_b_, l_cx - hw / 2 + split, l_cy - hh / 2);
             lv_obj_set_style_transform_rotation(left_heart_b_, NormalizeAngle(-450), 0);
         }
         if (right_heart_a_) {
-            lv_obj_set_pos(right_heart_a_, r_cx - hw / 2, r_cy - hh / 2);
+            lv_obj_set_pos(right_heart_a_, r_cx - hw / 2 - split, r_cy - hh / 2);
             lv_obj_set_style_transform_rotation(right_heart_a_, NormalizeAngle(450), 0);
         }
         if (right_heart_b_) {
-            lv_obj_set_pos(right_heart_b_, r_cx - hw / 2, r_cy - hh / 2);
+            lv_obj_set_pos(right_heart_b_, r_cx - hw / 2 + split, r_cy - hh / 2);
             lv_obj_set_style_transform_rotation(right_heart_b_, NormalizeAngle(-450), 0);
         }
+        if (face_mode_ == FaceMode::kHeartbroken) {
+            // Black jagged crack cutting down the center of each heart
+            for (int i = 0; i < 2; ++i) {
+                if (extra_shape_[i]) {
+                    lv_obj_remove_flag(extra_shape_[i], LV_OBJ_FLAG_HIDDEN);
+                    lv_obj_set_style_bg_color(extra_shape_[i], lv_color_black(), 0);
+                    int cx = (i == 0) ? l_cx : r_cx;
+                    lv_obj_set_size(extra_shape_[i], 4, 28);
+                    lv_obj_set_pos(extra_shape_[i], cx - 2, l_cy - 14);
+                    lv_obj_set_style_transform_pivot_x(extra_shape_[i], 2, 0);
+                    lv_obj_set_style_transform_pivot_y(extra_shape_[i], 14, 0);
+                    lv_obj_set_style_transform_rotation(extra_shape_[i], NormalizeAngle(120), 0);
+                }
+            }
+        }
     } else if ((face_mode_ == FaceMode::kDizzy || face_mode_ == FaceMode::kLoadingBuffer || face_mode_ == FaceMode::kHypnotized) && !blink) {
-        // Spinning X or spiral in both eyes
-        int dw = 20;
+        int dw = (face_mode_ == FaceMode::kLoadingBuffer) ? 22 : 20;
         int dh = 4;
         int speed = (face_mode_ == FaceMode::kHypnotized) ? 180 : 120;
         int dizzy_angle = (animation_tick_ * speed) % 3600;
-        int l_cx = left_x + eye_width / 2;
+        int l_cx = left_x + current_left_width_ / 2;
         int l_cy = left_y + current_left_height_ / 2;
-        int r_cx = right_x + eye_width / 2;
+        int r_cx = right_x + current_right_width_ / 2;
         int r_cy = right_y + current_right_height_ / 2;
 
         for (auto* d : {left_dizzy_a_, left_dizzy_b_, right_dizzy_a_, right_dizzy_b_}) {
@@ -915,12 +1028,28 @@ void PocketOledDisplay::UpdateAnimationFrame() {
             lv_obj_set_pos(right_dizzy_b_, r_cx - dw / 2, r_cy - dh / 2);
             lv_obj_set_style_transform_rotation(right_dizzy_b_, NormalizeAngle(1350 + dizzy_angle), 0);
         }
+        if (face_mode_ == FaceMode::kHypnotized) {
+            // Hypnotic inner ring inside both eyes
+            for (int i = 0; i < 2; ++i) {
+                if (extra_shape_[i]) {
+                    lv_obj_remove_flag(extra_shape_[i], LV_OBJ_FLAG_HIDDEN);
+                    lv_obj_set_style_bg_opa(extra_shape_[i], LV_OPA_TRANSP, 0);
+                    lv_obj_set_style_border_width(extra_shape_[i], 2, 0);
+                    lv_obj_set_style_border_color(extra_shape_[i], lv_color_black(), 0);
+                    int pulse_r = ((animation_tick_ / 3) % 2 == 0) ? 24 : 18;
+                    int cx = (i == 0) ? l_cx : r_cx;
+                    int cy = (i == 0) ? l_cy : r_cy;
+                    lv_obj_set_size(extra_shape_[i], pulse_r, pulse_r);
+                    lv_obj_set_style_radius(extra_shape_[i], pulse_r / 2, 0);
+                    lv_obj_set_pos(extra_shape_[i], cx - pulse_r / 2, cy - pulse_r / 2);
+                }
+            }
+        }
     } else if (face_mode_ == FaceMode::kGameOver && !blink) {
-        // Fixed X X dead eyes sinking
         int dw = 20, dh = 4;
-        int l_cx = left_x + eye_width / 2;
+        int l_cx = left_x + current_left_width_ / 2;
         int l_cy = left_y + current_left_height_ / 2;
-        int r_cx = right_x + eye_width / 2;
+        int r_cx = right_x + current_right_width_ / 2;
         int r_cy = right_y + current_right_height_ / 2;
         for (auto* d : {left_dizzy_a_, left_dizzy_b_, right_dizzy_a_, right_dizzy_b_}) {
             if (d) {
@@ -947,17 +1076,15 @@ void PocketOledDisplay::UpdateAnimationFrame() {
             lv_obj_set_pos(right_dizzy_b_, r_cx - dw / 2, r_cy - dh / 2);
             lv_obj_set_style_transform_rotation(right_dizzy_b_, NormalizeAngle(-450), 0);
         }
-    } else if (face_mode_ == FaceMode::kScared && !blink) {
-        // Sweat drop running down the temple
+    } else if ((face_mode_ == FaceMode::kScared || face_mode_ == FaceMode::kParanoid || face_mode_ == FaceMode::kExhausted) && !blink) {
         if (sweat_drop_) {
             lv_obj_remove_flag(sweat_drop_, LV_OBJ_FLAG_HIDDEN);
-            int sweat_x = right_x + eye_width + 4;
+            int sweat_x = right_x + current_right_width_ + 3;
             int sweat_y = 6 + ((animation_tick_ * 2) % 24);
             lv_obj_set_pos(sweat_drop_, sweat_x, sweat_y);
-            lv_obj_set_size(sweat_drop_, 5, 7);
+            lv_obj_set_size(sweat_drop_, 5, 8);
         }
     } else if ((face_mode_ == FaceMode::kFurious || face_mode_ == FaceMode::kOverheat || face_mode_ == FaceMode::kFireFury) && !blink) {
-        // Floating smoke/heat/fire puffs rising
         for (int i = 0; i < 4; ++i) {
             if (smoke_puff_[i]) {
                 int phase = (animation_tick_ + i * 4) % 16;
@@ -971,8 +1098,12 @@ void PocketOledDisplay::UpdateAnimationFrame() {
                 }
             }
         }
+        if (face_mode_ == FaceMode::kOverheat && fx_label_a_) {
+            lv_obj_remove_flag(fx_label_a_, LV_OBJ_FLAG_HIDDEN);
+            lv_label_set_text(fx_label_a_, LV_SYMBOL_WARNING);
+            lv_obj_set_pos(fx_label_a_, 57, 1);
+        }
     } else if (face_mode_ == FaceMode::kPartyCelebrate && !blink) {
-        // Confetti falling around
         for (int i = 0; i < 4; ++i) {
             if (smoke_puff_[i]) {
                 lv_obj_remove_flag(smoke_puff_[i], LV_OBJ_FLAG_HIDDEN);
@@ -982,8 +1113,18 @@ void PocketOledDisplay::UpdateAnimationFrame() {
                 lv_obj_set_size(smoke_puff_[i], 3, 3);
             }
         }
-    } else if ((face_mode_ == FaceMode::kExcited || face_mode_ == FaceMode::kMoneyEyes || face_mode_ == FaceMode::kSunnyDazzle) && !blink) {
-        // Star cross sparkles inside dilated pupils or dollar/sun
+    } else if (face_mode_ == FaceMode::kMoneyEyes && !blink) {
+        // Real '$' symbols gleaming inside both pupils
+        if (fx_label_a_ && fx_label_b_) {
+            lv_obj_remove_flag(fx_label_a_, LV_OBJ_FLAG_HIDDEN);
+            lv_obj_remove_flag(fx_label_b_, LV_OBJ_FLAG_HIDDEN);
+            lv_label_set_text(fx_label_a_, "$");
+            lv_label_set_text(fx_label_b_, "$");
+            int bounce = ((animation_tick_ / 4) % 2 == 0) ? -1 : 1;
+            lv_obj_set_pos(fx_label_a_, left_pupil_pos_x + 8, left_pupil_pos_y + 4 + bounce);
+            lv_obj_set_pos(fx_label_b_, right_pupil_pos_x + 8, right_pupil_pos_y + 4 + bounce);
+        }
+    } else if ((face_mode_ == FaceMode::kExcited || face_mode_ == FaceMode::kSunnyDazzle) && !blink) {
         int star_len = ((animation_tick_ / 4) % 2 == 0) ? 14 : 10;
         int star_thick = 3;
         int l_pcx = left_pupil_pos_x + left_pupil_w / 2;
@@ -997,7 +1138,6 @@ void PocketOledDisplay::UpdateAnimationFrame() {
             lv_obj_remove_flag(right_sparkle_a_, LV_OBJ_FLAG_HIDDEN);
             lv_obj_remove_flag(right_sparkle_b_, LV_OBJ_FLAG_HIDDEN);
 
-            // Cross: A is vertical, B is horizontal
             lv_obj_set_pos(left_sparkle_a_, l_pcx - star_thick / 2, l_pcy - star_len / 2);
             lv_obj_set_size(left_sparkle_a_, star_thick, star_len);
             lv_obj_set_pos(left_sparkle_b_, l_pcx - star_len / 2, l_pcy - star_thick / 2);
@@ -1009,7 +1149,6 @@ void PocketOledDisplay::UpdateAnimationFrame() {
             lv_obj_set_size(right_sparkle_b_, star_len, star_thick);
         }
     } else if (face_mode_ == FaceMode::kPout && !blink) {
-        // Two glossy highlights inside huge anime pupils
         if (left_sparkle_a_ && left_sparkle_b_ && right_sparkle_a_ && right_sparkle_b_) {
             lv_obj_remove_flag(left_sparkle_a_, LV_OBJ_FLAG_HIDDEN);
             lv_obj_remove_flag(left_sparkle_b_, LV_OBJ_FLAG_HIDDEN);
@@ -1032,95 +1171,211 @@ void PocketOledDisplay::UpdateAnimationFrame() {
             lv_obj_set_size(right_sparkle_b_, 3, 3);
             lv_obj_set_style_radius(right_sparkle_b_, 1, 0);
         }
-    } else if ((face_mode_ == FaceMode::kMusic || face_mode_ == FaceMode::kConfusedQuestion) && !blink) {
-        // Floating dancing music notes or Question mark
-        for (int i = 0; i < 2; ++i) {
-            if (music_note_[i]) {
-                lv_obj_remove_flag(music_note_[i], LV_OBJ_FLAG_HIDDEN);
-                int ny = 4 + (((animation_tick_ / 6) + i * 3) % 2 == 0 ? -2 : 1);
-                int nx = (i == 0) ? (left_x + 8) : (right_x + eye_width - 12);
-                lv_obj_set_pos(music_note_[i], nx, ny);
-                lv_obj_set_size(music_note_[i], 6, 7);
-            }
+    } else if (face_mode_ == FaceMode::kMusic && !blink) {
+        if (fx_label_a_ && fx_label_b_) {
+            lv_obj_remove_flag(fx_label_a_, LV_OBJ_FLAG_HIDDEN);
+            lv_obj_remove_flag(fx_label_b_, LV_OBJ_FLAG_HIDDEN);
+            lv_label_set_text(fx_label_a_, LV_SYMBOL_AUDIO);
+            lv_label_set_text(fx_label_b_, LV_SYMBOL_AUDIO);
+            int ny0 = 2 + (((animation_tick_ / 6)) % 2 == 0 ? -2 : 2);
+            int ny1 = 2 + (((animation_tick_ / 6) + 1) % 2 == 0 ? -2 : 2);
+            lv_obj_set_pos(fx_label_a_, left_x - 10, ny0);
+            lv_obj_set_pos(fx_label_b_, right_x + current_right_width_ - 2, ny1);
         }
-    } else if ((face_mode_ == FaceMode::kScanning || face_mode_ == FaceMode::kThunderShock || face_mode_ == FaceMode::kRebooting) && !blink) {
-        // High-tech laser sweep line / thunder line / CRT line
+    } else if (face_mode_ == FaceMode::kConfusedQuestion && !blink) {
+        if (fx_label_a_ && fx_label_b_) {
+            lv_obj_remove_flag(fx_label_a_, LV_OBJ_FLAG_HIDDEN);
+            lv_obj_remove_flag(fx_label_b_, LV_OBJ_FLAG_HIDDEN);
+            lv_label_set_text(fx_label_a_, "?");
+            lv_label_set_text(fx_label_b_, "?");
+            int ny = 1 + ((animation_tick_ / 6) % 2 == 0 ? -1 : 2);
+            lv_obj_set_pos(fx_label_a_, 58, ny);
+            lv_obj_set_pos(fx_label_b_, right_x + current_right_width_ - 4, ny + 2);
+        }
+    } else if ((face_mode_ == FaceMode::kScanning || face_mode_ == FaceMode::kThunderShock || face_mode_ == FaceMode::kMatrixGlitch) && !blink) {
         if (laser_line_) {
             lv_obj_remove_flag(laser_line_, LV_OBJ_FLAG_HIDDEN);
-            int scan_offset = (face_mode_ == FaceMode::kRebooting) ? 12 : ((animation_tick_ * 3) % (current_left_height_ + 6));
+            int scan_offset = ((animation_tick_ * 3) % (current_left_height_ + 6));
             lv_obj_set_pos(laser_line_, base_x - 4, left_y - 2 + scan_offset);
             lv_obj_set_size(laser_line_, pair_width + 8, 2);
         }
+        if (face_mode_ == FaceMode::kThunderShock && fx_label_a_) {
+            lv_obj_remove_flag(fx_label_a_, LV_OBJ_FLAG_HIDDEN);
+            lv_label_set_text(fx_label_a_, LV_SYMBOL_CHARGE);
+            lv_obj_set_pos(fx_label_a_, 60, 2);
+        }
     }
 
-    // Special Extra Shapes for V7.0
+    // Special Extra Shapes (Polished 1-bit Monochrome Graphics)
     if (face_mode_ == FaceMode::kLowBattery && !blink) {
-        if (extra_shape_[0] && (animation_tick_ % 14 < 8)) {
+        if ((animation_tick_ % 14 < 9) && extra_shape_[0] && extra_shape_[1]) {
+            // Hollow battery shell + terminal nub
             lv_obj_remove_flag(extra_shape_[0], LV_OBJ_FLAG_HIDDEN);
-            lv_obj_set_pos(extra_shape_[0], 56, 4);
-            lv_obj_set_size(extra_shape_[0], 16, 8);
+            lv_obj_set_style_bg_opa(extra_shape_[0], LV_OPA_TRANSP, 0);
+            lv_obj_set_style_border_width(extra_shape_[0], 2, 0);
+            lv_obj_set_style_border_color(extra_shape_[0], lv_color_white(), 0);
+            lv_obj_set_pos(extra_shape_[0], 52, 2);
+            lv_obj_set_size(extra_shape_[0], 20, 10);
             lv_obj_set_style_radius(extra_shape_[0], 2, 0);
+
+            lv_obj_remove_flag(extra_shape_[1], LV_OBJ_FLAG_HIDDEN);
+            lv_obj_set_pos(extra_shape_[1], 72, 5);
+            lv_obj_set_size(extra_shape_[1], 2, 4);
+
+            if (extra_shape_[2]) {
+                lv_obj_remove_flag(extra_shape_[2], LV_OBJ_FLAG_HIDDEN);
+                lv_obj_set_pos(extra_shape_[2], 55, 5);
+                lv_obj_set_size(extra_shape_[2], 4, 4);
+            }
         }
-    } else if (face_mode_ == FaceMode::kInnocent && !blink) {
+    } else if ((face_mode_ == FaceMode::kInnocent || face_mode_ == FaceMode::kAngelBlessing) && !blink) {
+        if (extra_shape_[0]) {
+            // True hollow Halo ring floating above eyes
+            int float_y = ((animation_tick_ / 8) % 2 == 0) ? 1 : 3;
+            lv_obj_remove_flag(extra_shape_[0], LV_OBJ_FLAG_HIDDEN);
+            lv_obj_set_style_bg_opa(extra_shape_[0], LV_OPA_TRANSP, 0);
+            lv_obj_set_style_border_width(extra_shape_[0], 2, 0);
+            lv_obj_set_style_border_color(extra_shape_[0], lv_color_white(), 0);
+            lv_obj_set_pos(extra_shape_[0], 42, float_y);
+            lv_obj_set_size(extra_shape_[0], 44, 7);
+            lv_obj_set_style_radius(extra_shape_[0], 4, 0);
+        }
+    } else if (face_mode_ == FaceMode::kTargetLocked && !blink) {
+        // Sniper Crosshair over Right Eye
+        int cx = right_x + current_right_width_ / 2;
+        int cy = right_y + current_right_height_ / 2;
         if (extra_shape_[0]) {
             lv_obj_remove_flag(extra_shape_[0], LV_OBJ_FLAG_HIDDEN);
-            lv_obj_set_pos(extra_shape_[0], 48, 4);
-            lv_obj_set_size(extra_shape_[0], 32, 6);
-            lv_obj_set_style_radius(extra_shape_[0], 3, 0);
+            lv_obj_set_style_bg_opa(extra_shape_[0], LV_OPA_TRANSP, 0);
+            lv_obj_set_style_border_width(extra_shape_[0], 2, 0);
+            lv_obj_set_style_border_color(extra_shape_[0], lv_color_black(), 0);
+            lv_obj_set_size(extra_shape_[0], 28, 28);
+            lv_obj_set_style_radius(extra_shape_[0], 14, 0);
+            lv_obj_set_pos(extra_shape_[0], cx - 14, cy - 14);
+        }
+        if (extra_shape_[1]) {
+            lv_obj_remove_flag(extra_shape_[1], LV_OBJ_FLAG_HIDDEN);
+            lv_obj_set_style_bg_color(extra_shape_[1], lv_color_black(), 0);
+            lv_obj_set_size(extra_shape_[1], 36, 2);
+            lv_obj_set_pos(extra_shape_[1], cx - 18, cy - 1);
+        }
+        if (extra_shape_[2]) {
+            lv_obj_remove_flag(extra_shape_[2], LV_OBJ_FLAG_HIDDEN);
+            lv_obj_set_style_bg_color(extra_shape_[2], lv_color_black(), 0);
+            lv_obj_set_size(extra_shape_[2], 2, 36);
+            lv_obj_set_pos(extra_shape_[2], cx - 1, cy - 18);
+        }
+    } else if (face_mode_ == FaceMode::kIdeaEureka && !blink) {
+        // Lightbulb rays & exclamation mark
+        if (fx_label_a_) {
+            lv_obj_remove_flag(fx_label_a_, LV_OBJ_FLAG_HIDDEN);
+            lv_label_set_text(fx_label_a_, "!");
+            lv_obj_set_pos(fx_label_a_, 61, 0);
+        }
+        if ((animation_tick_ / 4) % 2 == 0) {
+            for (int i = 0; i < 2; ++i) {
+                if (extra_shape_[i]) {
+                    lv_obj_remove_flag(extra_shape_[i], LV_OBJ_FLAG_HIDDEN);
+                    lv_obj_set_size(extra_shape_[i], 3, 6);
+                    lv_obj_set_pos(extra_shape_[i], (i == 0) ? 50 : 75, 2);
+                }
+            }
+        }
+    } else if (face_mode_ == FaceMode::kWhispering && !blink) {
+        // "Shhh" vertical finger bar in the center bottom
+        if (extra_shape_[0]) {
+            lv_obj_remove_flag(extra_shape_[0], LV_OBJ_FLAG_HIDDEN);
+            lv_obj_set_pos(extra_shape_[0], 60, 26);
+            lv_obj_set_size(extra_shape_[0], 8, 20);
+            lv_obj_set_style_radius(extra_shape_[0], 4, 0);
+        }
+    } else if (face_mode_ == FaceMode::kSneezing && (animation_tick_ % 35) >= 22) {
+        // Spray droplets flying out on sneeze
+        for (int i = 0; i < 3; ++i) {
+            if (extra_shape_[i]) {
+                lv_obj_remove_flag(extra_shape_[i], LV_OBJ_FLAG_HIDDEN);
+                int dist = ((animation_tick_ % 35) - 22) * 2;
+                lv_obj_set_size(extra_shape_[i], 3, 3);
+                lv_obj_set_pos(extra_shape_[i], 52 + i * 10, 32 + dist);
+            }
+        }
+    } else if (face_mode_ == FaceMode::kHeadache && !blink) {
+        // Throbbing temple veins on forehead
+        if ((animation_tick_ / 3) % 2 == 0 && extra_shape_[0] && extra_shape_[1]) {
+            lv_obj_remove_flag(extra_shape_[0], LV_OBJ_FLAG_HIDDEN);
+            lv_obj_remove_flag(extra_shape_[1], LV_OBJ_FLAG_HIDDEN);
+            lv_obj_set_pos(extra_shape_[0], 56, 4);
+            lv_obj_set_size(extra_shape_[0], 16, 3);
+            lv_obj_set_pos(extra_shape_[1], 62, 0);
+            lv_obj_set_size(extra_shape_[1], 3, 11);
+        }
+    } else if (face_mode_ == FaceMode::kFreezing && !blink) {
+        // Hanging icicles under both eyes
+        for (int i = 0; i < 4; ++i) {
+            if (extra_shape_[i]) {
+                lv_obj_remove_flag(extra_shape_[i], LV_OBJ_FLAG_HIDDEN);
+                int ix = (i < 2) ? (left_x + 10 + i * 16) : (right_x + 10 + (i - 2) * 16);
+                int ih = (i % 2 == 0) ? 7 : 5;
+                lv_obj_set_pos(extra_shape_[i], ix, left_y + current_left_height_);
+                lv_obj_set_size(extra_shape_[i], 3, ih);
+            }
         }
     } else if (face_mode_ == FaceMode::kCryingStream && !blink) {
-        // Anime waterfall tears
         for (int i = 0; i < 4; ++i) {
             if (extra_shape_[i]) {
                 lv_obj_remove_flag(extra_shape_[i], LV_OBJ_FLAG_HIDDEN);
                 int sx = (i == 0) ? (left_x + 6) : (i == 1) ? (left_x + 28) : (i == 2) ? (right_x + 6) : (right_x + 28);
-                lv_obj_set_pos(extra_shape_[i], sx, left_y + current_left_height_);
-                lv_obj_set_size(extra_shape_[i], 6, 48 - (left_y + current_left_height_));
+                int top_y = left_y + current_left_height_ - 2;
+                lv_obj_set_pos(extra_shape_[i], sx, top_y);
+                lv_obj_set_size(extra_shape_[i], 8, std::max(2, 48 - top_y));
                 lv_obj_set_style_radius(extra_shape_[i], 2, 0);
             }
         }
     } else if (face_mode_ == FaceMode::kShockedJawdrop && !blink) {
         if (extra_shape_[0]) {
+            // Hollow dropped jaw O-mouth
             lv_obj_remove_flag(extra_shape_[0], LV_OBJ_FLAG_HIDDEN);
-            lv_obj_set_pos(extra_shape_[0], 52, left_y + current_left_height_ + 1);
-            lv_obj_set_size(extra_shape_[0], 24, 10);
-            lv_obj_set_style_radius(extra_shape_[0], 4, 0);
+            lv_obj_set_style_bg_opa(extra_shape_[0], LV_OPA_TRANSP, 0);
+            lv_obj_set_style_border_width(extra_shape_[0], 2, 0);
+            lv_obj_set_style_border_color(extra_shape_[0], lv_color_white(), 0);
+            lv_obj_set_pos(extra_shape_[0], 54, 38);
+            lv_obj_set_size(extra_shape_[0], 20, 10);
+            lv_obj_set_style_radius(extra_shape_[0], 5, 0);
         }
     } else if (face_mode_ == FaceMode::kTongueOut && !blink) {
-        if (extra_shape_[0]) {
+        if (extra_shape_[0] && extra_shape_[1]) {
             lv_obj_remove_flag(extra_shape_[0], LV_OBJ_FLAG_HIDDEN);
-            lv_obj_set_pos(extra_shape_[0], 58, left_y + current_left_height_ - 2);
-            lv_obj_set_size(extra_shape_[0], 12, 10);
-            lv_obj_set_style_radius(extra_shape_[0], 5, 0);
+            lv_obj_set_pos(extra_shape_[0], 50, 37);
+            lv_obj_set_size(extra_shape_[0], 28, 2);
+
+            lv_obj_remove_flag(extra_shape_[1], LV_OBJ_FLAG_HIDDEN);
+            lv_obj_set_pos(extra_shape_[1], 58, 38);
+            lv_obj_set_size(extra_shape_[1], 12, 9);
+            lv_obj_set_style_radius(extra_shape_[1], 5, 0);
         }
     } else if (face_mode_ == FaceMode::kRainyGloomy && !blink) {
         if (extra_shape_[0]) {
             lv_obj_remove_flag(extra_shape_[0], LV_OBJ_FLAG_HIDDEN);
-            lv_obj_set_pos(extra_shape_[0], 44, 4);
-            lv_obj_set_size(extra_shape_[0], 40, 8);
+            lv_obj_set_pos(extra_shape_[0], 44, 2);
+            lv_obj_set_size(extra_shape_[0], 40, 7);
             lv_obj_set_style_radius(extra_shape_[0], 4, 0);
         }
         for (int i = 0; i < 4; ++i) {
             if (smoke_puff_[i]) {
                 lv_obj_remove_flag(smoke_puff_[i], LV_OBJ_FLAG_HIDDEN);
-                int ry = 14 + ((animation_tick_ * 2 + i * 7) % 24);
-                lv_obj_set_pos(smoke_puff_[i], 48 + i * 9, ry);
-                lv_obj_set_size(smoke_puff_[i], 2, 4);
+                int ry = 11 + ((animation_tick_ * 3 + i * 7) % 32);
+                lv_obj_set_pos(smoke_puff_[i], 48 + i * 10, ry);
+                lv_obj_set_size(smoke_puff_[i], 2, 5);
             }
         }
     } else if (face_mode_ == FaceMode::kFacepalm && !blink) {
-        if (extra_shape_[0]) {
-            lv_obj_remove_flag(extra_shape_[0], LV_OBJ_FLAG_HIDDEN);
-            lv_obj_set_pos(extra_shape_[0], left_x - 2, base_y);
-            lv_obj_set_size(extra_shape_[0], eye_width + 4, eye_height);
-            lv_obj_set_style_radius(extra_shape_[0], 4, 0);
-        }
-    } else if (face_mode_ == FaceMode::kAngelBlessing && !blink) {
-        if (extra_shape_[0]) {
-            lv_obj_remove_flag(extra_shape_[0], LV_OBJ_FLAG_HIDDEN);
-            lv_obj_set_pos(extra_shape_[0], 48, 4);
-            lv_obj_set_size(extra_shape_[0], 32, 6);
-            lv_obj_set_style_radius(extra_shape_[0], 3, 0);
+        for (int i = 0; i < 3; ++i) {
+            if (extra_shape_[i]) {
+                lv_obj_remove_flag(extra_shape_[i], LV_OBJ_FLAG_HIDDEN);
+                lv_obj_set_pos(extra_shape_[i], left_x + 4 + i * 12, base_y + 2);
+                lv_obj_set_size(extra_shape_[i], 9, eye_height - 4);
+                lv_obj_set_style_radius(extra_shape_[i], 4, 0);
+            }
         }
     }
 
@@ -1130,30 +1385,27 @@ void PocketOledDisplay::UpdateAnimationFrame() {
         lv_obj_set_style_transform_rotation(lid, 0, 0);
     }
 
-    if (face_mode_ != FaceMode::kSleeping && face_mode_ != FaceMode::kLove && !blink) {
+    if (face_mode_ != FaceMode::kSleeping && face_mode_ != FaceMode::kLove &&
+        face_mode_ != FaceMode::kHeartbroken && !blink) {
         if (face_mode_ == FaceMode::kAngry) {
-            // Huy Vector 14-degree clean furrowed eyebrow cut - perfectly symmetrical
             constexpr int lid_w = 60;
             constexpr int lid_h = 30;
             lv_obj_remove_flag(left_top_lid_, LV_OBJ_FLAG_HIDDEN);
             lv_obj_remove_flag(right_top_lid_, LV_OBJ_FLAG_HIDDEN);
 
-            // Left lid
             lv_obj_set_pos(left_top_lid_, left_x - 8, left_y - 27);
             lv_obj_set_size(left_top_lid_, lid_w, lid_h);
             lv_obj_set_style_transform_pivot_x(left_top_lid_, lid_w / 2, 0);
             lv_obj_set_style_transform_pivot_y(left_top_lid_, lid_h / 2, 0);
             lv_obj_set_style_transform_rotation(left_top_lid_, NormalizeAngle(140), 0);
 
-            // Right lid
             lv_obj_set_pos(right_top_lid_, right_x - 8, right_y - 27);
             lv_obj_set_size(right_top_lid_, lid_w, lid_h);
             lv_obj_set_style_transform_pivot_x(right_top_lid_, lid_w / 2, 0);
             lv_obj_set_style_transform_pivot_y(right_top_lid_, lid_h / 2, 0);
             lv_obj_set_style_transform_rotation(right_top_lid_, NormalizeAngle(-140), 0);
 
-        } else if (face_mode_ == FaceMode::kFurious) {
-            // Furious 18-degree steep angry furrow + lower lid squint
+        } else if (face_mode_ == FaceMode::kFurious || face_mode_ == FaceMode::kFireFury || face_mode_ == FaceMode::kHeadache) {
             constexpr int lid_w = 64;
             constexpr int lid_h = 32;
             lv_obj_remove_flag(left_top_lid_, LV_OBJ_FLAG_HIDDEN);
@@ -1171,29 +1423,26 @@ void PocketOledDisplay::UpdateAnimationFrame() {
             lv_obj_set_style_transform_pivot_y(right_top_lid_, lid_h / 2, 0);
             lv_obj_set_style_transform_rotation(right_top_lid_, NormalizeAngle(-180), 0);
 
-            // Lower squint lids
             lv_obj_remove_flag(left_bottom_lid_, LV_OBJ_FLAG_HIDDEN);
             lv_obj_remove_flag(right_bottom_lid_, LV_OBJ_FLAG_HIDDEN);
             lv_obj_set_pos(left_bottom_lid_, left_x - 2, left_y + current_left_height_ - 6);
-            lv_obj_set_size(left_bottom_lid_, eye_width + 4, 10);
+            lv_obj_set_size(left_bottom_lid_, current_left_width_ + 4, 10);
             lv_obj_set_pos(right_bottom_lid_, right_x - 2, right_y + current_right_height_ - 6);
-            lv_obj_set_size(right_bottom_lid_, eye_width + 4, 10);
+            lv_obj_set_size(right_bottom_lid_, current_right_width_ + 4, 10);
 
-        } else if (face_mode_ == FaceMode::kSadEmpathy || face_mode_ == FaceMode::kSadCrying || face_mode_ == FaceMode::kCryingStream) {
-            // Droopy sad eyelids slanting down outwards - perfectly symmetrical
+        } else if (face_mode_ == FaceMode::kSadEmpathy || face_mode_ == FaceMode::kSadCrying ||
+                   face_mode_ == FaceMode::kCryingStream || face_mode_ == FaceMode::kRainyGloomy) {
             constexpr int lid_w = 60;
             constexpr int lid_h = 30;
             lv_obj_remove_flag(left_top_lid_, LV_OBJ_FLAG_HIDDEN);
             lv_obj_remove_flag(right_top_lid_, LV_OBJ_FLAG_HIDDEN);
 
-            // Left lid
             lv_obj_set_pos(left_top_lid_, left_x - 8, left_y - 27);
             lv_obj_set_size(left_top_lid_, lid_w, lid_h);
             lv_obj_set_style_transform_pivot_x(left_top_lid_, lid_w / 2, 0);
             lv_obj_set_style_transform_pivot_y(left_top_lid_, lid_h / 2, 0);
             lv_obj_set_style_transform_rotation(left_top_lid_, NormalizeAngle(-140), 0);
 
-            // Right lid
             lv_obj_set_pos(right_top_lid_, right_x - 8, right_y - 27);
             lv_obj_set_size(right_top_lid_, lid_w, lid_h);
             lv_obj_set_style_transform_pivot_x(right_top_lid_, lid_w / 2, 0);
@@ -1201,35 +1450,34 @@ void PocketOledDisplay::UpdateAnimationFrame() {
             lv_obj_set_style_transform_rotation(right_top_lid_, NormalizeAngle(140), 0);
 
         } else if (face_mode_ == FaceMode::kSleepy) {
-            // Sleepy ptosis: ONLY top lid drops horizontally covering top 1/3 (12px), bottom lid remains hidden!
             constexpr int sleepy_cover = 12;
             lv_obj_remove_flag(left_top_lid_, LV_OBJ_FLAG_HIDDEN);
             lv_obj_remove_flag(right_top_lid_, LV_OBJ_FLAG_HIDDEN);
 
             lv_obj_set_pos(left_top_lid_, left_x - 2, left_y - 2);
-            lv_obj_set_size(left_top_lid_, eye_width + 4, sleepy_cover + 2);
-            lv_obj_set_style_transform_rotation(left_top_lid_, 0, 0);
+            lv_obj_set_size(left_top_lid_, current_left_width_ + 4, sleepy_cover + 2);
 
             lv_obj_set_pos(right_top_lid_, right_x - 2, right_y - 2);
-            lv_obj_set_size(right_top_lid_, eye_width + 4, sleepy_cover + 2);
-            lv_obj_set_style_transform_rotation(right_top_lid_, 0, 0);
+            lv_obj_set_size(right_top_lid_, current_right_width_ + 4, sleepy_cover + 2);
 
-        } else if (face_mode_ == FaceMode::kBored) {
-            // Bored: top lid drops horizontally covering 50% (18px)
-            constexpr int bored_cover = 18;
+        } else if (face_mode_ == FaceMode::kBored || face_mode_ == FaceMode::kDisgusted) {
+            constexpr int bored_cover = 16;
             lv_obj_remove_flag(left_top_lid_, LV_OBJ_FLAG_HIDDEN);
             lv_obj_remove_flag(right_top_lid_, LV_OBJ_FLAG_HIDDEN);
 
             lv_obj_set_pos(left_top_lid_, left_x - 2, left_y - 2);
-            lv_obj_set_size(left_top_lid_, eye_width + 4, bored_cover + 2);
-            lv_obj_set_style_transform_rotation(left_top_lid_, 0, 0);
+            lv_obj_set_size(left_top_lid_, current_left_width_ + 4, bored_cover + 2);
 
             lv_obj_set_pos(right_top_lid_, right_x - 2, right_y - 2);
-            lv_obj_set_size(right_top_lid_, eye_width + 4, bored_cover + 2);
-            lv_obj_set_style_transform_rotation(right_top_lid_, 0, 0);
+            lv_obj_set_size(right_top_lid_, current_right_width_ + 4, bored_cover + 2);
+
+            if (face_mode_ == FaceMode::kDisgusted) {
+                lv_obj_remove_flag(left_bottom_lid_, LV_OBJ_FLAG_HIDDEN);
+                lv_obj_set_pos(left_bottom_lid_, left_x - 2, left_y + current_left_height_ - 6);
+                lv_obj_set_size(left_bottom_lid_, current_left_width_ + 4, 8);
+            }
 
         } else if (face_mode_ == FaceMode::kSideEye) {
-            // Bombastic side-eye slanted eyelids
             constexpr int lid_w = 60;
             constexpr int lid_h = 24;
             lv_obj_remove_flag(left_top_lid_, LV_OBJ_FLAG_HIDDEN);
@@ -1247,7 +1495,6 @@ void PocketOledDisplay::UpdateAnimationFrame() {
             lv_obj_set_style_transform_rotation(right_top_lid_, NormalizeAngle(100), 0);
 
         } else if (face_mode_ == FaceMode::kJealous) {
-            // Jealous slanted triangular eyelids
             constexpr int lid_w = 60;
             constexpr int lid_h = 24;
             lv_obj_remove_flag(left_top_lid_, LV_OBJ_FLAG_HIDDEN);
@@ -1265,7 +1512,6 @@ void PocketOledDisplay::UpdateAnimationFrame() {
             lv_obj_set_style_transform_rotation(right_top_lid_, NormalizeAngle(120), 0);
 
         } else if (face_mode_ == FaceMode::kScheming) {
-            // Scheming sharp squint
             constexpr int lid_w = 60;
             constexpr int lid_h = 24;
             lv_obj_remove_flag(left_top_lid_, LV_OBJ_FLAG_HIDDEN);
@@ -1282,8 +1528,7 @@ void PocketOledDisplay::UpdateAnimationFrame() {
             lv_obj_set_style_transform_pivot_y(right_top_lid_, lid_h / 2, 0);
             lv_obj_set_style_transform_rotation(right_top_lid_, NormalizeAngle(-150), 0);
 
-        } else if (face_mode_ == FaceMode::kSkeptical) {
-            // Skeptical: Right eye squinting top lid
+        } else if (face_mode_ == FaceMode::kSkeptical || face_mode_ == FaceMode::kConfusedQuestion) {
             constexpr int lid_w = 50;
             constexpr int lid_h = 20;
             lv_obj_remove_flag(right_top_lid_, LV_OBJ_FLAG_HIDDEN);
@@ -1294,35 +1539,34 @@ void PocketOledDisplay::UpdateAnimationFrame() {
             lv_obj_set_style_transform_rotation(right_top_lid_, NormalizeAngle(-60), 0);
 
         } else if (face_mode_ == FaceMode::kSmug) {
-            // Smug: Right cheek raised high (14px) for asymmetrical smirk
             lv_obj_remove_flag(left_bottom_lid_, LV_OBJ_FLAG_HIDDEN);
             lv_obj_set_pos(left_bottom_lid_, left_x - 2, left_y + current_left_height_ - 6);
-            lv_obj_set_size(left_bottom_lid_, eye_width + 4, 10);
+            lv_obj_set_size(left_bottom_lid_, current_left_width_ + 4, 10);
 
             lv_obj_remove_flag(right_bottom_lid_, LV_OBJ_FLAG_HIDDEN);
             lv_obj_set_pos(right_bottom_lid_, right_x - 2, right_y + current_right_height_ - 14);
-            lv_obj_set_size(right_bottom_lid_, eye_width + 4, 18);
+            lv_obj_set_size(right_bottom_lid_, current_right_width_ + 4, 18);
         }
 
         // Cheerful Laugh / Gentle Smile / Music / Speaking: Lower eyelid cheek bump
-        if (face_mode_ == FaceMode::kEcstaticLaugh) {
-            // Subtle smiling cheek curve at bottom (only 5px)
+        if (face_mode_ == FaceMode::kEcstaticLaugh || face_mode_ == FaceMode::kPartyCelebrate) {
             constexpr int cover_height = 8;
             lv_obj_remove_flag(left_bottom_lid_, LV_OBJ_FLAG_HIDDEN);
             lv_obj_remove_flag(right_bottom_lid_, LV_OBJ_FLAG_HIDDEN);
             lv_obj_set_pos(left_bottom_lid_, left_x - 2, left_y + current_left_height_ - cover_height + 4);
-            lv_obj_set_size(left_bottom_lid_, eye_width + 4, cover_height);
+            lv_obj_set_size(left_bottom_lid_, current_left_width_ + 4, cover_height);
             lv_obj_set_pos(right_bottom_lid_, right_x - 2, right_y + current_right_height_ - cover_height + 4);
-            lv_obj_set_size(right_bottom_lid_, eye_width + 4, cover_height);
-        } else if (face_mode_ == FaceMode::kSmileGentle || face_mode_ == FaceMode::kMusic || face_mode_ == FaceMode::kZenMeditation ||
-            (is_speaking_ && (face_mode_ == FaceMode::kNeutral || face_mode_ == FaceMode::kListening))) {
+            lv_obj_set_size(right_bottom_lid_, current_right_width_ + 4, cover_height);
+        } else if (face_mode_ == FaceMode::kSmileGentle || face_mode_ == FaceMode::kMusic ||
+                   face_mode_ == FaceMode::kZenMeditation || face_mode_ == FaceMode::kAngelBlessing ||
+                   (is_speaking_ && (face_mode_ == FaceMode::kNeutral || face_mode_ == FaceMode::kListening))) {
             constexpr int cover_height = 14;
             lv_obj_remove_flag(left_bottom_lid_, LV_OBJ_FLAG_HIDDEN);
             lv_obj_remove_flag(right_bottom_lid_, LV_OBJ_FLAG_HIDDEN);
             lv_obj_set_pos(left_bottom_lid_, left_x - 2, left_y + current_left_height_ - cover_height / 2);
-            lv_obj_set_size(left_bottom_lid_, eye_width + 4, cover_height);
+            lv_obj_set_size(left_bottom_lid_, current_left_width_ + 4, cover_height);
             lv_obj_set_pos(right_bottom_lid_, right_x - 2, right_y + current_right_height_ - cover_height / 2);
-            lv_obj_set_size(right_bottom_lid_, eye_width + 4, cover_height);
+            lv_obj_set_size(right_bottom_lid_, current_right_width_ + 4, cover_height);
         }
     }
 }

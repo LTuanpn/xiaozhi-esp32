@@ -105,6 +105,8 @@ private:
     lv_obj_t* right_tear_ = nullptr;
     lv_obj_t* left_blush_ = nullptr;
     lv_obj_t* right_blush_ = nullptr;
+    lv_obj_t* fx_label_a_ = nullptr;
+    lv_obj_t* fx_label_b_ = nullptr;
     lv_obj_t* left_heart_a_ = nullptr;
     lv_obj_t* left_heart_b_ = nullptr;
     lv_obj_t* right_heart_a_ = nullptr;
@@ -142,6 +144,8 @@ private:
     int current_look_y_ = 0;
     int target_look_x_ = 0;
     int target_look_y_ = 0;
+    int current_left_width_ = 44;
+    int current_right_width_ = 44;
     int current_left_height_ = 36;
     int current_right_height_ = 36;
     int current_left_y_offset_ = 0;

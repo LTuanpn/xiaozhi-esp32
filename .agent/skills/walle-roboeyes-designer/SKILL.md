@@ -25,6 +25,9 @@ Khi thiết kế mắt robot, đặc biệt là trên màn hình đơn sắc OLE
 5. **Không làm Ngạc nhiên (`surprised`) đơ một chỗ**: Ngạc nhiên phải có phản xạ sinh học: **Đồng tử co rút cực nhỏ (8x10px) trong 720ms đầu, sau đó mới phóng to giãn nở cực đại (24x26px) kèm rung chấn động (shock vibration)**.
 6. **Không để Khóc (`cry`) bị lệch hay thiếu nước mắt**: Cần có 2 giọt nước mắt rơi đều đặn dưới cả 2 mắt, hai mí trên rủ xuống đối xứng góc -14° và +14°, toàn bộ mắt rung nhẹ nghẹn ngào.
 7. **Không được để lại vệt chém khi Cau mày (`angry` / `furious`)**: Khi xoay mí mắt để cau mày, phải dùng thuật toán xoay chuẩn tâm. Tuyệt đối không để mí mắt bị cắt xéo ngang qua con mắt như một vệt chém dao găm.
+8. **Áp dụng Squash & Stretch (Nguyên lý Disney)**: Khi mắt dẹt xuống (chớp mắt, sụp mí), chiều rộng mắt phải nở ngang ra (`44 -> 48-50px`). Khi mắt mở to ngạc nhiên, chiều ngang co nhẹ lại (`42-40px`), tạo cảm giác dẻo mềm và sinh động.
+9. **Tối ưu hóa đồ họa 1-bit Monochrome**: Tránh vẽ các hình khối đặc (`bg_opa = LV_OPA_COVER`) vì trên màn OLED đen trắng chúng sẽ biến thành cục gạch thô ráp. Hãy dùng viền rỗng (`bg_opa = LV_OPA_TRANSP, border_width = 2`) cho vòng hào quang Halo, khung pin cạn, miệng chữ O. Dùng `lv_label` với font montserrat cho các ký hiệu sắc nét (`?`, `!`, `$`, `LV_SYMBOL_AUDIO`, `LV_SYMBOL_CHARGE`).
+10. **Quy chuẩn Z-Index Layering**: Tạo đối tượng theo đúng thứ tự: Nền `face_layer_` -> Mắt trắng -> Đồng tử đen & Dizzy X/Sparkle trong mắt -> Mí mắt che chắn -> Nước mắt & Khói & Nhãn FX trên cùng.
 
 ---
 
