@@ -245,3 +245,35 @@ void InitializeSerialCli() {
 python scripts/test_emotions.py
 ```
 Hoặc gõ trực tiếp qua bất kỳ phần mềm Serial Monitor nào (Baud 115200): `face love`, `face furious`, `face smug`, `face scanning`...
+
+---
+
+## 7. Kiến Trúc V9.0: Audio-Reactive, Phản Xạ Tương Tác & Tự Nhiên Hóa
+
+1. **Fix Lỗi Z-Index Thông Báo (`ShowNotification`)**:
+   - Khi `face_layer_` chiếm nửa trên màn hình (128x48), các thông báo âm lượng hoặc Wi-Fi của lớp cha `OledDisplay` sẽ bị che mất.
+   - Giải pháp: Override `ShowNotification()` để đưa text tạm thời xuống nhãn `chat_line_` (ở $y=48$) với hiệu ứng cuộn tròn Marquee, sau đó tự động khôi phục `last_status_text_` khi hết thời hạn `duration_ms`.
+
+2. **Audio-Reactive Realtime Engine**:
+   - Hàm `ComputePcmLevel` (trong `audio_service.cc`) lấy mẫu peak 64 điểm trên mảng PCM 16-bit, lưu vào 2 biến atomic `input_level_` và `output_level_` (0..100) lock-free.
+   - Khi Nghe (`kListening`): Giữa hai mắt xuất hiện 4 cột sóng âm Equalizer nhấp nhô theo giọng nói thật; giọng to thì đồng tử co nhỏ tập trung, giọng nhỏ thì mắt nheo lắng nghe.
+   - Khi Nói (`is_speaking_`): Độ nảy `animation_y` và độ nhô má cười `dynamic_cheek` phản hồi trực tiếp theo cường độ phát âm thực tế từ loa.
+
+3. **Mini Idle Sub-routines & Double Blink**:
+   - Khi ở trạng thái rảnh (`kNeutral`), mỗi 12-20s robot tự kích hoạt 1 trong 3 hành vi ngắn:
+     * `kBugTracking`: Đốm ruồi ảo bay qua màn hình, mắt liếc bám theo trong 3 giây.
+     * `kPeekABoo`: Mắt nheo dẹt lén nhìn trộm sang bên rồi mở to nhìn thẳng.
+     * `kEyeRoll`: Đảo con ngươi 360 độ thư giãn.
+   - Xác suất 30% chớp mắt kép (Double Blink) cách nhau 120ms tăng cảm giác sinh vật học.
+
+4. **Kịch Bản Speed-Reading & Bong Bóng Mơ**:
+   - `kThinking`: Mắt quét nhanh trái sang phải như đọc tài liệu kèm 3 dấu chấm nhảy sóng nhấp nhô.
+   - `kSleeping`: Khi ngủ sâu xuất hiện bong bóng mơ bay lên và chu kỳ rung giật mí mắt REM.
+
+5. **Phản Xạ Vật Lý Nút Bấm & Cảm Ứng**:
+   - `touch_button_`: Chạm nhanh 3 lần liên tiếp -> thả tim `love` ("Nhột quá! <3"); chạm 5 lần -> chóng mặt `dizzy` ("Chóng mặt quá @_@").
+   - `boot_button_`: Nhấn đúp -> nháy mắt `wink`; nhấn 3 lần -> quạu `furious` ("Đừng chọc nữa! >:(").
+   - Nút Volume: Chạm đỉnh 100 -> phấn khích `excited`/`sunny`; về 0 (Mute) -> suỵt im lặng `whisper`.
+
+6. **Auto-Sentiment Fallback**:
+   - `InferEmotionFromText`: Tự động nhận diện từ khóa cảm xúc tiếng Việt trong câu trả lời của AI để đổi nét mặt ngay cả khi LLM không gọi tool `set_emotion`.
