@@ -11,6 +11,7 @@
 #include "assets/lang_config.h"
 
 #include <esp_log.h>
+#include <esp_timer.h>
 #include <cstdio>
 #include <cstring>
 #include <freertos/FreeRTOS.h>
@@ -35,6 +36,8 @@ private:
     Button touch_button_;
     Button volume_up_button_;
     Button volume_down_button_;
+    int64_t last_touch_down_us_ = 0;
+    uint8_t rapid_touch_count_ = 0;
 
     void InitializeDisplayI2c() {
         i2c_master_bus_config_t bus_config = {
@@ -113,13 +116,47 @@ private:
             }
             app.ToggleChatState();
         });
+        boot_button_.OnDoubleClick([this]() {
+            if (display_ != nullptr) {
+                display_->SetEmotion("wink");
+            }
+        });
+        boot_button_.OnMultipleClick([this]() {
+            if (display_ != nullptr) {
+                display_->SetEmotion("furious");
+                display_->ShowNotification("Đừng chọc nữa! >:(", 2000);
+            }
+        }, 3);
         boot_button_.OnLongPress([this]() {
             EnterWifiConfigMode();
         });
+
         touch_button_.OnPressDown([this]() {
+            int64_t now_us = esp_timer_get_time();
+            if (now_us - last_touch_down_us_ < 650000) {
+                ++rapid_touch_count_;
+            } else {
+                rapid_touch_count_ = 1;
+            }
+            last_touch_down_us_ = now_us;
+
+            // Rapid touch poking/petting reaction (>= 3 taps quickly)
+            if (rapid_touch_count_ >= 3 && display_ != nullptr) {
+                if (rapid_touch_count_ == 3) {
+                    display_->SetEmotion("love");
+                    display_->ShowNotification("Nhột quá! <3", 1500);
+                } else if (rapid_touch_count_ >= 5) {
+                    display_->SetEmotion("dizzy");
+                    display_->ShowNotification("Chóng mặt quá @_@", 2000);
+                }
+                return;
+            }
             Application::GetInstance().StartListening();
         });
         touch_button_.OnPressUp([this]() {
+            if (rapid_touch_count_ >= 3) {
+                return;
+            }
             Application::GetInstance().StopListening();
         });
 
@@ -131,11 +168,15 @@ private:
             }
             codec->SetOutputVolume(volume);
             GetDisplay()->ShowNotification(Lang::Strings::VOLUME + std::to_string(volume));
+            if (volume >= 100) {
+                GetDisplay()->SetEmotion("excited");
+            }
         });
 
         volume_up_button_.OnLongPress([this]() {
             GetAudioCodec()->SetOutputVolume(100);
             GetDisplay()->ShowNotification(Lang::Strings::MAX_VOLUME);
+            GetDisplay()->SetEmotion("sunny");
         });
 
         volume_down_button_.OnClick([this]() {
@@ -146,11 +187,15 @@ private:
             }
             codec->SetOutputVolume(volume);
             GetDisplay()->ShowNotification(Lang::Strings::VOLUME + std::to_string(volume));
+            if (volume == 0) {
+                GetDisplay()->SetEmotion("whisper");
+            }
         });
 
         volume_down_button_.OnLongPress([this]() {
             GetAudioCodec()->SetOutputVolume(0);
             GetDisplay()->ShowNotification(Lang::Strings::MUTED);
+            GetDisplay()->SetEmotion("whisper");
         });
     }
 

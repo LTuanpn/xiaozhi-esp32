@@ -4,6 +4,7 @@
 #include "display/oled_display.h"
 
 #include <lvgl.h>
+#include <string>
 
 class PocketOledDisplay : public OledDisplay {
 public:
@@ -13,6 +14,8 @@ public:
 
     void SetupUI() override;
     void SetStatus(const char* status) override;
+    void ShowNotification(const char* notification, int duration_ms = 3000) override;
+    void ShowNotification(const std::string& notification, int duration_ms = 3000) override;
     bool SetEmotion(const char* emotion) override;
     void SetChatMessage(const char* role, const char* content) override;
     void ClearChatMessages() override;
@@ -90,6 +93,13 @@ private:
         kAngelBlessing,
     };
 
+    enum class IdleQuirk {
+        kNone,
+        kBugTracking,
+        kPeekABoo,
+        kEyeRoll,
+    };
+
     lv_obj_t* face_layer_ = nullptr;
     lv_obj_t* left_eye_ = nullptr;
     lv_obj_t* right_eye_ = nullptr;
@@ -129,15 +139,22 @@ private:
 
     FaceMode face_mode_ = FaceMode::kNeutral;
     FaceMode emotion_mode_ = FaceMode::kNeutral;
+    IdleQuirk idle_quirk_ = IdleQuirk::kNone;
     bool is_speaking_ = false;
     uint32_t animation_tick_ = 0;
     uint32_t last_active_tick_ = 0;
     uint32_t wake_up_until_tick_ = 0;
     uint32_t temporary_emotion_until_tick_ = 0;
+    uint32_t notification_until_tick_ = 0;
     uint32_t surprised_start_tick_ = 0;
+    uint32_t quirk_start_tick_ = 0;
+    uint32_t quirk_until_tick_ = 0;
+    uint32_t next_quirk_tick_ = 300;
     uint32_t random_state_ = 0x57414C4C;
     uint32_t next_blink_tick_ = 45;
     uint32_t blink_until_tick_ = 0;
+    uint32_t second_blink_start_tick_ = 0;
+    uint32_t second_blink_until_tick_ = 0;
     uint32_t next_idle_tick_ = 30;
 
     int current_look_x_ = 0;
@@ -151,12 +168,14 @@ private:
     int current_left_y_offset_ = 0;
     int current_right_y_offset_ = 0;
     bool has_chat_text_ = false;
+    std::string last_status_text_;
 
     static void AnimationTimerCallback(lv_timer_t* timer);
     void UpdateAnimationFrame();
     void ApplyLayout();
     void SetFaceMode(FaceMode mode);
     FaceMode FaceModeFromEmotion(const char* emotion) const;
+    FaceMode InferEmotionFromText(const char* text) const;
     uint32_t NextRandom();
     void WakeUp();
 };

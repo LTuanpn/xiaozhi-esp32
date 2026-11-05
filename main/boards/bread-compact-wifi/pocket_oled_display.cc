@@ -1,5 +1,6 @@
 #include "pocket_oled_display.h"
 
+#include "application.h"
 #include "assets/lang_config.h"
 
 #include <algorithm>
@@ -250,8 +251,27 @@ void PocketOledDisplay::WakeUp() {
             lv_label_set_text(chat_line_, "");
         }
     }
+    idle_quirk_ = IdleQuirk::kNone;
     last_active_tick_ = animation_tick_;
     temporary_emotion_until_tick_ = 0;
+}
+
+void PocketOledDisplay::ShowNotification(const std::string& notification, int duration_ms) {
+    ShowNotification(notification.c_str(), duration_ms);
+}
+
+void PocketOledDisplay::ShowNotification(const char* notification, int duration_ms) {
+    OledDisplay::ShowNotification(notification, duration_ms);
+    DisplayLockGuard lock(this);
+    if (notification == nullptr) {
+        return;
+    }
+    if (chat_line_ != nullptr) {
+        lv_label_set_long_mode(chat_line_, LV_LABEL_LONG_SCROLL_CIRCULAR);
+        lv_label_set_text(chat_line_, notification);
+        notification_until_tick_ =
+            animation_tick_ + std::max<uint32_t>(1, duration_ms / kAnimationPeriodMs);
+    }
 }
 
 void PocketOledDisplay::SetStatus(const char* status) {
@@ -261,6 +281,7 @@ void PocketOledDisplay::SetStatus(const char* status) {
     if (status == nullptr) {
         return;
     }
+    last_status_text_ = status;
 
     if (std::strcmp(status, Lang::Strings::LISTENING) == 0 ||
         std::strcmp(status, Lang::Strings::SPEAKING) == 0 ||
@@ -291,7 +312,7 @@ void PocketOledDisplay::SetStatus(const char* status) {
         }
     }
 
-    if (!has_chat_text_ && chat_line_ != nullptr) {
+    if (!has_chat_text_ && chat_line_ != nullptr && animation_tick_ >= notification_until_tick_) {
         lv_label_set_long_mode(chat_line_, LV_LABEL_LONG_SCROLL_CIRCULAR);
         if (face_mode_ == FaceMode::kSleeping) {
             lv_label_set_text(chat_line_, "zZz...");
@@ -323,8 +344,17 @@ void PocketOledDisplay::SetChatMessage(const char* role, const char* content) {
     if (has_chat_text_ && role != nullptr && std::strcmp(role, "assistant") == 0) {
         is_speaking_ = true;
         last_active_tick_ = animation_tick_;
-        if (face_mode_ == FaceMode::kNeutral) {
-            SetFaceMode(emotion_mode_ != FaceMode::kNeutral ? emotion_mode_ : FaceMode::kSmileGentle);
+        // Auto-Sentiment Fallback when LLM didn't explicitly send an emotion tool call
+        if (emotion_mode_ == FaceMode::kNeutral) {
+            FaceMode inferred = InferEmotionFromText(content);
+            if (inferred != FaceMode::kNeutral) {
+                emotion_mode_ = inferred;
+                SetFaceMode(inferred);
+            } else if (face_mode_ == FaceMode::kNeutral || face_mode_ == FaceMode::kListening) {
+                SetFaceMode(FaceMode::kSmileGentle);
+            }
+        } else if (face_mode_ == FaceMode::kNeutral) {
+            SetFaceMode(emotion_mode_);
         }
     }
 }
@@ -334,12 +364,12 @@ void PocketOledDisplay::ClearChatMessages() {
     has_chat_text_ = false;
     is_speaking_ = false;
     last_active_tick_ = animation_tick_;
-    if (chat_line_ != nullptr) {
+    if (chat_line_ != nullptr && animation_tick_ >= notification_until_tick_) {
         lv_label_set_long_mode(chat_line_, LV_LABEL_LONG_SCROLL_CIRCULAR);
         if (face_mode_ == FaceMode::kSleeping) {
             lv_label_set_text(chat_line_, "zZz...");
         } else {
-            lv_label_set_text(chat_line_, "");
+            lv_label_set_text(chat_line_, last_status_text_.c_str());
         }
     }
     if (face_mode_ != FaceMode::kSleeping && face_mode_ != FaceMode::kWakingUp) {
@@ -353,12 +383,12 @@ void PocketOledDisplay::RemoveChatMessage(const char* role, const char* content)
     has_chat_text_ = false;
     is_speaking_ = false;
     last_active_tick_ = animation_tick_;
-    if (chat_line_ != nullptr) {
+    if (chat_line_ != nullptr && animation_tick_ >= notification_until_tick_) {
         lv_label_set_long_mode(chat_line_, LV_LABEL_LONG_SCROLL_CIRCULAR);
         if (face_mode_ == FaceMode::kSleeping) {
             lv_label_set_text(chat_line_, "zZz...");
         } else {
-            lv_label_set_text(chat_line_, "");
+            lv_label_set_text(chat_line_, last_status_text_.c_str());
         }
     }
 }
@@ -394,6 +424,23 @@ void PocketOledDisplay::UpdateAnimationFrame() {
     }
     ++animation_tick_;
 
+    // Restore chat_line_ after temporary notification expires
+    if (notification_until_tick_ > 0 && animation_tick_ >= notification_until_tick_) {
+        notification_until_tick_ = 0;
+        if (chat_line_ != nullptr && !has_chat_text_) {
+            if (face_mode_ == FaceMode::kSleeping) {
+                lv_label_set_text(chat_line_, "zZz...");
+            } else {
+                lv_label_set_text(chat_line_, last_status_text_.c_str());
+            }
+        }
+    }
+
+    // Read real-time audio levels from AudioService (0..100)
+    auto& app = Application::GetInstance();
+    const uint8_t mic_level = app.GetAudioService().GetInputLevel();
+    const uint8_t spk_level = app.GetAudioService().GetOutputLevel();
+
     constexpr int face_width = 128;
     constexpr int eye_width = 44;
     constexpr int eye_height = 36;
@@ -411,9 +458,10 @@ void PocketOledDisplay::UpdateAnimationFrame() {
         SetFaceMode(FaceMode::kNeutral);
     }
 
-    // 2. Autonomous Sleep: Sleepy after 35s, Sleeping after 50s
+    // 2. Autonomous Sleep & Mini Idle Quirks
     if (face_mode_ != FaceMode::kSleeping && face_mode_ != FaceMode::kWakingUp && temporary_emotion_until_tick_ == 0) {
         if (animation_tick_ >= last_active_tick_ + kAutoSleepTimeoutTicks) {
+            idle_quirk_ = IdleQuirk::kNone;
             SetFaceMode(FaceMode::kSleeping);
             is_speaking_ = false;
             if (chat_line_ != nullptr && !has_chat_text_) {
@@ -421,7 +469,29 @@ void PocketOledDisplay::UpdateAnimationFrame() {
                 lv_label_set_text(chat_line_, "zZz...");
             }
         } else if (animation_tick_ >= last_active_tick_ + kSleepyTimeoutTicks && face_mode_ == FaceMode::kNeutral) {
+            idle_quirk_ = IdleQuirk::kNone;
             SetFaceMode(FaceMode::kSleepy);
+        } else if (face_mode_ == FaceMode::kNeutral && !is_speaking_) {
+            // Trigger autonomous mini idle sub-routines (Bug Tracking, Peek-a-boo, Eye Roll)
+            if (idle_quirk_ != IdleQuirk::kNone && animation_tick_ >= quirk_until_tick_) {
+                idle_quirk_ = IdleQuirk::kNone;
+                next_quirk_tick_ = animation_tick_ + 300 + (NextRandom() % 200);  // Next quirk in 12-20s
+            } else if (idle_quirk_ == IdleQuirk::kNone && animation_tick_ >= next_quirk_tick_) {
+                uint32_t pick = NextRandom() % 3;
+                quirk_start_tick_ = animation_tick_;
+                if (pick == 0) {
+                    idle_quirk_ = IdleQuirk::kBugTracking;
+                    quirk_until_tick_ = animation_tick_ + 75;  // 3.0s chasing virtual fly
+                } else if (pick == 1) {
+                    idle_quirk_ = IdleQuirk::kPeekABoo;
+                    quirk_until_tick_ = animation_tick_ + 60;  // 2.4s sneaky peek
+                } else {
+                    idle_quirk_ = IdleQuirk::kEyeRoll;
+                    quirk_until_tick_ = animation_tick_ + 48;  // 1.9s circular eye roll
+                }
+            }
+        } else {
+            idle_quirk_ = IdleQuirk::kNone;
         }
     }
 
@@ -432,21 +502,56 @@ void PocketOledDisplay::UpdateAnimationFrame() {
         }
     }
 
-    // 4. Natural Blinking (Smooth squash)
+    // 4. Natural Blinking with Double-Blink Realism (~30% chance of double blink)
     bool blink = false;
     if (face_mode_ != FaceMode::kSleeping && face_mode_ != FaceMode::kPlayfulWink &&
         face_mode_ != FaceMode::kEcstaticLaugh && face_mode_ != FaceMode::kHeartbroken &&
         face_mode_ != FaceMode::kLove && face_mode_ != FaceMode::kSneezing &&
         face_mode_ != FaceMode::kRebooting && face_mode_ != FaceMode::kGameOver) {
         if (animation_tick_ >= next_blink_tick_) {
-            blink_until_tick_ = animation_tick_ + 3;  // 120ms blink
+            blink_until_tick_ = animation_tick_ + 3;  // 120ms first blink
+            if ((NextRandom() % 100) < 30) {
+                second_blink_start_tick_ = animation_tick_ + 6;
+                second_blink_until_tick_ = animation_tick_ + 9;
+            } else {
+                second_blink_start_tick_ = 0;
+                second_blink_until_tick_ = 0;
+            }
             next_blink_tick_ = animation_tick_ + 70 + (NextRandom() % 100);
         }
-        blink = animation_tick_ < blink_until_tick_;
+        blink = (animation_tick_ < blink_until_tick_) ||
+                (second_blink_start_tick_ > 0 && animation_tick_ >= second_blink_start_tick_ &&
+                 animation_tick_ < second_blink_until_tick_);
     }
 
-    // 5. Look Around (Autonomous curious eye shifts)
-    if (animation_tick_ >= next_idle_tick_ && (face_mode_ == FaceMode::kNeutral || face_mode_ == FaceMode::kSleepy) && !is_speaking_) {
+    // 5. Look Around & Quirk Gaze Tracking
+    int bug_x = 0;
+    int bug_y = 0;
+    if (face_mode_ == FaceMode::kNeutral && idle_quirk_ != IdleQuirk::kNone && !is_speaking_) {
+        uint32_t qt = animation_tick_ - quirk_start_tick_;
+        if (idle_quirk_ == IdleQuirk::kBugTracking) {
+            // Virtual fly moves across screen in figure-8 / wave
+            bug_x = 12 + static_cast<int>((qt * 104) / 75);
+            int wave = static_cast<int>(qt % 20) - 10;
+            bug_y = 22 + (wave < 0 ? -wave : wave) - 5;
+            target_look_x_ = (bug_x - 64) / 8;
+            target_look_y_ = (bug_y - 24) / 4;
+        } else if (idle_quirk_ == IdleQuirk::kPeekABoo) {
+            if (qt < 42) {
+                target_look_x_ = -7;
+                target_look_y_ = 2;
+            } else {
+                target_look_x_ = 0;
+                target_look_y_ = 0;
+            }
+        } else if (idle_quirk_ == IdleQuirk::kEyeRoll) {
+            int phase = (qt / 12) % 4;
+            if (phase == 0) { target_look_x_ = -6; target_look_y_ = 0; }
+            else if (phase == 1) { target_look_x_ = 0; target_look_y_ = -4; }
+            else if (phase == 2) { target_look_x_ = 6; target_look_y_ = 0; }
+            else { target_look_x_ = 0; target_look_y_ = 3; }
+        }
+    } else if (animation_tick_ >= next_idle_tick_ && (face_mode_ == FaceMode::kNeutral || face_mode_ == FaceMode::kSleepy) && !is_speaking_) {
         target_look_x_ = static_cast<int>(NextRandom() % (max_look_x * 2 + 1)) - max_look_x;
         target_look_y_ = static_cast<int>(NextRandom() % (max_look_y * 2 + 1)) - max_look_y;
         next_idle_tick_ = animation_tick_ + 50 + (NextRandom() % 80);
@@ -459,11 +564,18 @@ void PocketOledDisplay::UpdateAnimationFrame() {
         target_look_x_ = 0;
         target_look_y_ = 0;
     } else if (face_mode_ == FaceMode::kThinking) {
-        target_look_x_ = max_look_x;
-        target_look_y_ = -max_look_y;
+        // Speed-reading & pondering cycle while waiting for LLM
+        int read_cycle = animation_tick_ % 36;
+        if (read_cycle < 20) {
+            target_look_x_ = -6 + (read_cycle * 12) / 20;  // Smooth scan left-to-right
+            target_look_y_ = -2;
+        } else {
+            target_look_x_ = max_look_x;
+            target_look_y_ = -max_look_y;
+        }
     } else if (face_mode_ == FaceMode::kListening) {
         target_look_x_ = 0;
-        target_look_y_ = ((animation_tick_ / 8) % 2 == 0) ? -2 : 1;
+        target_look_y_ = (mic_level > 15) ? 0 : (((animation_tick_ / 8) % 2 == 0) ? -2 : 1);
     } else if (face_mode_ == FaceMode::kShy) {
         target_look_x_ = -5;
         target_look_y_ = 3;
@@ -555,6 +667,22 @@ void PocketOledDisplay::UpdateAnimationFrame() {
         target_right_height = 2;
         target_left_width = 48;
         target_right_width = 48;
+    } else if (face_mode_ == FaceMode::kListening) {
+        // Audio-reactive listening: widen eyes when user speaks loudly, squint slightly when quiet
+        int boost = (mic_level > 15) ? std::min(6, static_cast<int>(mic_level / 15)) : -2;
+        target_left_height = target_right_height = eye_height + boost;
+        target_left_width = target_right_width = eye_width - (boost / 2);
+    } else if (face_mode_ == FaceMode::kNeutral && idle_quirk_ == IdleQuirk::kPeekABoo) {
+        uint32_t qt = animation_tick_ - quirk_start_tick_;
+        if (qt < 42) {
+            // Squint suspiciously while peeking
+            target_left_height = target_right_height = 22;
+            target_left_width = target_right_width = 46;
+        } else {
+            // Startled wide eyes when caught!
+            target_left_height = target_right_height = 40;
+            target_left_width = target_right_width = 41;
+        }
     } else if (face_mode_ == FaceMode::kLove || face_mode_ == FaceMode::kHeartbroken) {
         target_left_height = 0;
         target_right_height = 0;
@@ -683,11 +811,20 @@ void PocketOledDisplay::UpdateAnimationFrame() {
     current_left_y_offset_ = Ease(current_left_y_offset_, target_left_y_offset);
     current_right_y_offset_ = Ease(current_right_y_offset_, target_right_y_offset);
 
-    // 7. Animations: Laugh bounce, Sobbing tremble, Speaking bounce, Rage vibration, Panic shiver, Music groove
+    // 7. Animations: Audio-reactive speaking bounce, Laugh bounce, Sobbing tremble, Rage shake
     int animation_x = 0;
     int animation_y = 0;
     if (is_speaking_) {
-        animation_y = ((animation_tick_ / 3) % 2 == 0) ? -1 : 1;
+        int amp_bounce = 1 + (spk_level / 32);  // Dynamic bounce 1..4px synced with voice output
+        animation_y = ((animation_tick_ / 2) % 2 == 0) ? -amp_bounce : (amp_bounce / 2);
+    } else if (face_mode_ == FaceMode::kSleeping) {
+        // REM Sleep twitching dream every ~12 seconds
+        uint32_t sleep_ticks = (animation_tick_ > last_active_tick_ + kAutoSleepTimeoutTicks)
+                                   ? (animation_tick_ - (last_active_tick_ + kAutoSleepTimeoutTicks))
+                                   : 0;
+        if (sleep_ticks > 200 && (sleep_ticks % 300) < 16) {
+            animation_x = (animation_tick_ % 2 == 0) ? -1 : 1;
+        }
     } else if (face_mode_ == FaceMode::kEcstaticLaugh) {
         animation_y = ((animation_tick_ / 3) % 2 == 0) ? -2 : 1;
     } else if (face_mode_ == FaceMode::kSadCrying || face_mode_ == FaceMode::kHeartbroken) {
@@ -730,7 +867,7 @@ void PocketOledDisplay::UpdateAnimationFrame() {
     }
 
     if (face_mode_ == FaceMode::kThinking) {
-        animation_x = ((animation_tick_ / 4) % 2 == 0) ? -1 : 1;
+        animation_y = ((animation_tick_ / 6) % 2 == 0) ? -1 : 0;
     } else if (face_mode_ == FaceMode::kSurprised) {
         animation_x = (animation_tick_ % 2 == 0) ? -1 : 1;
     } else if (face_mode_ == FaceMode::kFurious || face_mode_ == FaceMode::kFireFury) {
@@ -792,7 +929,12 @@ void PocketOledDisplay::UpdateAnimationFrame() {
     int right_pupil_w = 18;
     int right_pupil_h = 22;
 
-    if (face_mode_ == FaceMode::kSurprised) {
+    if (face_mode_ == FaceMode::kListening && mic_level > 10) {
+        // Audio-reactive pupils: contract slightly on loud bursts, dilate on soft speech
+        int shrink = (mic_level > 60) ? 4 : -2;
+        left_pupil_w = right_pupil_w = 18 - shrink;
+        left_pupil_h = right_pupil_h = 22 - shrink;
+    } else if (face_mode_ == FaceMode::kSurprised) {
         uint32_t elapsed = (animation_tick_ > surprised_start_tick_) ? (animation_tick_ - surprised_start_tick_) : 0;
         if (elapsed < 18) {
             left_pupil_w = right_pupil_w = 8;
@@ -943,7 +1085,53 @@ void PocketOledDisplay::UpdateAnimationFrame() {
     }
 
     // 12. Mode-Specific Visual Elements
-    if ((face_mode_ == FaceMode::kLove || face_mode_ == FaceMode::kHeartbroken) && !blink) {
+    if (face_mode_ == FaceMode::kNeutral && idle_quirk_ == IdleQuirk::kBugTracking && !blink) {
+        // Draw the flying virtual bug that the robot is tracking!
+        if (extra_shape_[0]) {
+            lv_obj_remove_flag(extra_shape_[0], LV_OBJ_FLAG_HIDDEN);
+            lv_obj_set_size(extra_shape_[0], 3, 3);
+            lv_obj_set_pos(extra_shape_[0], bug_x, bug_y);
+        }
+    } else if (face_mode_ == FaceMode::kSleeping) {
+        // Dreaming bubble rising when in deep sleep
+        uint32_t sleep_ticks = (animation_tick_ > last_active_tick_ + kAutoSleepTimeoutTicks)
+                                   ? (animation_tick_ - (last_active_tick_ + kAutoSleepTimeoutTicks))
+                                   : 0;
+        if (sleep_ticks > 120) {
+            for (int i = 0; i < 2; ++i) {
+                if (smoke_puff_[i]) {
+                    lv_obj_remove_flag(smoke_puff_[i], LV_OBJ_FLAG_HIDDEN);
+                    int by = 14 - ((animation_tick_ / 4 + i * 5) % 12);
+                    int bx = 58 + i * 8;
+                    int bsize = 3 + i * 2;
+                    lv_obj_set_pos(smoke_puff_[i], bx, by);
+                    lv_obj_set_size(smoke_puff_[i], bsize, bsize);
+                }
+            }
+        }
+    } else if (face_mode_ == FaceMode::kListening && !blink) {
+        // Real-time 4-bar Audio Equalizer between the eyes when listening!
+        for (int i = 0; i < 4; ++i) {
+            if (extra_shape_[i]) {
+                lv_obj_remove_flag(extra_shape_[i], LV_OBJ_FLAG_HIDDEN);
+                int wave = ((animation_tick_ + i * 2) % 4) * 2;
+                int bar_h = 2 + (mic_level * (i % 2 == 0 ? 14 : 10)) / 100 + (mic_level > 8 ? wave : 0);
+                bar_h = std::min(18, bar_h);
+                lv_obj_set_size(extra_shape_[i], 2, bar_h);
+                lv_obj_set_pos(extra_shape_[i], 59 + i * 3, 44 - bar_h);
+            }
+        }
+    } else if (face_mode_ == FaceMode::kThinking && !blink) {
+        // Bouncing thinking dots above between the eyes
+        for (int i = 0; i < 3; ++i) {
+            if (extra_shape_[i]) {
+                lv_obj_remove_flag(extra_shape_[i], LV_OBJ_FLAG_HIDDEN);
+                int bounce = (((animation_tick_ / 3) + i) % 3 == 0) ? -3 : 0;
+                lv_obj_set_size(extra_shape_[i], 3, 3);
+                lv_obj_set_pos(extra_shape_[i], 57 + i * 6, 4 + bounce);
+            }
+        }
+    } else if ((face_mode_ == FaceMode::kLove || face_mode_ == FaceMode::kHeartbroken) && !blink) {
         int pulse = (face_mode_ == FaceMode::kLove) ? ((animation_tick_ % 14 < 7) ? 2 : -1) : 0;
         int hw = 12 + pulse;
         int hh = 22 + pulse * 2;
@@ -979,7 +1167,6 @@ void PocketOledDisplay::UpdateAnimationFrame() {
             lv_obj_set_style_transform_rotation(right_heart_b_, NormalizeAngle(-450), 0);
         }
         if (face_mode_ == FaceMode::kHeartbroken) {
-            // Black jagged crack cutting down the center of each heart
             for (int i = 0; i < 2; ++i) {
                 if (extra_shape_[i]) {
                     lv_obj_remove_flag(extra_shape_[i], LV_OBJ_FLAG_HIDDEN);
@@ -1029,7 +1216,6 @@ void PocketOledDisplay::UpdateAnimationFrame() {
             lv_obj_set_style_transform_rotation(right_dizzy_b_, NormalizeAngle(1350 + dizzy_angle), 0);
         }
         if (face_mode_ == FaceMode::kHypnotized) {
-            // Hypnotic inner ring inside both eyes
             for (int i = 0; i < 2; ++i) {
                 if (extra_shape_[i]) {
                     lv_obj_remove_flag(extra_shape_[i], LV_OBJ_FLAG_HIDDEN);
@@ -1114,7 +1300,6 @@ void PocketOledDisplay::UpdateAnimationFrame() {
             }
         }
     } else if (face_mode_ == FaceMode::kMoneyEyes && !blink) {
-        // Real '$' symbols gleaming inside both pupils
         if (fx_label_a_ && fx_label_b_) {
             lv_obj_remove_flag(fx_label_a_, LV_OBJ_FLAG_HIDDEN);
             lv_obj_remove_flag(fx_label_b_, LV_OBJ_FLAG_HIDDEN);
@@ -1209,7 +1394,6 @@ void PocketOledDisplay::UpdateAnimationFrame() {
     // Special Extra Shapes (Polished 1-bit Monochrome Graphics)
     if (face_mode_ == FaceMode::kLowBattery && !blink) {
         if ((animation_tick_ % 14 < 9) && extra_shape_[0] && extra_shape_[1]) {
-            // Hollow battery shell + terminal nub
             lv_obj_remove_flag(extra_shape_[0], LV_OBJ_FLAG_HIDDEN);
             lv_obj_set_style_bg_opa(extra_shape_[0], LV_OPA_TRANSP, 0);
             lv_obj_set_style_border_width(extra_shape_[0], 2, 0);
@@ -1230,7 +1414,6 @@ void PocketOledDisplay::UpdateAnimationFrame() {
         }
     } else if ((face_mode_ == FaceMode::kInnocent || face_mode_ == FaceMode::kAngelBlessing) && !blink) {
         if (extra_shape_[0]) {
-            // True hollow Halo ring floating above eyes
             int float_y = ((animation_tick_ / 8) % 2 == 0) ? 1 : 3;
             lv_obj_remove_flag(extra_shape_[0], LV_OBJ_FLAG_HIDDEN);
             lv_obj_set_style_bg_opa(extra_shape_[0], LV_OPA_TRANSP, 0);
@@ -1241,7 +1424,6 @@ void PocketOledDisplay::UpdateAnimationFrame() {
             lv_obj_set_style_radius(extra_shape_[0], 4, 0);
         }
     } else if (face_mode_ == FaceMode::kTargetLocked && !blink) {
-        // Sniper Crosshair over Right Eye
         int cx = right_x + current_right_width_ / 2;
         int cy = right_y + current_right_height_ / 2;
         if (extra_shape_[0]) {
@@ -1266,7 +1448,6 @@ void PocketOledDisplay::UpdateAnimationFrame() {
             lv_obj_set_pos(extra_shape_[2], cx - 1, cy - 18);
         }
     } else if (face_mode_ == FaceMode::kIdeaEureka && !blink) {
-        // Lightbulb rays & exclamation mark
         if (fx_label_a_) {
             lv_obj_remove_flag(fx_label_a_, LV_OBJ_FLAG_HIDDEN);
             lv_label_set_text(fx_label_a_, "!");
@@ -1282,7 +1463,6 @@ void PocketOledDisplay::UpdateAnimationFrame() {
             }
         }
     } else if (face_mode_ == FaceMode::kWhispering && !blink) {
-        // "Shhh" vertical finger bar in the center bottom
         if (extra_shape_[0]) {
             lv_obj_remove_flag(extra_shape_[0], LV_OBJ_FLAG_HIDDEN);
             lv_obj_set_pos(extra_shape_[0], 60, 26);
@@ -1290,7 +1470,6 @@ void PocketOledDisplay::UpdateAnimationFrame() {
             lv_obj_set_style_radius(extra_shape_[0], 4, 0);
         }
     } else if (face_mode_ == FaceMode::kSneezing && (animation_tick_ % 35) >= 22) {
-        // Spray droplets flying out on sneeze
         for (int i = 0; i < 3; ++i) {
             if (extra_shape_[i]) {
                 lv_obj_remove_flag(extra_shape_[i], LV_OBJ_FLAG_HIDDEN);
@@ -1300,7 +1479,6 @@ void PocketOledDisplay::UpdateAnimationFrame() {
             }
         }
     } else if (face_mode_ == FaceMode::kHeadache && !blink) {
-        // Throbbing temple veins on forehead
         if ((animation_tick_ / 3) % 2 == 0 && extra_shape_[0] && extra_shape_[1]) {
             lv_obj_remove_flag(extra_shape_[0], LV_OBJ_FLAG_HIDDEN);
             lv_obj_remove_flag(extra_shape_[1], LV_OBJ_FLAG_HIDDEN);
@@ -1310,7 +1488,6 @@ void PocketOledDisplay::UpdateAnimationFrame() {
             lv_obj_set_size(extra_shape_[1], 3, 11);
         }
     } else if (face_mode_ == FaceMode::kFreezing && !blink) {
-        // Hanging icicles under both eyes
         for (int i = 0; i < 4; ++i) {
             if (extra_shape_[i]) {
                 lv_obj_remove_flag(extra_shape_[i], LV_OBJ_FLAG_HIDDEN);
@@ -1333,7 +1510,6 @@ void PocketOledDisplay::UpdateAnimationFrame() {
         }
     } else if (face_mode_ == FaceMode::kShockedJawdrop && !blink) {
         if (extra_shape_[0]) {
-            // Hollow dropped jaw O-mouth
             lv_obj_remove_flag(extra_shape_[0], LV_OBJ_FLAG_HIDDEN);
             lv_obj_set_style_bg_opa(extra_shape_[0], LV_OPA_TRANSP, 0);
             lv_obj_set_style_border_width(extra_shape_[0], 2, 0);
@@ -1548,7 +1724,7 @@ void PocketOledDisplay::UpdateAnimationFrame() {
             lv_obj_set_size(right_bottom_lid_, current_right_width_ + 4, 18);
         }
 
-        // Cheerful Laugh / Gentle Smile / Music / Speaking: Lower eyelid cheek bump
+        // Cheerful Laugh / Gentle Smile / Music / Audio-Reactive Speaking Cheek Bump
         if (face_mode_ == FaceMode::kEcstaticLaugh || face_mode_ == FaceMode::kPartyCelebrate) {
             constexpr int cover_height = 8;
             lv_obj_remove_flag(left_bottom_lid_, LV_OBJ_FLAG_HIDDEN);
@@ -1560,13 +1736,13 @@ void PocketOledDisplay::UpdateAnimationFrame() {
         } else if (face_mode_ == FaceMode::kSmileGentle || face_mode_ == FaceMode::kMusic ||
                    face_mode_ == FaceMode::kZenMeditation || face_mode_ == FaceMode::kAngelBlessing ||
                    (is_speaking_ && (face_mode_ == FaceMode::kNeutral || face_mode_ == FaceMode::kListening))) {
-            constexpr int cover_height = 14;
+            int dynamic_cheek = 12 + (is_speaking_ ? (spk_level / 20) : 2);
             lv_obj_remove_flag(left_bottom_lid_, LV_OBJ_FLAG_HIDDEN);
             lv_obj_remove_flag(right_bottom_lid_, LV_OBJ_FLAG_HIDDEN);
-            lv_obj_set_pos(left_bottom_lid_, left_x - 2, left_y + current_left_height_ - cover_height / 2);
-            lv_obj_set_size(left_bottom_lid_, current_left_width_ + 4, cover_height);
-            lv_obj_set_pos(right_bottom_lid_, right_x - 2, right_y + current_right_height_ - cover_height / 2);
-            lv_obj_set_size(right_bottom_lid_, current_right_width_ + 4, cover_height);
+            lv_obj_set_pos(left_bottom_lid_, left_x - 2, left_y + current_left_height_ - dynamic_cheek / 2);
+            lv_obj_set_size(left_bottom_lid_, current_left_width_ + 4, dynamic_cheek);
+            lv_obj_set_pos(right_bottom_lid_, right_x - 2, right_y + current_right_height_ - dynamic_cheek / 2);
+            lv_obj_set_size(right_bottom_lid_, current_right_width_ + 4, dynamic_cheek);
         }
     }
 }
@@ -1581,6 +1757,38 @@ void PocketOledDisplay::SetFaceMode(FaceMode mode) {
         target_look_y_ = 0;
     }
     UpdateAnimationFrame();
+}
+
+PocketOledDisplay::FaceMode PocketOledDisplay::InferEmotionFromText(const char* text) const {
+    if (text == nullptr) {
+        return FaceMode::kNeutral;
+    }
+    if (Contains(text, "haha") || Contains(text, "hihi") || Contains(text, "hehe") ||
+        Contains(text, "buồn cười") || Contains(text, " mắc cười")) {
+        return FaceMode::kEcstaticLaugh;
+    }
+    if (Contains(text, "yêu ") || Contains(text, "thả tim") || Contains(text, "đáng yêu") ||
+        Contains(text, "cưng quá") || Contains(text, "<3")) {
+        return FaceMode::kLove;
+    }
+    if (Contains(text, "xin lỗi") || Contains(text, "tiếc quá") || Contains(text, "buồn") ||
+        Contains(text, "chia buồn")) {
+        return FaceMode::kSadEmpathy;
+    }
+    if (Contains(text, "tuyệt vời") || Contains(text, "xuất sắc") || Contains(text, "wow") ||
+        Contains(text, "chúc mừng")) {
+        return FaceMode::kExcited;
+    }
+    if (Contains(text, "bí mật") || Contains(text, "suỵt") || Contains(text, "thì thầm")) {
+        return FaceMode::kWhispering;
+    }
+    if (Contains(text, "bất ngờ") || Contains(text, "ngạc nhiên") || Contains(text, "thật sao")) {
+        return FaceMode::kSurprised;
+    }
+    if (Contains(text, "ý tưởng") || Contains(text, "nghĩ ra rồi") || Contains(text, "mẹo")) {
+        return FaceMode::kIdeaEureka;
+    }
+    return FaceMode::kNeutral;
 }
 
 PocketOledDisplay::FaceMode PocketOledDisplay::FaceModeFromEmotion(const char* emotion) const {

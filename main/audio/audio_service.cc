@@ -1,6 +1,30 @@
 #include "audio_service.h"
 #include <esp_log.h>
+#include <algorithm>
+#include <cstdlib>
 #include <cstring>
+
+namespace {
+uint8_t ComputePcmLevel(const std::vector<int16_t>& pcm) {
+    if (pcm.empty()) {
+        return 0;
+    }
+    int32_t peak = 0;
+    const size_t step = std::max<size_t>(1, pcm.size() / 64);
+    for (size_t i = 0; i < pcm.size(); i += step) {
+        int32_t v = std::abs(static_cast<int32_t>(pcm[i]));
+        if (v > peak) {
+            peak = v;
+        }
+    }
+    // Map peak [300 .. 14000] -> [0 .. 100]
+    if (peak < 300) {
+        return 0;
+    }
+    int32_t norm = (peak - 300) * 100 / 13700;
+    return static_cast<uint8_t>(std::min<int32_t>(100, norm));
+}
+}  // namespace
 
 #define RATE_CVT_CFG(_src_rate, _dest_rate, _channel)                                        \
     (esp_ae_rate_cvt_cfg_t) {                                                                \
@@ -173,6 +197,8 @@ void AudioService::Start() {
 void AudioService::Stop() {
     esp_timer_stop(audio_power_timer_);
     service_stopped_.store(true);
+    input_level_.store(0, std::memory_order_relaxed);
+    output_level_.store(0, std::memory_order_relaxed);
     xEventGroupSetBits(event_group_, AS_EVENT_AUDIO_TESTING_RUNNING | AS_EVENT_WAKE_WORD_RUNNING |
                                          AS_EVENT_AUDIO_PROCESSOR_RUNNING);
 
@@ -224,9 +250,13 @@ bool AudioService::ReadAudioData(std::vector<int16_t>& data, int sample_rate, in
         }
     }
 
-    /* Update the last input time */
+    /* Update the last input time and real-time audio envelope */
     last_input_time_ = std::chrono::steady_clock::now();
     debug_statistics_.input_count++;
+    uint8_t cur_in = ComputePcmLevel(data);
+    uint8_t prev_in = input_level_.load(std::memory_order_relaxed);
+    input_level_.store(cur_in > prev_in ? cur_in : static_cast<uint8_t>((prev_in * 2 + cur_in) / 3),
+                       std::memory_order_relaxed);
 
 #if CONFIG_USE_AUDIO_DEBUGGER
     // 音频调试：发送原始音频数据
@@ -268,6 +298,7 @@ void AudioService::AudioInputTask() {
                 if (codec_->input_enabled()) {
                     codec_->EnableInput(false);
                 }
+                input_level_.store(0, std::memory_order_relaxed);
                 // Do not process the stale active bits returned by waitBits().
                 continue;
             }
@@ -348,6 +379,7 @@ void AudioService::AudioOutputTask() {
             callbacks_.on_playback_progress(task.playback_id, task.media_position_ms);
         }
 
+        output_level_.store(ComputePcmLevel(task.pcm), std::memory_order_relaxed);
         codec_->OutputData(task.pcm);
 
         /* Update the last output time */
@@ -367,6 +399,9 @@ void AudioService::AudioOutputTask() {
 #endif
         output_in_flight_ = false;
         notify_drained = MarkPlaybackDrainedLocked();
+        if (notify_drained) {
+            output_level_.store(0, std::memory_order_relaxed);
+        }
         audio_queue_cv_.notify_all();
         lock.unlock();
 
@@ -731,6 +766,7 @@ void AudioService::EnableVoiceProcessing(bool enable) {
         if (audio_engine_initialized_) {
             audio_engine_->EnableVoiceProcessing(false);
         }
+        input_level_.store(0, std::memory_order_relaxed);
         xEventGroupClearBits(event_group_, AS_EVENT_AUDIO_PROCESSOR_RUNNING);
     }
 }
@@ -813,6 +849,7 @@ void AudioService::ResetDecoder() {
         audio_decode_queue_.clear();
         audio_playback_queue_.clear();
         audio_testing_queue_.clear();
+        output_level_.store(0, std::memory_order_relaxed);
         notify_drained = MarkPlaybackDrainedLocked();
         audio_queue_cv_.notify_all();
     }
