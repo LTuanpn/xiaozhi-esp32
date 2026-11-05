@@ -45,6 +45,49 @@ private:
         kPout,
         kMusic,
         kScanning,
+        // Group 1: Cyber & Tech
+        kMatrixGlitch,
+        kLoadingBuffer,
+        kLowBattery,
+        kOverheat,
+        kRebooting,
+        kTargetLocked,
+        // Group 2: Personality & Sass
+        kSideEye,
+        kFacepalm,
+        kInnocent,
+        kJealous,
+        kScheming,
+        kDisgusted,
+        kWhispering,
+        // Group 3: Physical & Bodily
+        kFreezing,
+        kSneezing,
+        kCryingStream,
+        kHeadache,
+        kDrunk,
+        kExhausted,
+        // Group 4: Mental & Spiritual
+        kZenMeditation,
+        kShockedJawdrop,
+        kParanoid,
+        kConfusedQuestion,
+        kIdeaEureka,
+        kHypnotized,
+        // Group 5: Playful & Gaming
+        kMoneyEyes,
+        kHeartbroken,
+        kTongueOut,
+        kPartyCelebrate,
+        kStealthNinja,
+        kGameOver,
+        // Group 6: Elemental & Powers
+        kFireFury,
+        kThunderShock,
+        kRainyGloomy,
+        kSunnyDazzle,
+        kSleepwalking,
+        kAngelBlessing,
     };
 
     lv_obj_t* face_layer_ = nullptr;
@@ -78,6 +121,7 @@ private:
     lv_obj_t* smoke_puff_[4] = {nullptr, nullptr, nullptr, nullptr};
     lv_obj_t* music_note_[2] = {nullptr, nullptr};
     lv_obj_t* sweat_drop_ = nullptr;
+    lv_obj_t* extra_shape_[6] = {nullptr, nullptr, nullptr, nullptr, nullptr, nullptr};
     lv_obj_t* chat_line_ = nullptr;
     lv_timer_t* animation_timer_ = nullptr;
 

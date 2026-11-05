@@ -3,8 +3,8 @@ name: walle-roboeyes-designer
 description: >-
   Chuyên gia thiết kế biểu cảm mắt robot sống động phong cách Wall-E / Huy Vector / Pixar
   cho màn hình OLED SSD1306 (128x64) và màn hình LCD/TFT trên ESP32 sử dụng LVGL 9.
-  Cung cấp quy chuẩn hình học, thuật toán sửa lỗi mí mắt xoay góc âm, danh mục 23 biểu cảm
-  động lực học, đồng bộ ngữ cảnh giọng nói LLM và kiểm thử tự động.
+  Cung cấp quy chuẩn hình học, thuật toán sửa lỗi mí mắt xoay góc âm, danh mục 60 biểu cảm
+  động lực học phong phú, đồng bộ ngữ cảnh giọng nói LLM và kiểm thử tự động.
 ---
 
 # Wall-E & Huy Vector RoboEyes Designer Skill
@@ -69,35 +69,97 @@ Không cần dùng Canvas phức tạp gây tốn RAM. Tạo 2 hình chữ nhậ
 
 ---
 
-## 3. Bảng Thông Số 23 Biểu Cảm Chuẩn Mực
+## 3. Bảng Danh Mục 60 Biểu Cảm Động Học Hoàn Chỉnh
 
-Dưới đây là bảng thông số hình học và hiệu ứng động học đã được kiểm chứng hoạt động hoàn hảo trên màn hình OLED SSD1306 (128x64):
+Dưới đây là danh mục 60 biểu cảm với thông số hình học và animation động lực học chi tiết (25 FPS), hiển thị sống động trên màn hình OLED SSD1306 (128x64):
 
-| Tên Biểu Cảm | Mắt Trái (H x W) | Mắt Phải (H x W) | Mí Mắt (Top / Bottom) | Đồng Tử (W x H) | Hiệu Ứng Động Học Sinh Học |
-| :--- | :--- | :--- | :--- | :--- | :--- |
-| **`neutral`** | 36 x 44 | 36 x 44 | Ẩn | 18 x 22 | Tự động liếc nhìn tò mò sau mỗi 2-4 giây, chớp mắt tự nhiên. |
-| **`happy`** | 36 x 44 | 36 x 44 | Mí dưới che 14px vòm cười | 18 x 22 | Ánh mắt mỉm cười dịu dàng, nhìn thẳng. |
-| **`laugh`** | 36 x 44 | 36 x 44 | Mí dưới che 8px vòm má | 18 x 20 | Mắt tươi vui, nhún nhảy `animation_y = -2 <-> 1` theo nhịp. |
-| **`wink`** | 36 x 44 | 22 x 44 | Mắt phải mặt nạ trăng khuyết | 18 x 22 (trái) | Mắt phải nháy tinh nghịch, mắt trái mở to. |
-| **`sad`** | 32 x 44 | 32 x 44 | Mí trên rủ đối xứng -14° / +14° | 18 x 22 | Mắt trĩu xuống, tròng mắt nhìn xuống (`target_look_y = 3`). |
-| **`cry`** | 32 x 44 | 32 x 44 | Mí trên rủ đối xứng -14° / +14° | 18 x 22 | Rung nghẹn ngào + 2 giọt nước mắt rơi đều dưới 2 mắt. |
-| **`angry`** | 36 x 44 | 36 x 44 | Cau mày 14° (+140 / -140) | 18 x 22 | Mí trên cắt chéo đối xứng chuẩn Huy Vector, không vệt chém. |
-| **`surprised`**| 42 x 44 | 42 x 44 | Mở to cực đại | Co 8x10 $\rightarrow$ Giãn 24x26| Đồng tử co rút 720ms rồi bung to + rung lắc giật mình. |
-| **`sleepy`** | 36 x 44 | 36 x 44 | Mí trên sụp 12px (1/3), mí dưới phẳng | 18 x 22 | Sụp mí trên lờ đờ, tròng mắt vẫn liếc ngang tự nhiên. |
-| **`sleeping`**| 22 x 44 | 22 x 44 | Hai vòm trăng khuyết radius 14 | Ẩn | Nhắm mắt ngủ say, thở phập phồng êm ái (`breath_offset`). |
-| **`thinking`**| 36 x 44 | 36 x 44 | Ẩn | 18 x 22 | Liếc góc trên bên phải (`x=7, y=-4`), rung nhẹ suy ngẫm. |
-| **`shy`** | 32 x 44 | 32 x 44 | Ẩn | 18 x 22 | Liếc e thẹn góc dưới trái + 2 vệt má hồng phúng phính. |
-| **`skeptical`**| 40 x 44 | 20 x 44 | Mắt phải mí trên nheo nghiêng -6° | Trái 18x22, Phải 16x12 | Mắt trái tròn to tò mò, mắt phải nheo hoài nghi liếc ngang. |
-| **`smug`** | 36 x 44 | 34 x 44 | Mí dưới phải nhếch cao 14px | 18 x 22 | Nụ cười khẩy một bên + liếc góc trên phải + gật gù đắc ý. |
-| **`furious`** | 36 x 44 | 36 x 44 | Cau mày 18° + mí dưới che 6px | 12 x 14 (sắc lẹm) | Rung bần bật tức tối + 4 luồng khói bốc lên đỉnh đầu. |
-| **`love`** | Ẩn | Ẩn | 2 trái tim đập phập phồng | Ẩn | 2 trái tim nhịp đập 14 <-> 18px + 2 má hồng rực rỡ. |
-| **`dizzy`** | 36 x 44 | 36 x 44 | 2 dấu X đen quay tít | Ẩn | 2 dấu X xoay 360° liên tục + mắt chao đảo hình elip say sóng. |
-| **`scared`** | 30 x 44 | 30 x 44 | Mở co tròn | 8 x 8 (co rúm) | Rung lắc bần bật khiếp sợ + giọt mồ hôi rơi bên thái dương. |
-| **`excited`** | 38 x 44 | 38 x 44 | Ẩn | Ngôi sao 4 cánh lấp lánh | Ánh mắt ngôi sao Anime co giãn + nhún nhảy tưng bừng. |
-| **`bored`** | 36 x 44 | 36 x 44 | Mí trên sụp ngang 50% (18px) | 18 x 22 | Mí sụp 1/2, đảo mắt uể oải trái $\rightarrow$ phải $\rightarrow$ trần nhà thở dài. |
-| **`pout`** | 38 x 44 | 38 x 44 | Ẩn | 26 x 28 (cực đại Anime) | 2 đốm sáng lung linh trong tròng đen + má hồng phúng phính. |
-| **`music`** | 36 x 44 | 36 x 44 | Mí dưới nâng cao vòm cười | 18 x 22 | Đu đưa lắc lư sang 2 bên theo nhịp + 2 nốt nhạc bay dập dờn. |
-| **`scanning`** | 26 x 44 | 26 x 44 | Mắt nheo công nghệ | 18 x 22 | Tia laser quét ngang từ đỉnh xuống đáy + đồng tử đảo nhanh. |
+### Nhóm Gốc & Kinh Điển (23 Biểu Cảm Cốt Lõi)
+| Tên Biểu Cảm | Mắt Trái / Phải | Mí Mắt & Phụ Kiện | Động Lực Học Animation (25 FPS) |
+| :--- | :--- | :--- | :--- |
+| `neutral` | 36 x 44 | Tự nhiên, không mí | Tự động liếc nhìn tò mò sau mỗi 2-4s, chớp mắt tự nhiên. |
+| `happy` | 36 x 44 | Mí dưới che 14px vòm cười | Ánh mắt mỉm cười dịu dàng, nhìn thẳng. |
+| `laugh` | 36 x 44 | Mí dưới che 8px vòm má | Mắt tươi vui, nhún nhảy `animation_y = -2 <-> 1` theo nhịp cười. |
+| `wink` | 36 x 44 / 22 x 44 | Mắt phải mặt nạ trăng khuyết | Mắt phải nháy tinh nghịch, mắt trái mở to. |
+| `sad` | 32 x 44 | Mí trên rủ -14° / +14° | Mắt trĩu xuống, tròng mắt nhìn xuống (`target_look_y = 3`). |
+| `cry` | 32 x 44 | Mí rủ -14° / +14° | Rung nghẹn ngào + 2 giọt nước mắt rơi luân phiên dưới 2 mắt. |
+| `angry` | 36 x 44 | Cau mày 14° (+140 / -140) | Mí trên cắt chéo đối xứng chuẩn Huy Vector, không vệt chém. |
+| `surprised` | 42 x 44 | Mở to cực đại | Đồng tử co 8x10 trong 720ms rồi bung to 24x26 + rung chấn giật mình. |
+| `sleepy` | 36 x 44 | Mí trên sụp 12px (1/3), mí dưới phẳng | Sụp mí trên lờ đờ, tròng mắt vẫn liếc ngang tự nhiên. |
+| `sleeping` | 22 x 44 | Hai vòm trăng khuyết radius 14 | Nhắm mắt ngủ say, thở phập phồng êm ái (`breath_offset`). |
+| `thinking` | 36 x 44 | Tự nhiên | Liếc góc trên bên phải (`x=7, y=-4`), rung nhẹ suy ngẫm. |
+| `shy` | 32 x 44 | Tự nhiên | Liếc e thẹn góc dưới trái + 2 vệt má hồng phúng phính. |
+| `skeptical` | 40 x 44 / 20 x 44 | Mắt phải nheo nghiêng -6° | Mắt trái mở to tò mò, mắt phải nheo hoài nghi liếc ngang. |
+| `smug` | 36 x 44 / 34 x 44 | Mí dưới phải nhếch cao 14px | Nụ cười khẩy một bên + liếc góc trên phải + gật gù đắc ý. |
+| `furious` | 36 x 44 | Cau mày 18° + mí dưới 6px | Rung bần bật tức tối + 4 luồng khói bốc lên đỉnh đầu. |
+| `love` | Ẩn mắt thường | 2 trái tim đập phập phồng | 2 trái tim nhịp đập 14 <-> 18px + 2 má hồng rực rỡ. |
+| `dizzy` | 36 x 44 | 2 dấu X đen quay tít | 2 dấu X xoay 360° liên tục + mắt chao đảo hình elip say sóng. |
+| `scared` | 30 x 44 | Mở co tròn | Rung lắc bần bật khiếp sợ + giọt mồ hôi rơi bên thái dương. |
+| `excited` | 38 x 44 | Tự nhiên | Đồng tử ngôi sao 4 cánh lấp lánh co giãn + nhún nhảy tưng bừng. |
+| `bored` | 36 x 44 | Mí trên sụp ngang 50% (18px) | Mí sụp 1/2, đảo mắt uể oải trái -> phải -> trần nhà thở dài. |
+| `pout` | 38 x 44 | Tự nhiên | 2 đốm sáng lung linh trong tròng đen + má hồng phúng phính. |
+| `music` | 36 x 44 | Mí dưới nâng cao vòm cười | Đu đưa lắc lư sang 2 bên theo nhịp + 2 nốt nhạc bay dập dờn. |
+| `scanning` | 26 x 44 | Mắt nheo công nghệ | Tia laser quét ngang từ đỉnh xuống đáy + đồng tử đảo nhanh. |
+
+### Nhóm 1: Cyber & Công Nghệ (6 Biểu Cảm)
+| Tên Biểu Cảm | Mô Tả & Tạo Hình | Animation Động Lực Học |
+| :--- | :--- | :--- |
+| `matrix_glitch` | Mắt lệch pha ngang dọc, thanh quét glitch CRT | Mắt rung giật mạnh, vệt quét scanline trượt qua lại. |
+| `loading_buffer` | Đồng tử biến thành thanh loading 4 chấm | 4 vạch loading chạy xoay vòng nối tiếp nhấp nháy. |
+| `low_battery` | Mắt chớp tắt lờ đờ, biểu tượng pin cạn góc màn hình | Mắt tối dần rồi nháy yếu ớt, nhấp nháy đỏ báo pin yếu. |
+| `overheat` | Mắt rực nóng, sóng nhiệt bốc hơi | Mắt co giật vì quá nhiệt, sóng nhiệt dập dờn bay lên. |
+| `rebooting` | Mắt thu nhỏ thành 1 đường chỉ sáng rồi nở bừng | Vạch sáng hẹp ngang nở rộng dần như TV bóng đèn CRT bật nguồn. |
+| `target_locked` | Hồng tâm radar ngắm bắn thu phóng | Crosshair ngắm bắn co rút khóa mục tiêu liên tục. |
+
+### Nhóm 2: Cá Tính & Thần Thái (7 Biểu Cảm)
+| Tên Biểu Cảm | Mô Tả & Tạo Hình | Animation Động Lực Học |
+| :--- | :--- | :--- |
+| `side_eye` | Liếc xéo cực đại sang góc màn hình | Tròng mắt đẩy sát mép biên, mí mắt nheo phán xét. |
+| `facepalm` | Một mắt mở hé, một mắt bị bàn tay/mí che | Một bên mắt giật giật bất lực, đầu lắc nhẹ sang bên. |
+| `innocent` | Mắt tròn xoe long lanh ngây thơ | Đốm sáng lung linh, mắt chớp chớp vô tội. |
+| `jealous` | Mắt híp một bên lườm nguýt ganh tị | Liếc mắt ghen ghét, mi mắt giật nhịp cay cú. |
+| `scheming` | Mí trên mí dưới khép hẹp mưu mô | Ánh mắt liếc qua liếc lại xảo quyệt đầy toan tính. |
+| `disgusted` | Mắt nheo lệch, mí nhăn nhó ghê tởm | Mắt giật lùi về sau, tròng mắt liếc tránh né kinh tởm. |
+| `whispering` | Mắt đảo nhìn quanh dè chừng | Đảo mắt qua lại kiểm tra xung quanh thì thầm bí mật. |
+
+### Nhóm 3: Phản Xạ Sinh Học & Cơ Thể (6 Biểu Cảm)
+| Tên Biểu Cảm | Mô Tả & Tạo Hình | Animation Động Lực Học |
+| :--- | :--- | :--- |
+| `freezing` | Mắt co rúm, răng đánh lập cập | Rung lắc tần số cao vì rét buốt, bông tuyết/sương giá. |
+| `sneezing` | Mắt nheo chặt co lại rồi nổ bung hắt xì | Mí khép chặt run run rồi giật bắn nảy bung cực mạnh. |
+| `crying_stream` | 2 dòng thác nước mắt phun trào | Thác nước mắt đổ ào ạt 2 bên, cơ thể rung bần bật khóc lớn. |
+| `headache` | Mắt nhắm nghiền nhăn nhó, tia sét nhói đau | Rung nhói theo nhịp mạch đập cơn đau đầu. |
+| `drunk` | Hai mắt chao đảo lệch pha ngất ngưởng | Hai mắt quay vòng tròn elip so le, bước đi xiêu vẹo. |
+| `exhausted` | Mắt rũ xuống đáy, lưỡi thè/giọt mồ hôi | Mắt sụp tận đáy, thở dốc phập phồng kiệt sức. |
+
+### Nhóm 4: Tâm Trí & Nhận Thức (6 Biểu Cảm)
+| Tên Biểu Cảm | Mô Tả & Tạo Hình | Animation Động Lực Học |
+| :--- | :--- | :--- |
+| `zen_meditation` | Mắt khép vòng cung tĩnh tại, hào quang | Trôi nổi êm đềm lơ lửng, vầng hào quang tỏa sáng dịu nhẹ. |
+| `shocked_jawdrop` | Mắt co tròn trợn ngược cực sốc | Mắt thụt lùi rồi mở toáng cực đại đờ đẫn kinh hoàng. |
+| `paranoid` | Hai mắt giật thon thót nhìn tứ phía | Đảo mắt cực nhanh tứ phía hoang tưởng, rung giật lo sợ. |
+| `confused_question` | Một mắt to một mắt bé kèm dấu hỏi chấm | Dấu hỏi chấm bồng bềnh phía trên, đầu nghiêng thắc mắc. |
+| `idea_eureka` | Mắt sáng bừng kèm bóng đèn bật sáng | Bóng đèn phát sáng trên đỉnh đầu nhấp nháy ý tưởng. |
+| `hypnotized` | Đồng tử xoắn ốc thôi miên xoay tít | Vòng xoáy xoay tròn liên tục mê hoặc tâm trí. |
+
+### Nhóm 5: Tinh Nghịch & Giải Trí (6 Biểu Cảm)
+| Tên Biểu Cảm | Mô Tả & Tạo Hình | Animation Động Lực Học |
+| :--- | :--- | :--- |
+| `money_eyes` | Đồng tử biến thành ký hiệu dollar ($) | Ký hiệu dollar nhảy múa nhấp nháy lấp lánh tiền tài. |
+| `heartbroken` | Trái tim vỡ đôi tách xa nhau | Trái tim nứt đôi rung nhẹ rồi tách rời trĩu xuống đau đớn. |
+| `tongue_out` | Một mắt nháy, lưỡi thè tinh nghịch | Mắt nháy vui nhộn, lưỡi lúc lắc trêu chọc nhí nhảnh. |
+| `party_celebrate` | Pháo hoa giấy confetti nổ tung | Mắt nhún nhảy tưng bừng, hạt hoa giấy bay lượn rộn ràng. |
+| `stealth_ninja` | Mắt nheo hẹp sắc bén trong bóng tối | Mắt nheo sắc lẻm lướt nhanh trong bóng đêm bí ẩn. |
+| `game_over` | Hai mắt biến thành dấu X tĩnh trĩu rủ | Mắt gục xuống, nhấp nháy báo hiệu thất bại GameOver. |
+
+### Nhóm 6: Nguyên Tố & Huyền Ảo (6 Biểu Cảm)
+| Tên Biểu Cảm | Mô Tả & Tạo Hình | Animation Động Lực Học |
+| :--- | :--- | :--- |
+| `fire_fury` | Ngọn lửa rực cháy quanh hốc mắt | Ngọn lửa bốc cháy bập bùng dữ dội bừng bừng nộ khí. |
+| `thunder_shock` | Tia sét đánh chớp lóa qua mắt | Tia sét ziczac đánh giật sáng chói lóa điện giật. |
+| `rainy_gloomy` | Đám mây u ám đổ mưa rơi rớt | Đám mây xám xịt phía trên trút từng hạt mưa rơi tí tách. |
+| `sunny_dazzle` | Ánh mặt trời tỏa tia sáng rực rỡ | Vòng tia nắng quay tròn tỏa sáng rạng ngời ấm áp. |
+| `sleepwalking` | Mắt mở đờ đẫn, tay buông thõng mộng du | Trôi dạt chậm rãi vô thức, ánh mắt vô hồn trôi nổi. |
+| `angel_blessing` | Đôi cánh thiên thần vỗ nhẹ và vòng thánh | Vòng hào quang thiên thần bồng bềnh, cánh vỗ nhịp êm dịu. |
 
 ---
 

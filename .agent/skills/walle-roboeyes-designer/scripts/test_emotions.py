@@ -45,6 +45,55 @@ EMOTIONS = [
     ("pout", "Phung phinh: Dong tu cuc dai anime + 2 dom sang lung linh"),
     ("music", "Thuong thuc am nhac: Mat cuoi chill + Du dua trai phai + 2 not nhac bay"),
     ("scanning", "Quet radar AI: Mat cong nghe + Tia laser ngang quet lien tuc"),
+
+    # 3. Nhóm 6 Biểu cảm Cyber & Tech
+    ("matrix", "Matrix glitch rach hinh ngang lien tuc"),
+    ("loading", "Spinner loading xoay tron cho tai du lieu"),
+    ("battery", "Yeu pin sup mi + Icon pin chot tat"),
+    ("overheat", "Qua nhiet nong may + 4 song khoi boc len"),
+    ("reboot", "Khoi dong CRT vach sang mo rong"),
+    ("target", "Hong tam ban tia khoa muc tieu"),
+
+    # 4. Nhóm 7 Biểu cảm Personality & Sass
+    ("side_eye", "Bombastic side-eye liec xeo phan xet"),
+    ("facepalm", "Bat luc can loi 1 mat che kin"),
+    ("innocent", "Ngay tho vo toi + Vong hao quang thien than"),
+    ("jealous", "Ghen ti nheo mi tam giac xeo"),
+    ("scheming", "Gian xao muu mo liec qua liec lai"),
+    ("disgust", "Kinh tom nhan nho lech mat"),
+    ("whisper", "Thi tham bi mat 2 mat nep sat mep"),
+
+    # 5. Nhóm 6 Biểu cảm Physical & Bodily
+    ("freeze", "Lanh run cam cap rang cua va lap cap"),
+    ("sneeze", "Sap hat xi co rum roi bung gio"),
+    ("waterfall", "Thac nuoc Anime tuon xoi xa 2 ben"),
+    ("headache", "Dau dau nhuc oc + 2 tia set giat thai duong"),
+    ("drunk", "Say xin 1 mat to 1 mat be lao dao"),
+    ("exhaust", "Kiet suc nam bep sat day man hinh"),
+
+    # 6. Nhóm 6 Biểu cảm Mental & Spiritual
+    ("zen", "Thien dinh thanh tinh bong benh"),
+    ("jawdrop", "Rot ham bang hoang chan dong"),
+    ("paranoid", "Hoang tuong dao mat loan xa canh giac"),
+    ("question", "Ngo ngac dau hoi ? nhay tung tung"),
+    ("idea", "Nay y tuong bong den sang loa"),
+    ("hypno", "Thoi mien vong xoay dong tam"),
+
+    # 7. Nhóm 6 Biểu cảm Playful & Gaming
+    ("money", "Mat sang hinh do la $"),
+    ("heartbreak", "Trai tim vo doi vo vun"),
+    ("tongue", "Le luoi treu nguoi tinh nghich"),
+    ("party", "Tiec tung an mung hoa giay confetti"),
+    ("stealth", "Ninja an nap he he mat trong dem"),
+    ("game_over", "Thua tran dau X X chim xuong day"),
+
+    # 8. Nhóm 6 Biểu cảm Elemental & Powers
+    ("fire", "Mat lua Super Saiyan bung chay"),
+    ("thunder", "Te liet vi set danh giat ziczac"),
+    ("rain", "Am dam may den mua roi ti tach"),
+    ("sunny", "Choi chang toa sang tia nang"),
+    ("sleepwalk", "Mong du do dan vo hon vat vo"),
+    ("angel", "Thanh thien ban phuoc hao quang doi canh"),
 ]
 
 def main():

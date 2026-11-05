@@ -174,7 +174,7 @@ private:
                 esp_lcd_panel_mirror(panel_, mirror, mirror);
                 return true;
             });
-        mcp_server.AddTool("self.screen.set_emotion", "Set emotion of the robot display (happy, sad, angry, laugh, cry, wink, sleepy, surprised, skeptical, smug, furious, love, dizzy, scared, excited, bored, pout, music, scanning, thinking, shy, neutral)",
+        mcp_server.AddTool("self.screen.set_emotion", "Set emotion of robot display. Supports 60 emotions: happy, sad, angry, laugh, cry, wink, sleepy, surprised, skeptical, smug, furious, love, dizzy, scared, excited, bored, pout, music, scanning, thinking, shy, neutral, matrix, loading, battery, overheat, reboot, target, side_eye, facepalm, innocent, jealous, scheming, disgusted, whisper, freeze, sneeze, waterfall, headache, drunk, exhausted, zen, jawdrop, paranoid, question, idea, hypno, money, heartbroken, tongue, party, ninja, game_over, fire, thunder, rain, sunny, sleepwalk, angel",
             PropertyList({Property("emotion", kPropertyTypeString, "happy")}),
             [this](const PropertyList& properties) -> ReturnValue {
                 std::string emotion = properties["emotion"].value<std::string>();
