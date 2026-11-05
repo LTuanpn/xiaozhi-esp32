@@ -70,17 +70,17 @@ void PocketOledDisplay::SetupUI() {
     lv_obj_set_style_radius(face_layer_, 0, 0);
     lv_obj_set_style_pad_all(face_layer_, 0, 0);
 
-    // 1. Base Eyes (Slightly vertical rectangular squircles: W=34, H=38, radius=8)
+    // 1. Base Eyes (Rectangular: W=42, H=38, radius=4)
     left_eye_ = lv_obj_create(face_layer_);
     right_eye_ = lv_obj_create(face_layer_);
     for (auto* eye : {left_eye_, right_eye_}) {
         PrepareShape(eye);
         lv_obj_set_style_bg_color(eye, lv_color_white(), 0);
         lv_obj_set_style_bg_opa(eye, LV_OPA_COVER, 0);
-        lv_obj_set_style_radius(eye, 8, 0);
+        lv_obj_set_style_radius(eye, 4, 0);
     }
 
-    // 2. Black Pupils (Proportional vertical rounded rectangle: W=14, H=16, radius=4)
+    // 2. Black Pupils (Proportional rounded rectangle: W=12, H=14, radius=4)
     left_pupil_ = lv_obj_create(face_layer_);
     right_pupil_ = lv_obj_create(face_layer_);
     for (auto* pupil : {left_pupil_, right_pupil_}) {
@@ -111,7 +111,7 @@ void PocketOledDisplay::SetupUI() {
         PrepareShape(s);
         lv_obj_set_style_bg_color(s, lv_color_white(), 0);
         lv_obj_set_style_bg_opa(s, LV_OPA_COVER, 0);
-        lv_obj_set_style_radius(s, 1, 0);
+        lv_obj_set_style_radius(s, LV_RADIUS_CIRCLE, 0);
         lv_obj_add_flag(s, LV_OBJ_FLAG_HIDDEN);
     }
 
@@ -407,10 +407,10 @@ void PocketOledDisplay::ApplyLayout() {
 
     lv_obj_set_pos(face_layer_, 0, 0);
     lv_obj_set_size(face_layer_, 128, 48);
-    lv_obj_set_style_radius(left_eye_, 8, 0);
-    lv_obj_set_style_radius(right_eye_, 8, 0);
-    current_left_width_ = std::min(current_left_width_, 34);
-    current_right_width_ = std::min(current_right_width_, 34);
+    lv_obj_set_style_radius(left_eye_, 4, 0);
+    lv_obj_set_style_radius(right_eye_, 4, 0);
+    current_left_width_ = std::min(current_left_width_, 42);
+    current_right_width_ = std::min(current_right_width_, 42);
     current_left_height_ = std::min(current_left_height_, 38);
     current_right_height_ = std::min(current_right_height_, 38);
     lv_obj_move_foreground(face_layer_);
@@ -443,9 +443,9 @@ void PocketOledDisplay::UpdateAnimationFrame() {
     const uint8_t mic_level = app.GetAudioService().GetInputLevel();
     const uint8_t spk_level = app.GetAudioService().GetOutputLevel();
 
-    // GOLDEN PROPORTION VERTICAL RECTANGULAR EYE GEOMETRY (Slightly Taller than Wide: W=34, H=38, Gap=12)
+    // RECTANGULAR EYE GEOMETRY (W=42, H=38, radius=4, Gap=12)
     constexpr int face_width = 128;
-    constexpr int eye_width = 34;
+    constexpr int eye_width = 42;
     constexpr int eye_height = 38;
     constexpr int eye_gap = 12;
     const int pair_width = eye_width * 2 + eye_gap;
@@ -904,17 +904,17 @@ void PocketOledDisplay::UpdateAnimationFrame() {
         lv_obj_set_size(right_eye_, current_right_width_, current_right_height_);
     }
 
-    // Eye corner radius: crisp 8px for vertical rectangular eyes, 11px for angry bottom belly, 12px for sleep
-    int left_radius = 8;
-    int right_radius = 8;
+    // Eye corner radius: crisp 4px as requested, 6px for angry bottom belly, 12px for sleep
+    int left_radius = 4;
+    int right_radius = 4;
     if (face_mode_ == FaceMode::kSleeping) {
         left_radius = 12;
         right_radius = 12;
     } else if (face_mode_ == FaceMode::kAngry || face_mode_ == FaceMode::kFurious ||
                face_mode_ == FaceMode::kFireFury || face_mode_ == FaceMode::kScheming ||
                face_mode_ == FaceMode::kSideEye) {
-        left_radius = 11;
-        right_radius = 11;
+        left_radius = 6;
+        right_radius = 6;
     }
     lv_obj_set_style_radius(left_eye_, left_radius, 0);
     lv_obj_set_style_radius(right_eye_, right_radius, 0);
@@ -937,11 +937,11 @@ void PocketOledDisplay::UpdateAnimationFrame() {
                                   face_mode_ != FaceMode::kHypnotized &&
                                   !(face_mode_ == FaceMode::kSneezing && (animation_tick_ % 35) >= 22);
 
-    // Default pupil for W=34, H=38 eye: W=14, H=16 (Slightly taller than wide, matching eye ratio!)
-    int left_pupil_w = 14;
-    int left_pupil_h = 16;
-    int right_pupil_w = 14;
-    int right_pupil_h = 16;
+    // Default pupil for W=42, H=38 eye: W=12, H=14, radius=4
+    int left_pupil_w = 12;
+    int left_pupil_h = 14;
+    int right_pupil_w = 12;
+    int right_pupil_h = 14;
 
     if (face_mode_ == FaceMode::kListening && mic_level > 10) {
         int shrink = (mic_level > 60) ? 2 : -2;
@@ -1093,42 +1093,31 @@ void PocketOledDisplay::UpdateAnimationFrame() {
         if (s) lv_obj_add_flag(s, LV_OBJ_FLAG_HIDDEN);
     }
 
-    // Dual Catchlights inside each vertical pupil: small dot on bottom-left, larger dot on upper-right!
+    // Asymmetric Circular Catchlights:
+    // Left eye: 2x2 px circular dot at middle-right
+    // Right eye: 6x6 px circular dot at top-right
+    // Using LV_RADIUS_CIRCLE for perfect roundness
     const bool is_special_sparkle_mode = (face_mode_ == FaceMode::kExcited ||
                                           face_mode_ == FaceMode::kSunnyDazzle ||
                                           face_mode_ == FaceMode::kPout ||
                                           face_mode_ == FaceMode::kMoneyEyes);
     if (!is_special_sparkle_mode) {
-        if (show_left_pupil && left_pupil_w >= 8) {
-            // Right larger catchlight (4x4) on top-right of pupil
+        if (show_left_pupil && left_pupil_w >= 5) {
+            // Left eye: 2x2 px circle at middle-right
             if (left_sparkle_a_) {
                 lv_obj_remove_flag(left_sparkle_a_, LV_OBJ_FLAG_HIDDEN);
-                lv_obj_set_pos(left_sparkle_a_, left_pupil_pos_x + left_pupil_w - 5, left_pupil_pos_y + 2);
-                lv_obj_set_size(left_sparkle_a_, 4, 4);
-                lv_obj_set_style_radius(left_sparkle_a_, 1, 0);
-            }
-            // Left smaller catchlight (2x2) on bottom-left of pupil
-            if (left_sparkle_b_ && left_pupil_w >= 11) {
-                lv_obj_remove_flag(left_sparkle_b_, LV_OBJ_FLAG_HIDDEN);
-                lv_obj_set_pos(left_sparkle_b_, left_pupil_pos_x + 2, left_pupil_pos_y + left_pupil_h - 4);
-                lv_obj_set_size(left_sparkle_b_, 2, 2);
-                lv_obj_set_style_radius(left_sparkle_b_, 0, 0);
+                lv_obj_set_pos(left_sparkle_a_, left_pupil_pos_x + left_pupil_w - 2 - 1, left_pupil_pos_y + (left_pupil_h - 2) / 2);
+                lv_obj_set_size(left_sparkle_a_, 2, 2);
+                lv_obj_set_style_radius(left_sparkle_a_, LV_RADIUS_CIRCLE, 0);
             }
         }
-        if (show_right_pupil && right_pupil_w >= 8) {
-            // Right larger catchlight (4x4) on top-right of pupil
+        if (show_right_pupil && right_pupil_w >= 7) {
+            // Right eye: 6x6 px circle at top-right
             if (right_sparkle_a_) {
                 lv_obj_remove_flag(right_sparkle_a_, LV_OBJ_FLAG_HIDDEN);
-                lv_obj_set_pos(right_sparkle_a_, right_pupil_pos_x + right_pupil_w - 5, right_pupil_pos_y + 2);
-                lv_obj_set_size(right_sparkle_a_, 4, 4);
-                lv_obj_set_style_radius(right_sparkle_a_, 1, 0);
-            }
-            // Left smaller catchlight (2x2) on bottom-left of pupil
-            if (right_sparkle_b_ && right_pupil_w >= 11) {
-                lv_obj_remove_flag(right_sparkle_b_, LV_OBJ_FLAG_HIDDEN);
-                lv_obj_set_pos(right_sparkle_b_, right_pupil_pos_x + 2, right_pupil_pos_y + right_pupil_h - 4);
-                lv_obj_set_size(right_sparkle_b_, 2, 2);
-                lv_obj_set_style_radius(right_sparkle_b_, 0, 0);
+                lv_obj_set_pos(right_sparkle_a_, right_pupil_pos_x + right_pupil_w - 6 - 1, right_pupil_pos_y + 1);
+                lv_obj_set_size(right_sparkle_a_, 6, 6);
+                lv_obj_set_style_radius(right_sparkle_a_, LV_RADIUS_CIRCLE, 0);
             }
         }
     }
