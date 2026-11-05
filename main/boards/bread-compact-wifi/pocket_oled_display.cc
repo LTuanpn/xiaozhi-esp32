@@ -70,24 +70,24 @@ void PocketOledDisplay::SetupUI() {
     lv_obj_set_style_radius(face_layer_, 0, 0);
     lv_obj_set_style_pad_all(face_layer_, 0, 0);
 
-    // 1. Base Eyes (Vertical rounded rectangles: Tall > Wide! W=28, H=38, radius=7)
+    // 1. Base Eyes (Slightly vertical rectangular squircles: W=34, H=38, radius=8)
     left_eye_ = lv_obj_create(face_layer_);
     right_eye_ = lv_obj_create(face_layer_);
     for (auto* eye : {left_eye_, right_eye_}) {
         PrepareShape(eye);
         lv_obj_set_style_bg_color(eye, lv_color_white(), 0);
         lv_obj_set_style_bg_opa(eye, LV_OPA_COVER, 0);
-        lv_obj_set_style_radius(eye, 7, 0);
+        lv_obj_set_style_radius(eye, 8, 0);
     }
 
-    // 2. Black Pupils (Scaled-down vertical rounded rectangle matching eye contour: W=13, H=19, radius=3)
+    // 2. Black Pupils (Proportional vertical rounded rectangle: W=14, H=16, radius=4)
     left_pupil_ = lv_obj_create(face_layer_);
     right_pupil_ = lv_obj_create(face_layer_);
     for (auto* pupil : {left_pupil_, right_pupil_}) {
         PrepareShape(pupil);
         lv_obj_set_style_bg_color(pupil, lv_color_black(), 0);
         lv_obj_set_style_bg_opa(pupil, LV_OPA_COVER, 0);
-        lv_obj_set_style_radius(pupil, 3, 0);
+        lv_obj_set_style_radius(pupil, 4, 0);
     }
 
     // 3. Sparkles & Dizzy X (Drawn inside eyes, underneath eyelids)
@@ -122,7 +122,7 @@ void PocketOledDisplay::SetupUI() {
         PrepareShape(mask);
         lv_obj_set_style_bg_color(mask, lv_color_black(), 0);
         lv_obj_set_style_bg_opa(mask, LV_OPA_COVER, 0);
-        lv_obj_set_style_radius(mask, 10, 0);
+        lv_obj_set_style_radius(mask, 12, 0);
         lv_obj_add_flag(mask, LV_OBJ_FLAG_HIDDEN);
     }
 
@@ -407,10 +407,10 @@ void PocketOledDisplay::ApplyLayout() {
 
     lv_obj_set_pos(face_layer_, 0, 0);
     lv_obj_set_size(face_layer_, 128, 48);
-    lv_obj_set_style_radius(left_eye_, 7, 0);
-    lv_obj_set_style_radius(right_eye_, 7, 0);
-    current_left_width_ = std::min(current_left_width_, 28);
-    current_right_width_ = std::min(current_right_width_, 28);
+    lv_obj_set_style_radius(left_eye_, 8, 0);
+    lv_obj_set_style_radius(right_eye_, 8, 0);
+    current_left_width_ = std::min(current_left_width_, 34);
+    current_right_width_ = std::min(current_right_width_, 34);
     current_left_height_ = std::min(current_left_height_, 38);
     current_right_height_ = std::min(current_right_height_, 38);
     lv_obj_move_foreground(face_layer_);
@@ -443,16 +443,16 @@ void PocketOledDisplay::UpdateAnimationFrame() {
     const uint8_t mic_level = app.GetAudioService().GetInputLevel();
     const uint8_t spk_level = app.GetAudioService().GetOutputLevel();
 
-    // VERTICAL RECTANGULAR EYE GEOMETRY (Tall > Wide: W=28, H=38, ratio ~1:1.36)
+    // GOLDEN PROPORTION VERTICAL RECTANGULAR EYE GEOMETRY (Slightly Taller than Wide: W=34, H=38, Gap=12)
     constexpr int face_width = 128;
-    constexpr int eye_width = 28;
+    constexpr int eye_width = 34;
     constexpr int eye_height = 38;
-    constexpr int eye_gap = 18;
+    constexpr int eye_gap = 12;
     const int pair_width = eye_width * 2 + eye_gap;
     const int base_x = (face_width - pair_width) / 2;
     const int base_y = (48 - eye_height) / 2;
     constexpr int max_look_x = 6;
-    constexpr int max_look_y = 5;
+    constexpr int max_look_y = 4;
 
     // 1. Temporary Emotion Timeout (returns to idle after test command or short emotion)
     if (temporary_emotion_until_tick_ > 0 && animation_tick_ >= temporary_emotion_until_tick_ && !is_speaking_) {
@@ -655,7 +655,7 @@ void PocketOledDisplay::UpdateAnimationFrame() {
     current_look_x_ = Ease(current_look_x_, target_look_x_);
     current_look_y_ = Ease(current_look_y_, target_look_y_);
 
-    // 6. Multi-tier Eye Heights & Squash-and-Stretch Widths (Vertical Tall > Wide preserved!)
+    // 6. Multi-tier Eye Heights & Squash-and-Stretch Widths (W=34, H=38 preserved!)
     int target_left_height = eye_height;
     int target_right_height = eye_height;
     int target_left_width = eye_width;
@@ -671,8 +671,8 @@ void PocketOledDisplay::UpdateAnimationFrame() {
     } else if (blink) {
         target_left_height = 2;
         target_right_height = 2;
-        target_left_width = 32;
-        target_right_width = 32;
+        target_left_width = 38;
+        target_right_width = 38;
     } else if (face_mode_ == FaceMode::kListening) {
         // Audio-reactive listening: taller eyes when user speaks loudly
         int boost = (mic_level > 15) ? std::min(5, static_cast<int>(mic_level / 18)) : -2;
@@ -683,11 +683,11 @@ void PocketOledDisplay::UpdateAnimationFrame() {
         if (qt < 42) {
             // Squint suspiciously while peeking
             target_left_height = target_right_height = 22;
-            target_left_width = target_right_width = 30;
+            target_left_width = target_right_width = 36;
         } else {
             // Startled tall eyes when caught!
             target_left_height = target_right_height = 42;
-            target_left_width = target_right_width = 27;
+            target_left_width = target_right_width = 33;
         }
     } else if (face_mode_ == FaceMode::kLove || face_mode_ == FaceMode::kHeartbroken) {
         target_left_height = 0;
@@ -696,7 +696,7 @@ void PocketOledDisplay::UpdateAnimationFrame() {
         int ph = animation_tick_ % 30;
         if (ph < 10) {
             target_left_height = target_right_height = 2;
-            target_left_width = target_right_width = 34;
+            target_left_width = target_right_width = 40;
         } else if (ph < 20) {
             target_left_height = target_right_height = 2;
             target_left_width = target_right_width = 8;
@@ -706,10 +706,10 @@ void PocketOledDisplay::UpdateAnimationFrame() {
         }
     } else if (face_mode_ == FaceMode::kLoadingBuffer) {
         target_left_height = target_right_height = 32;
-        target_left_width = target_right_width = 28;
+        target_left_width = target_right_width = 34;
     } else if (face_mode_ == FaceMode::kLowBattery) {
         target_left_height = target_right_height = 16;
-        target_left_width = target_right_width = 30;
+        target_left_width = target_right_width = 36;
         target_left_y_offset = target_right_y_offset = 8;
     } else if (face_mode_ == FaceMode::kFacepalm) {
         target_left_height = 0;
@@ -717,14 +717,14 @@ void PocketOledDisplay::UpdateAnimationFrame() {
         target_right_y_offset = 4;
     } else if (face_mode_ == FaceMode::kTargetLocked) {
         target_left_height = 16;
-        target_left_width = 30;
+        target_left_width = 36;
         target_left_y_offset = 2;
         target_right_height = 40;
-        target_right_width = 28;
+        target_right_width = 34;
     } else if (face_mode_ == FaceMode::kDisgusted) {
         target_left_height = 16;
         target_right_height = 24;
-        target_left_width = 30;
+        target_left_width = 36;
         target_left_y_offset = 5;
         target_right_y_offset = 2;
     } else if (face_mode_ == FaceMode::kWhispering) {
@@ -734,24 +734,25 @@ void PocketOledDisplay::UpdateAnimationFrame() {
         int ph = animation_tick_ % 35;
         if (ph < 22) {
             target_left_height = target_right_height = 38 + (ph / 4);
-            target_left_width = target_right_width = 27;
+            target_left_width = target_right_width = 33;
             target_left_y_offset = target_right_y_offset = -(ph / 5);
         } else {
             target_left_height = target_right_height = 4;
-            target_left_width = target_right_width = 34;
+            target_left_width = target_right_width = 40;
             target_left_y_offset = target_right_y_offset = 8;
         }
     } else if (face_mode_ == FaceMode::kInnocent || face_mode_ == FaceMode::kShockedJawdrop || face_mode_ == FaceMode::kIdeaEureka) {
         target_left_height = target_right_height = 42;
-        target_left_width = target_right_width = 28;
+        target_left_width = target_right_width = 34;
         target_left_y_offset = target_right_y_offset = (face_mode_ == FaceMode::kShockedJawdrop) ? -3 : 2;
     } else if (face_mode_ == FaceMode::kExhausted) {
         target_left_height = target_right_height = 12;
-        target_left_width = target_right_width = 32;
+        target_left_width = target_right_width = 38;
         target_left_y_offset = target_right_y_offset = 10;
     } else if (face_mode_ == FaceMode::kStealthNinja) {
         target_left_height = target_right_height = 10;
-        target_left_width = target_right_width = 32;
+        target_left_width = target_right_width = 38;
+        target_left_y_offset = target_right_y_offset = 0;
     } else if (face_mode_ == FaceMode::kZenMeditation) {
         target_left_height = target_right_height = 18;
     } else if (face_mode_ == FaceMode::kMatrixGlitch) {
@@ -764,14 +765,14 @@ void PocketOledDisplay::UpdateAnimationFrame() {
     } else if (face_mode_ == FaceMode::kPlayfulWink || face_mode_ == FaceMode::kTongueOut) {
         target_left_height = eye_height;
         target_right_height = 20;
-        target_right_width = 30;
+        target_right_width = 36;
         target_right_y_offset = 4;
     } else if (face_mode_ == FaceMode::kSkeptical || face_mode_ == FaceMode::kConfusedQuestion || face_mode_ == FaceMode::kDrunk) {
         target_left_height = eye_height + 4;
-        target_left_width = 28;
+        target_left_width = 34;
         target_left_y_offset = -2;
         target_right_height = 22;
-        target_right_width = 30;
+        target_right_width = 36;
         target_right_y_offset = 5;
     } else if (face_mode_ == FaceMode::kSmug) {
         target_left_height = eye_height;
@@ -780,18 +781,18 @@ void PocketOledDisplay::UpdateAnimationFrame() {
     } else if (face_mode_ == FaceMode::kSurprised || face_mode_ == FaceMode::kWakingUp) {
         target_left_height = 44;
         target_right_height = 44;
-        target_left_width = 27;
-        target_right_width = 27;
+        target_left_width = 33;
+        target_right_width = 33;
     } else if (face_mode_ == FaceMode::kScanning) {
         target_left_height = 28;
         target_right_height = 28;
-        target_left_width = 30;
-        target_right_width = 30;
+        target_left_width = 36;
+        target_right_width = 36;
     } else if (face_mode_ == FaceMode::kScared) {
         target_left_height = 32;
         target_right_height = 32;
-        target_left_width = 26;
-        target_right_width = 26;
+        target_left_width = 32;
+        target_right_width = 32;
     } else if (face_mode_ == FaceMode::kExcited || face_mode_ == FaceMode::kPout) {
         target_left_height = eye_height + 2;
         target_right_height = eye_height + 2;
@@ -903,17 +904,17 @@ void PocketOledDisplay::UpdateAnimationFrame() {
         lv_obj_set_size(right_eye_, current_right_width_, current_right_height_);
     }
 
-    // Eye corner radius: crisp 7px for vertical rectangular eyes, 10px for curved sleep
-    int left_radius = 7;
-    int right_radius = 7;
+    // Eye corner radius: crisp 8px for vertical rectangular eyes, 11px for angry bottom belly, 12px for sleep
+    int left_radius = 8;
+    int right_radius = 8;
     if (face_mode_ == FaceMode::kSleeping) {
-        left_radius = 10;
-        right_radius = 10;
+        left_radius = 12;
+        right_radius = 12;
     } else if (face_mode_ == FaceMode::kAngry || face_mode_ == FaceMode::kFurious ||
                face_mode_ == FaceMode::kFireFury || face_mode_ == FaceMode::kScheming ||
                face_mode_ == FaceMode::kSideEye) {
-        left_radius = 8;
-        right_radius = 8;
+        left_radius = 11;
+        right_radius = 11;
     }
     lv_obj_set_style_radius(left_eye_, left_radius, 0);
     lv_obj_set_style_radius(right_eye_, right_radius, 0);
@@ -921,7 +922,7 @@ void PocketOledDisplay::UpdateAnimationFrame() {
     lv_obj_set_style_transform_rotation(left_eye_, 0, 0);
     lv_obj_set_style_transform_rotation(right_eye_, 0, 0);
 
-    // 8. Black Pupils (Nested scaled-down vertical rectangle: Tall > Wide, gentle radius 3, NO hexagon!)
+    // 8. Black Pupils (Proportional scaled-down vertical rectangle: W=14, H=16, radius=4)
     const bool show_left_pupil = !blink && face_mode_ != FaceMode::kSleeping && face_mode_ != FaceMode::kLove &&
                                  face_mode_ != FaceMode::kHeartbroken && face_mode_ != FaceMode::kDizzy &&
                                  face_mode_ != FaceMode::kLoadingBuffer && face_mode_ != FaceMode::kRebooting &&
@@ -936,61 +937,61 @@ void PocketOledDisplay::UpdateAnimationFrame() {
                                   face_mode_ != FaceMode::kHypnotized &&
                                   !(face_mode_ == FaceMode::kSneezing && (animation_tick_ % 35) >= 22);
 
-    // Default pupil: exact ~50% scaled-down version of the 28x38 vertical eye -> 13x19 (Tall > Wide!)
-    int left_pupil_w = 13;
-    int left_pupil_h = 19;
-    int right_pupil_w = 13;
-    int right_pupil_h = 19;
+    // Default pupil for W=34, H=38 eye: W=14, H=16 (Slightly taller than wide, matching eye ratio!)
+    int left_pupil_w = 14;
+    int left_pupil_h = 16;
+    int right_pupil_w = 14;
+    int right_pupil_h = 16;
 
     if (face_mode_ == FaceMode::kListening && mic_level > 10) {
         int shrink = (mic_level > 60) ? 2 : -2;
-        left_pupil_w = right_pupil_w = 13 - (shrink / 2);
-        left_pupil_h = right_pupil_h = 19 - shrink;
+        left_pupil_w = right_pupil_w = 14 - shrink;
+        left_pupil_h = right_pupil_h = 16 - shrink;
     } else if (face_mode_ == FaceMode::kSurprised) {
         uint32_t elapsed = (animation_tick_ > surprised_start_tick_) ? (animation_tick_ - surprised_start_tick_) : 0;
         if (elapsed < 18) {
-            left_pupil_w = right_pupil_w = 7;
+            left_pupil_w = right_pupil_w = 8;
             left_pupil_h = right_pupil_h = 10;
         } else {
-            left_pupil_w = right_pupil_w = 16;
-            left_pupil_h = right_pupil_h = 24;
+            left_pupil_w = right_pupil_w = 19;
+            left_pupil_h = right_pupil_h = 22;
         }
     } else if (face_mode_ == FaceMode::kAngry || face_mode_ == FaceMode::kScheming ||
                face_mode_ == FaceMode::kSideEye || face_mode_ == FaceMode::kJealous) {
-        left_pupil_w = right_pupil_w = 11;
-        left_pupil_h = right_pupil_h = 15;
-    } else if (face_mode_ == FaceMode::kFurious || face_mode_ == FaceMode::kFireFury) {
-        left_pupil_w = right_pupil_w = 10;
+        left_pupil_w = right_pupil_w = 12;
         left_pupil_h = right_pupil_h = 14;
+    } else if (face_mode_ == FaceMode::kFurious || face_mode_ == FaceMode::kFireFury) {
+        left_pupil_w = right_pupil_w = 11;
+        left_pupil_h = right_pupil_h = 13;
     } else if (face_mode_ == FaceMode::kScared || face_mode_ == FaceMode::kThunderShock) {
-        left_pupil_w = right_pupil_w = 7;
+        left_pupil_w = right_pupil_w = 8;
         left_pupil_h = right_pupil_h = 10;
     } else if (face_mode_ == FaceMode::kTargetLocked) {
-        left_pupil_w = 11;
-        left_pupil_h = 12;
+        left_pupil_w = 12;
+        left_pupil_h = 11;
         right_pupil_w = 8;
         right_pupil_h = 10;
     } else if (face_mode_ == FaceMode::kPout) {
-        left_pupil_w = right_pupil_w = 17;
-        left_pupil_h = right_pupil_h = 24;
+        left_pupil_w = right_pupil_w = 20;
+        left_pupil_h = right_pupil_h = 23;
     } else if (face_mode_ == FaceMode::kExcited || face_mode_ == FaceMode::kMoneyEyes ||
                face_mode_ == FaceMode::kSunnyDazzle || face_mode_ == FaceMode::kInnocent ||
                face_mode_ == FaceMode::kAngelBlessing) {
-        left_pupil_w = right_pupil_w = 15;
-        left_pupil_h = right_pupil_h = 22;
+        left_pupil_w = right_pupil_w = 18;
+        left_pupil_h = right_pupil_h = 20;
     } else if (face_mode_ == FaceMode::kSkeptical || face_mode_ == FaceMode::kDisgusted) {
-        left_pupil_w = 13;
-        left_pupil_h = 19;
-        right_pupil_w = 11;
-        right_pupil_h = 13;
+        left_pupil_w = 14;
+        left_pupil_h = 16;
+        right_pupil_w = 12;
+        right_pupil_h = 12;
     } else if (face_mode_ == FaceMode::kEcstaticLaugh) {
-        left_pupil_w = right_pupil_w = 13;
-        left_pupil_h = right_pupil_h = 17;
+        left_pupil_w = right_pupil_w = 14;
+        left_pupil_h = right_pupil_h = 16;
     } else if (face_mode_ == FaceMode::kShockedJawdrop) {
-        left_pupil_w = right_pupil_w = 7;
+        left_pupil_w = right_pupil_w = 8;
         left_pupil_h = right_pupil_h = 10;
     } else if (face_mode_ == FaceMode::kParanoid) {
-        left_pupil_w = right_pupil_w = 8;
+        left_pupil_w = right_pupil_w = 9;
         left_pupil_h = right_pupil_h = 11;
     } else if (face_mode_ == FaceMode::kSleepwalking) {
         left_pupil_w = right_pupil_w = 6;
@@ -1003,8 +1004,8 @@ void PocketOledDisplay::UpdateAnimationFrame() {
     int right_pupil_pos_y = 0;
 
     // Gentle squircle radius (3..4px) matching the outer vertical eye contour without hexagon artifacts
-    const int left_pupil_r = (left_pupil_w <= 9) ? 2 : 3;
-    const int right_pupil_r = (right_pupil_w <= 9) ? 2 : 3;
+    const int left_pupil_r = (left_pupil_w <= 10) ? 3 : 4;
+    const int right_pupil_r = (right_pupil_w <= 10) ? 3 : 4;
 
     if (show_left_pupil) {
         lv_obj_remove_flag(left_pupil_, LV_OBJ_FLAG_HIDDEN);
@@ -1057,9 +1058,9 @@ void PocketOledDisplay::UpdateAnimationFrame() {
         lv_obj_remove_flag(left_tear_, LV_OBJ_FLAG_HIDDEN);
         lv_obj_remove_flag(right_tear_, LV_OBJ_FLAG_HIDDEN);
         int tear_slide_y = (animation_tick_ % 12);
-        lv_obj_set_pos(left_tear_, left_x + 11, left_y + current_left_height_ + tear_slide_y - 2);
+        lv_obj_set_pos(left_tear_, left_x + 14, left_y + current_left_height_ + tear_slide_y - 2);
         lv_obj_set_size(left_tear_, 6, 8);
-        lv_obj_set_pos(right_tear_, right_x + 11, right_y + current_right_height_ + tear_slide_y - 2);
+        lv_obj_set_pos(right_tear_, right_x + 14, right_y + current_right_height_ + tear_slide_y - 2);
         lv_obj_set_size(right_tear_, 6, 8);
     }
 
@@ -1071,8 +1072,8 @@ void PocketOledDisplay::UpdateAnimationFrame() {
         lv_obj_remove_flag(left_blush_, LV_OBJ_FLAG_HIDDEN);
         lv_obj_remove_flag(right_blush_, LV_OBJ_FLAG_HIDDEN);
         int blush_y = (face_mode_ == FaceMode::kLove) ? (base_y + eye_height - 4) : (left_y + current_left_height_ - 4);
-        lv_obj_set_pos(left_blush_, left_x + 4, blush_y);
-        lv_obj_set_pos(right_blush_, right_x + 4, blush_y);
+        lv_obj_set_pos(left_blush_, left_x + 6, blush_y);
+        lv_obj_set_pos(right_blush_, right_x + 6, blush_y);
     }
 
     // Hide special expression objects by default and reset styles
@@ -1246,7 +1247,7 @@ void PocketOledDisplay::UpdateAnimationFrame() {
             }
         }
     } else if ((face_mode_ == FaceMode::kDizzy || face_mode_ == FaceMode::kLoadingBuffer || face_mode_ == FaceMode::kHypnotized) && !blink) {
-        int dw = (face_mode_ == FaceMode::kLoadingBuffer) ? 18 : 16;
+        int dw = (face_mode_ == FaceMode::kLoadingBuffer) ? 20 : 18;
         int dh = 4;
         int speed = (face_mode_ == FaceMode::kHypnotized) ? 180 : 120;
         int dizzy_angle = (animation_tick_ * speed) % 3600;
@@ -1287,17 +1288,17 @@ void PocketOledDisplay::UpdateAnimationFrame() {
                     lv_obj_set_style_bg_opa(extra_shape_[i], LV_OPA_TRANSP, 0);
                     lv_obj_set_style_border_width(extra_shape_[i], 2, 0);
                     lv_obj_set_style_border_color(extra_shape_[i], lv_color_black(), 0);
-                    int pulse_r = ((animation_tick_ / 3) % 2 == 0) ? 20 : 14;
+                    int pulse_r = ((animation_tick_ / 3) % 2 == 0) ? 22 : 16;
                     int cx = (i == 0) ? l_cx : r_cx;
                     int cy = (i == 0) ? l_cy : r_cy;
                     lv_obj_set_size(extra_shape_[i], pulse_r, pulse_r);
-                    lv_obj_set_style_radius(extra_shape_[i], 4, 0);
+                    lv_obj_set_style_radius(extra_shape_[i], 5, 0);
                     lv_obj_set_pos(extra_shape_[i], cx - pulse_r / 2, cy - pulse_r / 2);
                 }
             }
         }
     } else if (face_mode_ == FaceMode::kGameOver && !blink) {
-        int dw = 16, dh = 4;
+        int dw = 18, dh = 4;
         int l_cx = left_x + current_left_width_ / 2;
         int l_cy = left_y + current_left_height_ / 2;
         int r_cx = right_x + current_right_width_ / 2;
@@ -1342,7 +1343,7 @@ void PocketOledDisplay::UpdateAnimationFrame() {
                 int smoke_y = left_y - 2 - phase;
                 if (smoke_y >= 0) {
                     lv_obj_remove_flag(smoke_puff_[i], LV_OBJ_FLAG_HIDDEN);
-                    int smoke_x = (i < 2) ? (left_x + 4 + i * 14) : (right_x + 4 + (i - 2) * 14);
+                    int smoke_x = (i < 2) ? (left_x + 6 + i * 16) : (right_x + 6 + (i - 2) * 16);
                     int s_size = 3 + (phase / 5);
                     lv_obj_set_pos(smoke_puff_[i], smoke_x, smoke_y);
                     lv_obj_set_size(smoke_puff_[i], s_size, s_size);
@@ -1371,8 +1372,8 @@ void PocketOledDisplay::UpdateAnimationFrame() {
             lv_label_set_text(fx_label_a_, "$");
             lv_label_set_text(fx_label_b_, "$");
             int bounce = ((animation_tick_ / 4) % 2 == 0) ? -1 : 1;
-            lv_obj_set_pos(fx_label_a_, left_pupil_pos_x + 3, left_pupil_pos_y + 3 + bounce);
-            lv_obj_set_pos(fx_label_b_, right_pupil_pos_x + 3, right_pupil_pos_y + 3 + bounce);
+            lv_obj_set_pos(fx_label_a_, left_pupil_pos_x + 4, left_pupil_pos_y + 2 + bounce);
+            lv_obj_set_pos(fx_label_b_, right_pupil_pos_x + 4, right_pupil_pos_y + 2 + bounce);
         }
     } else if ((face_mode_ == FaceMode::kExcited || face_mode_ == FaceMode::kSunnyDazzle) && !blink) {
         int star_len = ((animation_tick_ / 4) % 2 == 0) ? 12 : 8;
@@ -1497,21 +1498,21 @@ void PocketOledDisplay::UpdateAnimationFrame() {
             lv_obj_set_style_bg_opa(extra_shape_[0], LV_OPA_TRANSP, 0);
             lv_obj_set_style_border_width(extra_shape_[0], 2, 0);
             lv_obj_set_style_border_color(extra_shape_[0], lv_color_black(), 0);
-            lv_obj_set_size(extra_shape_[0], 22, 22);
-            lv_obj_set_style_radius(extra_shape_[0], 5, 0);
-            lv_obj_set_pos(extra_shape_[0], cx - 11, cy - 11);
+            lv_obj_set_size(extra_shape_[0], 24, 24);
+            lv_obj_set_style_radius(extra_shape_[0], 6, 0);
+            lv_obj_set_pos(extra_shape_[0], cx - 12, cy - 12);
         }
         if (extra_shape_[1]) {
             lv_obj_remove_flag(extra_shape_[1], LV_OBJ_FLAG_HIDDEN);
             lv_obj_set_style_bg_color(extra_shape_[1], lv_color_black(), 0);
-            lv_obj_set_size(extra_shape_[1], 28, 2);
-            lv_obj_set_pos(extra_shape_[1], cx - 14, cy - 1);
+            lv_obj_set_size(extra_shape_[1], 32, 2);
+            lv_obj_set_pos(extra_shape_[1], cx - 16, cy - 1);
         }
         if (extra_shape_[2]) {
             lv_obj_remove_flag(extra_shape_[2], LV_OBJ_FLAG_HIDDEN);
             lv_obj_set_style_bg_color(extra_shape_[2], lv_color_black(), 0);
-            lv_obj_set_size(extra_shape_[2], 2, 28);
-            lv_obj_set_pos(extra_shape_[2], cx - 1, cy - 14);
+            lv_obj_set_size(extra_shape_[2], 2, 32);
+            lv_obj_set_pos(extra_shape_[2], cx - 1, cy - 16);
         }
     } else if (face_mode_ == FaceMode::kIdeaEureka && !blink) {
         if (fx_label_a_) {
@@ -1557,7 +1558,7 @@ void PocketOledDisplay::UpdateAnimationFrame() {
         for (int i = 0; i < 4; ++i) {
             if (extra_shape_[i]) {
                 lv_obj_remove_flag(extra_shape_[i], LV_OBJ_FLAG_HIDDEN);
-                int ix = (i < 2) ? (left_x + 6 + i * 12) : (right_x + 6 + (i - 2) * 12);
+                int ix = (i < 2) ? (left_x + 8 + i * 14) : (right_x + 8 + (i - 2) * 14);
                 int ih = (i % 2 == 0) ? 7 : 5;
                 lv_obj_set_pos(extra_shape_[i], ix, left_y + current_left_height_);
                 lv_obj_set_size(extra_shape_[i], 3, ih);
@@ -1567,10 +1568,10 @@ void PocketOledDisplay::UpdateAnimationFrame() {
         for (int i = 0; i < 4; ++i) {
             if (extra_shape_[i]) {
                 lv_obj_remove_flag(extra_shape_[i], LV_OBJ_FLAG_HIDDEN);
-                int sx = (i == 0) ? (left_x + 4) : (i == 1) ? (left_x + 18) : (i == 2) ? (right_x + 4) : (right_x + 18);
+                int sx = (i == 0) ? (left_x + 5) : (i == 1) ? (left_x + 22) : (i == 2) ? (right_x + 5) : (right_x + 22);
                 int top_y = left_y + current_left_height_ - 2;
                 lv_obj_set_pos(extra_shape_[i], sx, top_y);
-                lv_obj_set_size(extra_shape_[i], 6, std::max(2, 48 - top_y));
+                lv_obj_set_size(extra_shape_[i], 7, std::max(2, 48 - top_y));
                 lv_obj_set_style_radius(extra_shape_[i], 2, 0);
             }
         }
@@ -1614,9 +1615,9 @@ void PocketOledDisplay::UpdateAnimationFrame() {
         for (int i = 0; i < 3; ++i) {
             if (extra_shape_[i]) {
                 lv_obj_remove_flag(extra_shape_[i], LV_OBJ_FLAG_HIDDEN);
-                lv_obj_set_pos(extra_shape_[i], left_x + 2 + i * 8, base_y + 2);
-                lv_obj_set_size(extra_shape_[i], 6, eye_height - 4);
-                lv_obj_set_style_radius(extra_shape_[i], 2, 0);
+                lv_obj_set_pos(extra_shape_[i], left_x + 3 + i * 10, base_y + 2);
+                lv_obj_set_size(extra_shape_[i], 8, eye_height - 4);
+                lv_obj_set_style_radius(extra_shape_[i], 3, 0);
             }
         }
     }
@@ -1630,40 +1631,40 @@ void PocketOledDisplay::UpdateAnimationFrame() {
     if (face_mode_ != FaceMode::kSleeping && face_mode_ != FaceMode::kLove &&
         face_mode_ != FaceMode::kHeartbroken && !blink) {
         if (face_mode_ == FaceMode::kAngry) {
-            constexpr int lid_w = 46;
-            constexpr int lid_h = 26;
-            lv_obj_remove_flag(left_top_lid_, LV_OBJ_FLAG_HIDDEN);
-            lv_obj_remove_flag(right_top_lid_, LV_OBJ_FLAG_HIDDEN);
-
-            lv_obj_set_pos(left_top_lid_, left_x - 8, left_y - 18);
-            lv_obj_set_size(left_top_lid_, lid_w, lid_h);
-            lv_obj_set_style_transform_pivot_x(left_top_lid_, lid_w / 2, 0);
-            lv_obj_set_style_transform_pivot_y(left_top_lid_, lid_h / 2, 0);
-            lv_obj_set_style_transform_rotation(left_top_lid_, NormalizeAngle(150), 0);
-
-            lv_obj_set_pos(right_top_lid_, right_x - 8, right_y - 18);
-            lv_obj_set_size(right_top_lid_, lid_w, lid_h);
-            lv_obj_set_style_transform_pivot_x(right_top_lid_, lid_w / 2, 0);
-            lv_obj_set_style_transform_pivot_y(right_top_lid_, lid_h / 2, 0);
-            lv_obj_set_style_transform_rotation(right_top_lid_, NormalizeAngle(-150), 0);
-
-        } else if (face_mode_ == FaceMode::kFurious || face_mode_ == FaceMode::kFireFury || face_mode_ == FaceMode::kHeadache) {
-            constexpr int lid_w = 48;
+            constexpr int lid_w = 52;
             constexpr int lid_h = 28;
             lv_obj_remove_flag(left_top_lid_, LV_OBJ_FLAG_HIDDEN);
             lv_obj_remove_flag(right_top_lid_, LV_OBJ_FLAG_HIDDEN);
 
-            lv_obj_set_pos(left_top_lid_, left_x - 9, left_y - 18);
+            lv_obj_set_pos(left_top_lid_, left_x - 8, left_y - 20);
             lv_obj_set_size(left_top_lid_, lid_w, lid_h);
             lv_obj_set_style_transform_pivot_x(left_top_lid_, lid_w / 2, 0);
             lv_obj_set_style_transform_pivot_y(left_top_lid_, lid_h / 2, 0);
-            lv_obj_set_style_transform_rotation(left_top_lid_, NormalizeAngle(190), 0);
+            lv_obj_set_style_transform_rotation(left_top_lid_, NormalizeAngle(140), 0);
 
-            lv_obj_set_pos(right_top_lid_, right_x - 9, right_y - 18);
+            lv_obj_set_pos(right_top_lid_, right_x - 8, right_y - 20);
             lv_obj_set_size(right_top_lid_, lid_w, lid_h);
             lv_obj_set_style_transform_pivot_x(right_top_lid_, lid_w / 2, 0);
             lv_obj_set_style_transform_pivot_y(right_top_lid_, lid_h / 2, 0);
-            lv_obj_set_style_transform_rotation(right_top_lid_, NormalizeAngle(-190), 0);
+            lv_obj_set_style_transform_rotation(right_top_lid_, NormalizeAngle(-140), 0);
+
+        } else if (face_mode_ == FaceMode::kFurious || face_mode_ == FaceMode::kFireFury || face_mode_ == FaceMode::kHeadache) {
+            constexpr int lid_w = 56;
+            constexpr int lid_h = 30;
+            lv_obj_remove_flag(left_top_lid_, LV_OBJ_FLAG_HIDDEN);
+            lv_obj_remove_flag(right_top_lid_, LV_OBJ_FLAG_HIDDEN);
+
+            lv_obj_set_pos(left_top_lid_, left_x - 10, left_y - 20);
+            lv_obj_set_size(left_top_lid_, lid_w, lid_h);
+            lv_obj_set_style_transform_pivot_x(left_top_lid_, lid_w / 2, 0);
+            lv_obj_set_style_transform_pivot_y(left_top_lid_, lid_h / 2, 0);
+            lv_obj_set_style_transform_rotation(left_top_lid_, NormalizeAngle(180), 0);
+
+            lv_obj_set_pos(right_top_lid_, right_x - 10, right_y - 20);
+            lv_obj_set_size(right_top_lid_, lid_w, lid_h);
+            lv_obj_set_style_transform_pivot_x(right_top_lid_, lid_w / 2, 0);
+            lv_obj_set_style_transform_pivot_y(right_top_lid_, lid_h / 2, 0);
+            lv_obj_set_style_transform_rotation(right_top_lid_, NormalizeAngle(-180), 0);
 
             lv_obj_remove_flag(left_bottom_lid_, LV_OBJ_FLAG_HIDDEN);
             lv_obj_remove_flag(right_bottom_lid_, LV_OBJ_FLAG_HIDDEN);
@@ -1674,22 +1675,22 @@ void PocketOledDisplay::UpdateAnimationFrame() {
 
         } else if (face_mode_ == FaceMode::kSadEmpathy || face_mode_ == FaceMode::kSadCrying ||
                    face_mode_ == FaceMode::kCryingStream || face_mode_ == FaceMode::kRainyGloomy) {
-            constexpr int lid_w = 46;
-            constexpr int lid_h = 26;
+            constexpr int lid_w = 52;
+            constexpr int lid_h = 28;
             lv_obj_remove_flag(left_top_lid_, LV_OBJ_FLAG_HIDDEN);
             lv_obj_remove_flag(right_top_lid_, LV_OBJ_FLAG_HIDDEN);
 
-            lv_obj_set_pos(left_top_lid_, left_x - 8, left_y - 18);
+            lv_obj_set_pos(left_top_lid_, left_x - 8, left_y - 20);
             lv_obj_set_size(left_top_lid_, lid_w, lid_h);
             lv_obj_set_style_transform_pivot_x(left_top_lid_, lid_w / 2, 0);
             lv_obj_set_style_transform_pivot_y(left_top_lid_, lid_h / 2, 0);
-            lv_obj_set_style_transform_rotation(left_top_lid_, NormalizeAngle(-150), 0);
+            lv_obj_set_style_transform_rotation(left_top_lid_, NormalizeAngle(-140), 0);
 
-            lv_obj_set_pos(right_top_lid_, right_x - 8, right_y - 18);
+            lv_obj_set_pos(right_top_lid_, right_x - 8, right_y - 20);
             lv_obj_set_size(right_top_lid_, lid_w, lid_h);
             lv_obj_set_style_transform_pivot_x(right_top_lid_, lid_w / 2, 0);
             lv_obj_set_style_transform_pivot_y(right_top_lid_, lid_h / 2, 0);
-            lv_obj_set_style_transform_rotation(right_top_lid_, NormalizeAngle(150), 0);
+            lv_obj_set_style_transform_rotation(right_top_lid_, NormalizeAngle(140), 0);
 
         } else if (face_mode_ == FaceMode::kSleepy) {
             constexpr int sleepy_cover = 13;
@@ -1720,61 +1721,61 @@ void PocketOledDisplay::UpdateAnimationFrame() {
             }
 
         } else if (face_mode_ == FaceMode::kSideEye) {
-            constexpr int lid_w = 46;
+            constexpr int lid_w = 52;
             constexpr int lid_h = 24;
             lv_obj_remove_flag(left_top_lid_, LV_OBJ_FLAG_HIDDEN);
             lv_obj_remove_flag(right_top_lid_, LV_OBJ_FLAG_HIDDEN);
-            lv_obj_set_pos(left_top_lid_, left_x - 8, left_y - 14);
+            lv_obj_set_pos(left_top_lid_, left_x - 8, left_y - 16);
             lv_obj_set_size(left_top_lid_, lid_w, lid_h);
             lv_obj_set_style_transform_pivot_x(left_top_lid_, lid_w / 2, 0);
             lv_obj_set_style_transform_pivot_y(left_top_lid_, lid_h / 2, 0);
             lv_obj_set_style_transform_rotation(left_top_lid_, NormalizeAngle(100), 0);
 
-            lv_obj_set_pos(right_top_lid_, right_x - 8, right_y - 14);
+            lv_obj_set_pos(right_top_lid_, right_x - 8, right_y - 16);
             lv_obj_set_size(right_top_lid_, lid_w, lid_h);
             lv_obj_set_style_transform_pivot_x(right_top_lid_, lid_w / 2, 0);
             lv_obj_set_style_transform_pivot_y(right_top_lid_, lid_h / 2, 0);
             lv_obj_set_style_transform_rotation(right_top_lid_, NormalizeAngle(100), 0);
 
         } else if (face_mode_ == FaceMode::kJealous) {
-            constexpr int lid_w = 46;
+            constexpr int lid_w = 52;
             constexpr int lid_h = 24;
             lv_obj_remove_flag(left_top_lid_, LV_OBJ_FLAG_HIDDEN);
             lv_obj_remove_flag(right_top_lid_, LV_OBJ_FLAG_HIDDEN);
-            lv_obj_set_pos(left_top_lid_, left_x - 8, left_y - 14);
+            lv_obj_set_pos(left_top_lid_, left_x - 8, left_y - 16);
             lv_obj_set_size(left_top_lid_, lid_w, lid_h);
             lv_obj_set_style_transform_pivot_x(left_top_lid_, lid_w / 2, 0);
             lv_obj_set_style_transform_pivot_y(left_top_lid_, lid_h / 2, 0);
             lv_obj_set_style_transform_rotation(left_top_lid_, NormalizeAngle(-120), 0);
 
-            lv_obj_set_pos(right_top_lid_, right_x - 8, right_y - 14);
+            lv_obj_set_pos(right_top_lid_, right_x - 8, right_y - 16);
             lv_obj_set_size(right_top_lid_, lid_w, lid_h);
             lv_obj_set_style_transform_pivot_x(right_top_lid_, lid_w / 2, 0);
             lv_obj_set_style_transform_pivot_y(right_top_lid_, lid_h / 2, 0);
             lv_obj_set_style_transform_rotation(right_top_lid_, NormalizeAngle(120), 0);
 
         } else if (face_mode_ == FaceMode::kScheming) {
-            constexpr int lid_w = 46;
+            constexpr int lid_w = 52;
             constexpr int lid_h = 24;
             lv_obj_remove_flag(left_top_lid_, LV_OBJ_FLAG_HIDDEN);
             lv_obj_remove_flag(right_top_lid_, LV_OBJ_FLAG_HIDDEN);
-            lv_obj_set_pos(left_top_lid_, left_x - 8, left_y - 13);
+            lv_obj_set_pos(left_top_lid_, left_x - 8, left_y - 15);
             lv_obj_set_size(left_top_lid_, lid_w, lid_h);
             lv_obj_set_style_transform_pivot_x(left_top_lid_, lid_w / 2, 0);
             lv_obj_set_style_transform_pivot_y(left_top_lid_, lid_h / 2, 0);
             lv_obj_set_style_transform_rotation(left_top_lid_, NormalizeAngle(150), 0);
 
-            lv_obj_set_pos(right_top_lid_, right_x - 8, right_y - 13);
+            lv_obj_set_pos(right_top_lid_, right_x - 8, right_y - 15);
             lv_obj_set_size(right_top_lid_, lid_w, lid_h);
             lv_obj_set_style_transform_pivot_x(right_top_lid_, lid_w / 2, 0);
             lv_obj_set_style_transform_pivot_y(right_top_lid_, lid_h / 2, 0);
             lv_obj_set_style_transform_rotation(right_top_lid_, NormalizeAngle(-150), 0);
 
         } else if (face_mode_ == FaceMode::kSkeptical || face_mode_ == FaceMode::kConfusedQuestion) {
-            constexpr int lid_w = 40;
+            constexpr int lid_w = 46;
             constexpr int lid_h = 20;
             lv_obj_remove_flag(right_top_lid_, LV_OBJ_FLAG_HIDDEN);
-            lv_obj_set_pos(right_top_lid_, right_x - 5, right_y - 12);
+            lv_obj_set_pos(right_top_lid_, right_x - 6, right_y - 13);
             lv_obj_set_size(right_top_lid_, lid_w, lid_h);
             lv_obj_set_style_transform_pivot_x(right_top_lid_, lid_w / 2, 0);
             lv_obj_set_style_transform_pivot_y(right_top_lid_, lid_h / 2, 0);
