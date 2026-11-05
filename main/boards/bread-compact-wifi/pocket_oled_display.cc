@@ -87,7 +87,7 @@ void PocketOledDisplay::SetupUI() {
         PrepareShape(pupil);
         lv_obj_set_style_bg_color(pupil, lv_color_black(), 0);
         lv_obj_set_style_bg_opa(pupil, LV_OPA_COVER, 0);
-        lv_obj_set_style_radius(pupil, 6, 0);
+        lv_obj_set_style_radius(pupil, 3, 0);
     }
 
     // 3. Sparkles & Dizzy X (Drawn inside eyes, underneath eyelids)
@@ -993,12 +993,15 @@ void PocketOledDisplay::UpdateAnimationFrame() {
     int right_pupil_pos_x = 0;
     int right_pupil_pos_y = 0;
 
+    int pupil_radius = (left_pupil_w <= 8) ? 1 : (left_pupil_w <= 11 ? 2 : (left_pupil_w >= 16 ? 4 : 3));
+
     if (show_left_pupil) {
         lv_obj_remove_flag(left_pupil_, LV_OBJ_FLAG_HIDDEN);
         left_pupil_pos_x = left_x + (current_left_width_ - left_pupil_w) / 2 + current_look_x_ * 5 / 4;
         left_pupil_pos_y = left_y + (current_left_height_ - left_pupil_h) / 2 + current_look_y_ * 5 / 4;
         lv_obj_set_pos(left_pupil_, left_pupil_pos_x, left_pupil_pos_y);
         lv_obj_set_size(left_pupil_, left_pupil_w, left_pupil_h);
+        lv_obj_set_style_radius(left_pupil_, pupil_radius, 0);
     } else {
         lv_obj_add_flag(left_pupil_, LV_OBJ_FLAG_HIDDEN);
     }
@@ -1009,6 +1012,7 @@ void PocketOledDisplay::UpdateAnimationFrame() {
         right_pupil_pos_y = right_y + (current_right_height_ - right_pupil_h) / 2 + current_look_y_ * 5 / 4;
         lv_obj_set_pos(right_pupil_, right_pupil_pos_x, right_pupil_pos_y);
         lv_obj_set_size(right_pupil_, right_pupil_w, right_pupil_h);
+        lv_obj_set_style_radius(right_pupil_, pupil_radius, 0);
     } else {
         lv_obj_add_flag(right_pupil_, LV_OBJ_FLAG_HIDDEN);
     }
