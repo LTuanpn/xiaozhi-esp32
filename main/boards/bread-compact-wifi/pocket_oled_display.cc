@@ -1232,16 +1232,17 @@ void PocketOledDisplay::UpdateAnimationFrame() {
         const int gaze_shift_y = std::clamp(-total_look_y / 3, -1, 1);
 
         // Emotion lighting modulation
-        const bool is_happy_mode = (face_mode_ == FaceMode::kHappy || face_mode_ == FaceMode::kSmileGentle ||
-                                    face_mode_ == FaceMode::kGiggle || face_mode_ == FaceMode::kEcstaticLaugh ||
-                                    face_mode_ == FaceMode::kInnocent || face_mode_ == FaceMode::kAngelBlessing);
+        const bool is_happy_mode = (face_mode_ == FaceMode::kSmileGentle || face_mode_ == FaceMode::kPlayfulWink ||
+                                    face_mode_ == FaceMode::kEcstaticLaugh || face_mode_ == FaceMode::kPartyCelebrate ||
+                                    face_mode_ == FaceMode::kLove || face_mode_ == FaceMode::kInnocent ||
+                                    face_mode_ == FaceMode::kAngelBlessing);
         const bool is_angry_mode = (face_mode_ == FaceMode::kAngry || face_mode_ == FaceMode::kFurious ||
                                     face_mode_ == FaceMode::kFireFury || face_mode_ == FaceMode::kScheming ||
                                     face_mode_ == FaceMode::kSideEye || face_mode_ == FaceMode::kJealous);
-        const bool is_gloomy_mode = (face_mode_ == FaceMode::kSad || face_mode_ == FaceMode::kCrying ||
+        const bool is_gloomy_mode = (face_mode_ == FaceMode::kSadEmpathy || face_mode_ == FaceMode::kSadCrying ||
+                                     face_mode_ == FaceMode::kCryingStream || face_mode_ == FaceMode::kHeartbroken ||
                                      face_mode_ == FaceMode::kSleepy || face_mode_ == FaceMode::kExhausted ||
-                                     face_mode_ == FaceMode::kDepressed || face_mode_ == FaceMode::kSleepwalking ||
-                                     face_mode_ == FaceMode::kRainyGloomy);
+                                     face_mode_ == FaceMode::kSleepwalking || face_mode_ == FaceMode::kRainyGloomy);
 
         // 1. Left eye: smaller catchlight at middle-right
         if (show_left_pupil && left_pupil_w >= 5 && catchlight_[0][0] != nullptr) {
