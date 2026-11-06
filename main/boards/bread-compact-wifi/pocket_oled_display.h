@@ -134,6 +134,8 @@ private:
     lv_obj_t* music_note_[2] = {nullptr, nullptr};
     lv_obj_t* sweat_drop_ = nullptr;
     lv_obj_t* extra_shape_[6] = {nullptr, nullptr, nullptr, nullptr, nullptr, nullptr};
+    // Pixel-perfect catchlights: [eye][0]=disc body (wide rect), [1]=disc body (tall rect), [2]=small glint
+    lv_obj_t* catchlight_[2][3] = {{nullptr, nullptr, nullptr}, {nullptr, nullptr, nullptr}};
     lv_obj_t* chat_line_ = nullptr;
     lv_timer_t* animation_timer_ = nullptr;
 
@@ -156,6 +158,15 @@ private:
     uint32_t second_blink_start_tick_ = 0;
     uint32_t second_blink_until_tick_ = 0;
     uint32_t next_idle_tick_ = 30;
+
+    // Smoothed pupil size (left=0, right=1) so dilation never "pops"
+    int smooth_pupil_w_[2] = {12, 12};
+    int smooth_pupil_h_[2] = {14, 14};
+    // Micro-saccades: tiny gaze jitter while idle
+    int micro_look_x_ = 0;
+    int micro_look_y_ = 0;
+    uint32_t next_micro_tick_ = 40;
+    uint32_t micro_until_tick_ = 0;
 
     int current_look_x_ = 0;
     int current_look_y_ = 0;

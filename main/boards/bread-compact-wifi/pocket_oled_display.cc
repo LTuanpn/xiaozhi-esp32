@@ -4,6 +4,7 @@
 #include "assets/lang_config.h"
 
 #include <algorithm>
+#include <cmath>
 #include <cstring>
 
 namespace {
@@ -29,6 +30,52 @@ int Ease(int current, int target) {
         return current + std::max(1, delta / 3);
     }
     return current + std::min(-1, delta / 3);
+}
+
+// Eyelids close fast and open a little slower, like a real blink.
+int EaseLid(int current, int target) {
+    if (current == target) {
+        return current;
+    }
+    const int delta = target - current;
+    if (delta < 0) {
+        return current + std::min(-1, (delta * 3) / 4);
+    }
+    return current + std::max(1, (delta * 3) / 5);
+}
+
+// Rounded-rectangle eye: corner radius follows the shorter side so the eye stays soft
+// (squircle) at every size. LVGL clamps the radius to half of the shorter side.
+int EyeRadius(int width, int height) {
+    return std::clamp(std::min(width, height) * 2 / 5, 2, 16);
+}
+
+// Pupils are ellipses (full radius). Tiny pupils keep a small radius to avoid 1-bit diamonds.
+int PupilRadius(int width, int height) {
+    const int shorter = std::min(width, height);
+    return shorter >= 8 ? shorter / 2 : 3;
+}
+
+// Catchlight as a pixel-exact disc: two overlapping rectangles with 1px chamfered corners.
+// This renders identically on a 1-bit OLED (no anti-aliasing threshold artifacts, no diamond).
+void PlaceDisc(lv_obj_t* wide, lv_obj_t* tall, int x, int y, int diameter) {
+    if (wide == nullptr) {
+        return;
+    }
+    lv_obj_remove_flag(wide, LV_OBJ_FLAG_HIDDEN);
+    if (diameter <= 3 || tall == nullptr) {
+        lv_obj_set_pos(wide, x, y);
+        lv_obj_set_size(wide, diameter, diameter);
+        if (tall != nullptr) {
+            lv_obj_add_flag(tall, LV_OBJ_FLAG_HIDDEN);
+        }
+        return;
+    }
+    lv_obj_set_pos(wide, x, y + 1);
+    lv_obj_set_size(wide, diameter, diameter - 2);
+    lv_obj_remove_flag(tall, LV_OBJ_FLAG_HIDDEN);
+    lv_obj_set_pos(tall, x + 1, y);
+    lv_obj_set_size(tall, diameter - 2, diameter);
 }
 
 int32_t NormalizeAngle(int32_t angle) {
@@ -77,7 +124,7 @@ void PocketOledDisplay::SetupUI() {
         PrepareShape(eye);
         lv_obj_set_style_bg_color(eye, lv_color_white(), 0);
         lv_obj_set_style_bg_opa(eye, LV_OPA_COVER, 0);
-        lv_obj_set_style_radius(eye, 4, 0);
+        lv_obj_set_style_radius(eye, 14, 0);
     }
 
     // 2. Black Pupils (Proportional rounded rectangle: W=12, H=14, radius=4)
@@ -87,7 +134,20 @@ void PocketOledDisplay::SetupUI() {
         PrepareShape(pupil);
         lv_obj_set_style_bg_color(pupil, lv_color_black(), 0);
         lv_obj_set_style_bg_opa(pupil, LV_OPA_COVER, 0);
-        lv_obj_set_style_radius(pupil, 4, 0);
+        lv_obj_set_style_radius(pupil, 6, 0);
+    }
+
+    // 2b. Catchlights (white glints on the pupils, created right after the pupils so every
+    //     eyelid/mask drawn later still covers them correctly)
+    for (auto& eye_glints : catchlight_) {
+        for (auto*& glint : eye_glints) {
+            glint = lv_obj_create(face_layer_);
+            PrepareShape(glint);
+            lv_obj_set_style_bg_color(glint, lv_color_white(), 0);
+            lv_obj_set_style_bg_opa(glint, LV_OPA_COVER, 0);
+            lv_obj_set_style_radius(glint, 0, 0);
+            lv_obj_add_flag(glint, LV_OBJ_FLAG_HIDDEN);
+        }
     }
 
     // 3. Sparkles & Dizzy X (Drawn inside eyes, underneath eyelids)
@@ -407,8 +467,8 @@ void PocketOledDisplay::ApplyLayout() {
 
     lv_obj_set_pos(face_layer_, 0, 0);
     lv_obj_set_size(face_layer_, 128, 48);
-    lv_obj_set_style_radius(left_eye_, 4, 0);
-    lv_obj_set_style_radius(right_eye_, 4, 0);
+    lv_obj_set_style_radius(left_eye_, EyeRadius(current_left_width_, current_left_height_), 0);
+    lv_obj_set_style_radius(right_eye_, EyeRadius(current_right_width_, current_right_height_), 0);
     current_left_width_ = std::min(current_left_width_, 42);
     current_right_width_ = std::min(current_right_width_, 42);
     current_left_height_ = std::min(current_left_height_, 38);
@@ -512,10 +572,10 @@ void PocketOledDisplay::UpdateAnimationFrame() {
         face_mode_ != FaceMode::kLove && face_mode_ != FaceMode::kSneezing &&
         face_mode_ != FaceMode::kRebooting && face_mode_ != FaceMode::kGameOver) {
         if (animation_tick_ >= next_blink_tick_) {
-            blink_until_tick_ = animation_tick_ + 3;  // 120ms first blink
+            blink_until_tick_ = animation_tick_ + 2;  // 80ms closed; lids snap shut then ease open
             if ((NextRandom() % 100) < 30) {
                 second_blink_start_tick_ = animation_tick_ + 6;
-                second_blink_until_tick_ = animation_tick_ + 9;
+                second_blink_until_tick_ = animation_tick_ + 8;
             } else {
                 second_blink_start_tick_ = 0;
                 second_blink_until_tick_ = 0;
@@ -811,8 +871,27 @@ void PocketOledDisplay::UpdateAnimationFrame() {
         target_right_y_offset = 3;
     }
 
-    current_left_height_ = Ease(current_left_height_, target_left_height);
-    current_right_height_ = Ease(current_right_height_, target_right_height);
+    // Breathing: the eyes swell by up to 2px on a slow ~5s cycle while relaxed
+    if (!blink && !is_speaking_ &&
+        (face_mode_ == FaceMode::kNeutral || face_mode_ == FaceMode::kListening ||
+         face_mode_ == FaceMode::kSmileGentle || face_mode_ == FaceMode::kSleepy)) {
+        const int phase = static_cast<int>(animation_tick_ % 120);
+        const int triangle = (phase < 60) ? phase : (120 - phase);  // 0..60
+        const int breath = (triangle * 3) / 61;                     // 0..2
+        target_left_height += breath;
+        target_right_height += breath;
+    }
+
+    // During a blink (and the few frames after it) use the snappy close / slower open curve.
+    const bool lid_snap =
+        animation_tick_ < std::max(blink_until_tick_, second_blink_until_tick_) + 6;
+    if (lid_snap) {
+        current_left_height_ = EaseLid(current_left_height_, target_left_height);
+        current_right_height_ = EaseLid(current_right_height_, target_right_height);
+    } else {
+        current_left_height_ = Ease(current_left_height_, target_left_height);
+        current_right_height_ = Ease(current_right_height_, target_right_height);
+    }
     current_left_width_ = Ease(current_left_width_, target_left_width);
     current_right_width_ = Ease(current_right_width_, target_right_width);
     current_left_y_offset_ = Ease(current_left_y_offset_, target_left_y_offset);
@@ -885,12 +964,30 @@ void PocketOledDisplay::UpdateAnimationFrame() {
         animation_y = (animation_tick_ % 2 == 0) ? 1 : -1;
     }
 
-    const int left_x = base_x + (eye_width - current_left_width_) / 2 + current_look_x_ + animation_x;
-    const int right_x = base_x + eye_width + eye_gap + (eye_width - current_right_width_) / 2 + current_look_x_ + animation_x;
+    // Micro-saccades: tiny gaze jitter that keeps the face alive while idle.
+    if (animation_tick_ >= next_micro_tick_) {
+        micro_look_x_ = static_cast<int>(NextRandom() % 3) - 1;
+        micro_look_y_ = (NextRandom() % 4 == 0) ? static_cast<int>(NextRandom() % 3) - 1 : 0;
+        micro_until_tick_ = animation_tick_ + 3 + (NextRandom() % 4);
+        next_micro_tick_ = animation_tick_ + 20 + (NextRandom() % 45);
+    }
+    if (animation_tick_ >= micro_until_tick_) {
+        micro_look_x_ = 0;
+        micro_look_y_ = 0;
+    }
+    const bool micro_enabled =
+        !blink && !is_speaking_ && idle_quirk_ == IdleQuirk::kNone &&
+        (face_mode_ == FaceMode::kNeutral || face_mode_ == FaceMode::kListening ||
+         face_mode_ == FaceMode::kSmileGentle || face_mode_ == FaceMode::kSleepy);
+    const int look_x = current_look_x_ + (micro_enabled ? micro_look_x_ : 0);
+    const int look_y = current_look_y_ + (micro_enabled ? micro_look_y_ : 0);
+
+    const int left_x = base_x + (eye_width - current_left_width_) / 2 + look_x + animation_x;
+    const int right_x = base_x + eye_width + eye_gap + (eye_width - current_right_width_) / 2 + look_x + animation_x;
     const int left_y =
-        base_y + (eye_height - current_left_height_) / 2 + current_look_y_ + animation_y + current_left_y_offset_;
+        base_y + (eye_height - current_left_height_) / 2 + look_y + animation_y + current_left_y_offset_;
     const int right_y =
-        base_y + (eye_height - current_right_height_) / 2 + current_look_y_ + animation_y + current_right_y_offset_;
+        base_y + (eye_height - current_right_height_) / 2 + look_y + animation_y + current_right_y_offset_;
 
     if (face_mode_ == FaceMode::kLove || face_mode_ == FaceMode::kHeartbroken) {
         lv_obj_add_flag(left_eye_, LV_OBJ_FLAG_HIDDEN);
@@ -904,17 +1001,12 @@ void PocketOledDisplay::UpdateAnimationFrame() {
         lv_obj_set_size(right_eye_, current_right_width_, current_right_height_);
     }
 
-    // Eye corner radius: crisp 4px as requested, 6px for angry bottom belly, 12px for sleep
-    int left_radius = 4;
-    int right_radius = 4;
+    // Eye corner radius: soft squircle that scales with the eye (no more boxy corners)
+    int left_radius = EyeRadius(current_left_width_, current_left_height_);
+    int right_radius = EyeRadius(current_right_width_, current_right_height_);
     if (face_mode_ == FaceMode::kSleeping) {
         left_radius = 12;
         right_radius = 12;
-    } else if (face_mode_ == FaceMode::kAngry || face_mode_ == FaceMode::kFurious ||
-               face_mode_ == FaceMode::kFireFury || face_mode_ == FaceMode::kScheming ||
-               face_mode_ == FaceMode::kSideEye) {
-        left_radius = 6;
-        right_radius = 6;
     }
     lv_obj_set_style_radius(left_eye_, left_radius, 0);
     lv_obj_set_style_radius(right_eye_, right_radius, 0);
@@ -998,37 +1090,62 @@ void PocketOledDisplay::UpdateAnimationFrame() {
         left_pupil_h = right_pupil_h = 8;
     }
 
+    // Smooth pupil dilation so a size change glides instead of popping
+    smooth_pupil_w_[0] = Ease(smooth_pupil_w_[0], left_pupil_w);
+    smooth_pupil_h_[0] = Ease(smooth_pupil_h_[0], left_pupil_h);
+    smooth_pupil_w_[1] = Ease(smooth_pupil_w_[1], right_pupil_w);
+    smooth_pupil_h_[1] = Ease(smooth_pupil_h_[1], right_pupil_h);
+    left_pupil_w = smooth_pupil_w_[0];
+    left_pupil_h = smooth_pupil_h_[0];
+    right_pupil_w = smooth_pupil_w_[1];
+    right_pupil_h = smooth_pupil_h_[1];
+
     int left_pupil_pos_x = 0;
     int left_pupil_pos_y = 0;
     int right_pupil_pos_x = 0;
     int right_pupil_pos_y = 0;
 
-    // Gentle squircle radius (3..4px) matching the outer vertical eye contour without hexagon artifacts
-    const int left_pupil_r = (left_pupil_w <= 10) ? 3 : 4;
-    const int right_pupil_r = (right_pupil_w <= 10) ? 3 : 4;
+    // Pupil is an ellipse (full radius) and is kept inside the rounded eye contour:
+    // its offset is limited by an ellipse instead of a rectangle, so it never pokes
+    // out of the rounded corners when the eyes look diagonally.
+    auto place_pupil = [&](int eye_x, int eye_y, int eye_w, int eye_h, int pw, int ph,
+                           int& out_x, int& out_y) {
+        const float cx = eye_x + (eye_w - pw) / 2.0f;
+        const float cy = eye_y + (eye_h - ph) / 2.0f;
+        float dx = look_x * 5 / 4.0f;
+        float dy = look_y * 5 / 4.0f;
+        const float ax = std::max(1.0f, (eye_w - pw) / 2.0f - 3.0f);
+        const float ay = std::max(1.0f, (eye_h - ph) / 2.0f - 2.0f);
+        const float k = (dx / ax) * (dx / ax) + (dy / ay) * (dy / ay);
+        if (k > 1.0f) {
+            const float s = 1.0f / std::sqrt(k);
+            dx *= s;
+            dy *= s;
+        }
+        out_x = static_cast<int>(std::lround(cx + dx));
+        out_y = static_cast<int>(std::lround(cy + dy));
+        out_x = std::clamp(out_x, eye_x + 2, std::max(eye_x + 2, eye_x + eye_w - pw - 2));
+        out_y = std::clamp(out_y, eye_y + 1, std::max(eye_y + 1, eye_y + eye_h - ph - 2));
+    };
 
     if (show_left_pupil) {
         lv_obj_remove_flag(left_pupil_, LV_OBJ_FLAG_HIDDEN);
-        int raw_lx = left_x + (current_left_width_ - left_pupil_w) / 2 + current_look_x_ * 5 / 4;
-        int raw_ly = left_y + (current_left_height_ - left_pupil_h) / 2 + current_look_y_ * 5 / 4;
-        left_pupil_pos_x = std::clamp(raw_lx, left_x + 3, std::max(left_x + 3, left_x + current_left_width_ - left_pupil_w - 3));
-        left_pupil_pos_y = std::clamp(raw_ly, left_y + 2, std::max(left_y + 2, left_y + current_left_height_ - left_pupil_h - 3));
+        place_pupil(left_x, left_y, current_left_width_, current_left_height_, left_pupil_w,
+                    left_pupil_h, left_pupil_pos_x, left_pupil_pos_y);
         lv_obj_set_pos(left_pupil_, left_pupil_pos_x, left_pupil_pos_y);
         lv_obj_set_size(left_pupil_, left_pupil_w, left_pupil_h);
-        lv_obj_set_style_radius(left_pupil_, left_pupil_r, 0);
+        lv_obj_set_style_radius(left_pupil_, PupilRadius(left_pupil_w, left_pupil_h), 0);
     } else {
         lv_obj_add_flag(left_pupil_, LV_OBJ_FLAG_HIDDEN);
     }
 
     if (show_right_pupil) {
         lv_obj_remove_flag(right_pupil_, LV_OBJ_FLAG_HIDDEN);
-        int raw_rx = right_x + (current_right_width_ - right_pupil_w) / 2 + current_look_x_ * 5 / 4;
-        int raw_ry = right_y + (current_right_height_ - right_pupil_h) / 2 + current_look_y_ * 5 / 4;
-        right_pupil_pos_x = std::clamp(raw_rx, right_x + 3, std::max(right_x + 3, right_x + current_right_width_ - right_pupil_w - 3));
-        right_pupil_pos_y = std::clamp(raw_ry, right_y + 2, std::max(right_y + 2, right_y + current_right_height_ - right_pupil_h - 3));
+        place_pupil(right_x, right_y, current_right_width_, current_right_height_, right_pupil_w,
+                    right_pupil_h, right_pupil_pos_x, right_pupil_pos_y);
         lv_obj_set_pos(right_pupil_, right_pupil_pos_x, right_pupil_pos_y);
         lv_obj_set_size(right_pupil_, right_pupil_w, right_pupil_h);
-        lv_obj_set_style_radius(right_pupil_, right_pupil_r, 0);
+        lv_obj_set_style_radius(right_pupil_, PupilRadius(right_pupil_w, right_pupil_h), 0);
     } else {
         lv_obj_add_flag(right_pupil_, LV_OBJ_FLAG_HIDDEN);
     }
@@ -1092,33 +1209,38 @@ void PocketOledDisplay::UpdateAnimationFrame() {
     for (auto* s : {left_sparkle_a_, left_sparkle_b_, right_sparkle_a_, right_sparkle_b_}) {
         if (s) lv_obj_add_flag(s, LV_OBJ_FLAG_HIDDEN);
     }
+    for (auto& eye_glints : catchlight_) {
+        for (auto* glint : eye_glints) {
+            if (glint) lv_obj_add_flag(glint, LV_OBJ_FLAG_HIDDEN);
+        }
+    }
 
-    // Asymmetric Circular Catchlights:
-    // Left eye: 2x2 px circular dot at middle-right
-    // Right eye: 6x6 px circular dot at top-right
-    // Using LV_RADIUS_CIRCLE for perfect roundness
+    // Catchlights: one light source for both eyes (upper-right big glint + small lower-left glint),
+    // built from pixel-exact rectangles so they stay round on a 1-bit OLED.
     const bool is_special_sparkle_mode = (face_mode_ == FaceMode::kExcited ||
                                           face_mode_ == FaceMode::kSunnyDazzle ||
                                           face_mode_ == FaceMode::kPout ||
                                           face_mode_ == FaceMode::kMoneyEyes);
     if (!is_special_sparkle_mode) {
-        if (show_left_pupil && left_pupil_w >= 5) {
-            // Left eye: 2x2 px circle at middle-right
-            if (left_sparkle_a_) {
-                lv_obj_remove_flag(left_sparkle_a_, LV_OBJ_FLAG_HIDDEN);
-                lv_obj_set_pos(left_sparkle_a_, left_pupil_pos_x + left_pupil_w - 2 - 1, left_pupil_pos_y + (left_pupil_h - 2) / 2);
-                lv_obj_set_size(left_sparkle_a_, 2, 2);
-                lv_obj_set_style_radius(left_sparkle_a_, LV_RADIUS_CIRCLE, 0);
+        auto place_glints = [&](int eye, int px, int py, int pw, int ph) {
+            if (pw < 6 || catchlight_[eye][0] == nullptr) {
+                return;
             }
+            const int diameter = pw >= 16 ? 7 : (pw >= 11 ? 5 : (pw >= 8 ? 4 : 3));
+            const int margin = pw >= 11 ? 3 : 2;  // keep the glint inside the curved pupil edge
+            PlaceDisc(catchlight_[eye][0], catchlight_[eye][1], px + pw - diameter - margin,
+                      py + margin, diameter);
+            if (pw >= 11 && ph >= 12 && catchlight_[eye][2] != nullptr) {
+                lv_obj_remove_flag(catchlight_[eye][2], LV_OBJ_FLAG_HIDDEN);
+                lv_obj_set_pos(catchlight_[eye][2], px + 3, py + ph - 6);
+                lv_obj_set_size(catchlight_[eye][2], 2, 2);
+            }
+        };
+        if (show_left_pupil) {
+            place_glints(0, left_pupil_pos_x, left_pupil_pos_y, left_pupil_w, left_pupil_h);
         }
-        if (show_right_pupil && right_pupil_w >= 7) {
-            // Right eye: 6x6 px circle at top-right
-            if (right_sparkle_a_) {
-                lv_obj_remove_flag(right_sparkle_a_, LV_OBJ_FLAG_HIDDEN);
-                lv_obj_set_pos(right_sparkle_a_, right_pupil_pos_x + right_pupil_w - 6 - 1, right_pupil_pos_y + 1);
-                lv_obj_set_size(right_sparkle_a_, 6, 6);
-                lv_obj_set_style_radius(right_sparkle_a_, LV_RADIUS_CIRCLE, 0);
-            }
+        if (show_right_pupil) {
+            place_glints(1, right_pupil_pos_x, right_pupil_pos_y, right_pupil_w, right_pupil_h);
         }
     }
     if (sweat_drop_) lv_obj_add_flag(sweat_drop_, LV_OBJ_FLAG_HIDDEN);
@@ -2065,5 +2187,5 @@ PocketOledDisplay::FaceMode PocketOledDisplay::FaceModeFromEmotion(const char* e
 
 uint32_t PocketOledDisplay::NextRandom() {
     random_state_ = random_state_ * 1664525U + 1013904223U;
-    return random_state_;
+    return random_state_ >> 8;  // the low bits of an LCG repeat with a tiny period
 }
