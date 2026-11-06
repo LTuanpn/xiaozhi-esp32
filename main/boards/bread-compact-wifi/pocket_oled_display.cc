@@ -47,7 +47,7 @@ int EaseLid(int current, int target) {
 // Rounded-rectangle eye: corner radius follows the shorter side so the eye stays soft
 // (squircle) at every size. LVGL clamps the radius to half of the shorter side.
 int EyeRadius(int width, int height) {
-    return std::clamp(std::min(width, height) * 2 / 5, 2, 16);
+    return std::clamp(static_cast<int>(std::round(std::min(width, height) * 9.0f / 38.0f)), 2, 9);
 }
 
 // Pupils are ellipses (full radius). Tiny pupils keep a small radius to avoid 1-bit diamonds.
@@ -124,7 +124,7 @@ void PocketOledDisplay::SetupUI() {
         PrepareShape(eye);
         lv_obj_set_style_bg_color(eye, lv_color_white(), 0);
         lv_obj_set_style_bg_opa(eye, LV_OPA_COVER, 0);
-        lv_obj_set_style_radius(eye, 14, 0);
+        lv_obj_set_style_radius(eye, 9, 0);
     }
 
     // 2. Black Pupils (Proportional rounded rectangle: W=12, H=14, radius=4)
@@ -1215,32 +1215,87 @@ void PocketOledDisplay::UpdateAnimationFrame() {
         }
     }
 
-    // Catchlights: one light source for both eyes (upper-right big glint + small lower-left glint),
-    // built from pixel-exact rectangles so they stay round on a 1-bit OLED.
+    // Dynamic Environmental Catchlights:
+    // - Left eye: smaller dot placed at middle-right.
+    // - Right eye: larger dot placed at upper-right.
+    // - Light position dynamically shifts based on eye gaze (corneal parallax)
+    //   and emotion state, bringing organic natural lighting to life!
     const bool is_special_sparkle_mode = (face_mode_ == FaceMode::kExcited ||
                                           face_mode_ == FaceMode::kSunnyDazzle ||
                                           face_mode_ == FaceMode::kPout ||
                                           face_mode_ == FaceMode::kMoneyEyes);
     if (!is_special_sparkle_mode) {
-        auto place_glints = [&](int eye, int px, int py, int pw, int ph) {
-            if (pw < 6 || catchlight_[eye][0] == nullptr) {
-                return;
+        // Gaze parallax: specular reflection shifts slightly on curved cornea as eye turns
+        const int total_look_x = current_look_x_ + micro_look_x_;
+        const int total_look_y = current_look_y_ + micro_look_y_;
+        const int gaze_shift_x = std::clamp(-total_look_x / 3, -2, 2);
+        const int gaze_shift_y = std::clamp(-total_look_y / 3, -1, 1);
+
+        // Emotion lighting modulation
+        const bool is_happy_mode = (face_mode_ == FaceMode::kHappy || face_mode_ == FaceMode::kSmileGentle ||
+                                    face_mode_ == FaceMode::kGiggle || face_mode_ == FaceMode::kEcstaticLaugh ||
+                                    face_mode_ == FaceMode::kInnocent || face_mode_ == FaceMode::kAngelBlessing);
+        const bool is_angry_mode = (face_mode_ == FaceMode::kAngry || face_mode_ == FaceMode::kFurious ||
+                                    face_mode_ == FaceMode::kFireFury || face_mode_ == FaceMode::kScheming ||
+                                    face_mode_ == FaceMode::kSideEye || face_mode_ == FaceMode::kJealous);
+        const bool is_gloomy_mode = (face_mode_ == FaceMode::kSad || face_mode_ == FaceMode::kCrying ||
+                                     face_mode_ == FaceMode::kSleepy || face_mode_ == FaceMode::kExhausted ||
+                                     face_mode_ == FaceMode::kDepressed || face_mode_ == FaceMode::kSleepwalking ||
+                                     face_mode_ == FaceMode::kRainyGloomy);
+
+        // 1. Left eye: smaller catchlight at middle-right
+        if (show_left_pupil && left_pupil_w >= 5 && catchlight_[0][0] != nullptr) {
+            int left_diam = 3;
+            if (is_happy_mode && left_pupil_w >= 12) {
+                left_diam = 4;
+            } else if (is_angry_mode || is_gloomy_mode || left_pupil_w <= 8) {
+                left_diam = 2;
             }
-            const int diameter = pw >= 16 ? 7 : (pw >= 11 ? 5 : (pw >= 8 ? 4 : 3));
-            const int margin = pw >= 11 ? 3 : 2;  // keep the glint inside the curved pupil edge
-            PlaceDisc(catchlight_[eye][0], catchlight_[eye][1], px + pw - diameter - margin,
-                      py + margin, diameter);
-            if (pw >= 11 && ph >= 12 && catchlight_[eye][2] != nullptr) {
-                lv_obj_remove_flag(catchlight_[eye][2], LV_OBJ_FLAG_HIDDEN);
-                lv_obj_set_pos(catchlight_[eye][2], px + 3, py + ph - 6);
-                lv_obj_set_size(catchlight_[eye][2], 2, 2);
+
+            int left_dot_x = left_pupil_pos_x + left_pupil_w - left_diam - 2 + gaze_shift_x;
+            int left_dot_y = left_pupil_pos_y + (left_pupil_h - left_diam) / 2 + gaze_shift_y;
+            if (is_gloomy_mode) {
+                left_dot_y += 1;  // drooping low highlight
+            } else if (is_angry_mode) {
+                left_dot_y -= 1;  // intense upward highlight
             }
-        };
-        if (show_left_pupil) {
-            place_glints(0, left_pupil_pos_x, left_pupil_pos_y, left_pupil_w, left_pupil_h);
+
+            // Clamp inside pupil
+            left_dot_x = std::clamp(left_dot_x, left_pupil_pos_x + 1, left_pupil_pos_x + left_pupil_w - left_diam - 1);
+            left_dot_y = std::clamp(left_dot_y, left_pupil_pos_y + 1, left_pupil_pos_y + left_pupil_h - left_diam - 1);
+
+            PlaceDisc(catchlight_[0][0], catchlight_[0][1], left_dot_x, left_dot_y, left_diam);
         }
-        if (show_right_pupil) {
-            place_glints(1, right_pupil_pos_x, right_pupil_pos_y, right_pupil_w, right_pupil_h);
+
+        // 2. Right eye: larger catchlight at upper-right
+        if (show_right_pupil && right_pupil_w >= 6 && catchlight_[1][0] != nullptr) {
+            int right_diam = (right_pupil_w >= 14) ? 5 : 4;
+            if (is_happy_mode) {
+                right_diam = (right_pupil_w >= 14) ? 6 : 5;
+            } else if (is_angry_mode || is_gloomy_mode) {
+                right_diam = (right_pupil_w >= 14) ? 4 : 3;
+            }
+
+            int right_dot_x = right_pupil_pos_x + right_pupil_w - right_diam - 2 + gaze_shift_x;
+            int right_dot_y = right_pupil_pos_y + 2 + gaze_shift_y;
+            if (is_gloomy_mode) {
+                right_dot_y += 1;
+            } else if (is_angry_mode) {
+                right_dot_y -= 1;
+            }
+
+            // Clamp inside pupil
+            right_dot_x = std::clamp(right_dot_x, right_pupil_pos_x + 1, right_pupil_pos_x + right_pupil_w - right_diam - 1);
+            right_dot_y = std::clamp(right_dot_y, right_pupil_pos_y + 1, right_pupil_pos_y + right_pupil_h - right_diam - 1);
+
+            PlaceDisc(catchlight_[1][0], catchlight_[1][1], right_dot_x, right_dot_y, right_diam);
+
+            // Optional secondary glint in right eye only for extra sparkle when pupil is dilated
+            if (right_pupil_w >= 14 && is_happy_mode && catchlight_[1][2] != nullptr) {
+                lv_obj_remove_flag(catchlight_[1][2], LV_OBJ_FLAG_HIDDEN);
+                lv_obj_set_pos(catchlight_[1][2], right_pupil_pos_x + 2, right_pupil_pos_y + right_pupil_h - 5);
+                lv_obj_set_size(catchlight_[1][2], 2, 2);
+            }
         }
     }
     if (sweat_drop_) lv_obj_add_flag(sweat_drop_, LV_OBJ_FLAG_HIDDEN);
