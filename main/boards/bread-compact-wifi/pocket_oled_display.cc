@@ -52,7 +52,10 @@ int EyeRadius(int width, int height) {
 // Khóa radius ở 2..3 để con ngươi luôn có form chữ nhật bo góc vuông sắc nét
 int PupilRadius(int width, int height) {
     const int shorter = std::min(width, height);
-    return (shorter <= 9) ? 2 : 3;
+    if (shorter <= 7) return 2;
+    if (shorter <= 11) return 3;
+    if (shorter <= 15) return 5;
+    return shorter / 2;
 }
 
 // Vẽ đĩa tròn pixel-art: Cấm cắt chữ thập ở 3px và cấm cắt 2 tầng ở 6-7px (Xóa sổ hình thoi!)
@@ -156,7 +159,7 @@ void PocketOledDisplay::SetupUI() {
         PrepareShape(pupil);
         lv_obj_set_style_bg_color(pupil, lv_color_black(), 0);
         lv_obj_set_style_bg_opa(pupil, LV_OPA_COVER, 0);
-        lv_obj_set_style_radius(pupil, 3, 0);
+        lv_obj_set_style_radius(pupil, 6, 0);
     }
 
     // 2b. Catchlights (3-tier pixel matrix per eye + secondary glint)
