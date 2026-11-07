@@ -297,7 +297,7 @@ private:
             PropertyList({Property("enable", kPropertyTypeBoolean, true)}),
             [](const PropertyList& properties) -> ReturnValue {
                 bool enable = properties["enable"].value<bool>();
-                Application::GetInstance().SetAecMode(enable ? Application::kAecOnServerSide : Application::kAecOff);
+                Application::GetInstance().SetAecMode(enable ? kAecOnServerSide : kAecOff);
                 return enable ? "Đã bật chế độ Realtime (cho phép ngắt lời)" 
                               : "Đã chuyển về chế độ đàm thoại tiêu chuẩn";
             }
