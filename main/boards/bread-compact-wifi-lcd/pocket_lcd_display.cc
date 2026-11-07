@@ -1,5 +1,6 @@
 #include "pocket_lcd_display.h"
 #include "application.h"
+#include "display/lvgl_display/lvgl_theme.h"
 
 #include <esp_err.h>
 #include <esp_log.h>
@@ -118,10 +119,17 @@ PocketLcdDisplay::~PocketLcdDisplay() {
 }
 
 void PocketLcdDisplay::SetupUI() {
+    if (setup_ui_called_) {
+        ESP_LOGW(TAG, "SetupUI() called multiple times, skipping duplicate call");
+        return;
+    }
+    Display::SetupUI();  // Mark SetupUI as called
+
     DisplayLockGuard lock(this);
+    if (!lock) return;
 
     // 1. Full Black Screen Background
-    lv_obj_t* scr = lv_scr_act();
+    auto scr = lv_screen_active();
     lv_obj_set_style_bg_color(scr, lv_color_black(), 0);
     lv_obj_set_style_bg_opa(scr, LV_OPA_COVER, 0);
     lv_obj_clear_flag(scr, LV_OBJ_FLAG_SCROLLABLE);
@@ -215,6 +223,12 @@ void PocketLcdDisplay::SetupUI() {
     lv_obj_set_pos(chat_line_, 5, 200);
     lv_obj_set_style_text_align(chat_line_, LV_TEXT_ALIGN_CENTER, 0);
     lv_obj_set_style_text_color(chat_line_, lv_color_white(), 0);
+
+    // Apply font from theme if available (supports Vietnamese UTF-8 accents)
+    auto lvgl_theme = static_cast<LvglTheme*>(current_theme_);
+    if (lvgl_theme != nullptr && lvgl_theme->text_font() != nullptr) {
+        lv_obj_set_style_text_font(chat_line_, lvgl_theme->text_font()->font(), 0);
+    }
     lv_label_set_text(chat_line_, "");
 
     ApplyLayout();
@@ -243,17 +257,19 @@ void PocketLcdDisplay::WakeUp() {
 
 void PocketLcdDisplay::SetStatus(const char* status) {
     DisplayLockGuard lock(this);
+    if (!lock) return;
     WakeUp();
     last_status_text_ = (status != nullptr) ? status : "";
-    if (chat_line_ != nullptr && !has_chat_text_) {
+    if (chat_line_ != nullptr && !has_chat_text_ && !hide_subtitle_) {
         lv_label_set_text(chat_line_, last_status_text_.c_str());
     }
 }
 
 void PocketLcdDisplay::ShowNotification(const char* notification, int duration_ms) {
     DisplayLockGuard lock(this);
+    if (!lock) return;
     WakeUp();
-    if (chat_line_ != nullptr) {
+    if (chat_line_ != nullptr && !hide_subtitle_) {
         lv_label_set_text(chat_line_, (notification != nullptr) ? notification : "");
         notification_until_tick_ = animation_tick_ + (duration_ms / kAnimationPeriodMs);
     }
@@ -265,6 +281,7 @@ void PocketLcdDisplay::ShowNotification(const std::string& notification, int dur
 
 bool PocketLcdDisplay::SetEmotion(const char* emotion) {
     DisplayLockGuard lock(this);
+    if (!lock) return false;
     WakeUp();
     emotion_mode_ = FaceModeFromEmotion(emotion);
     SetFaceMode(emotion_mode_);
@@ -274,6 +291,7 @@ bool PocketLcdDisplay::SetEmotion(const char* emotion) {
 
 void PocketLcdDisplay::SetChatMessage(const char* role, const char* content) {
     DisplayLockGuard lock(this);
+    if (!lock) return;
     WakeUp();
 
     if (content == nullptr || content[0] == '\0') {
@@ -325,7 +343,7 @@ void PocketLcdDisplay::SetChatMessage(const char* role, const char* content) {
     }
 
     has_chat_text_ = !clean_text.empty();
-    if (chat_line_ != nullptr) {
+    if (chat_line_ != nullptr && !hide_subtitle_) {
         lv_label_set_text(chat_line_, clean_text.c_str());
         lv_obj_move_foreground(chat_line_);
     }
@@ -333,14 +351,46 @@ void PocketLcdDisplay::SetChatMessage(const char* role, const char* content) {
 
 void PocketLcdDisplay::ClearChatMessages() {
     DisplayLockGuard lock(this);
+    if (!lock) return;
     has_chat_text_ = false;
     if (chat_line_ != nullptr) {
-        lv_label_set_text(chat_line_, "");
+        if (!last_status_text_.empty() && !hide_subtitle_) {
+            lv_label_set_text(chat_line_, last_status_text_.c_str());
+        } else {
+            lv_label_set_text(chat_line_, "");
+        }
     }
 }
 
 void PocketLcdDisplay::RemoveChatMessage(const char* role, const char* content) {
     ClearChatMessages();
+}
+
+void PocketLcdDisplay::SetTheme(Theme* theme) {
+    DisplayLockGuard lock(this);
+    current_theme_ = theme;
+    if (chat_line_ != nullptr && current_theme_ != nullptr) {
+        auto lvgl_theme = static_cast<LvglTheme*>(current_theme_);
+        if (lvgl_theme != nullptr && lvgl_theme->text_font() != nullptr) {
+            lv_obj_set_style_text_font(chat_line_, lvgl_theme->text_font()->font(), 0);
+        }
+    }
+}
+
+void PocketLcdDisplay::SetHideSubtitle(bool hide) {
+    DisplayLockGuard lock(this);
+    hide_subtitle_ = hide;
+    if (chat_line_ != nullptr) {
+        if (hide) {
+            lv_obj_add_flag(chat_line_, LV_OBJ_FLAG_HIDDEN);
+        } else {
+            lv_obj_remove_flag(chat_line_, LV_OBJ_FLAG_HIDDEN);
+        }
+    }
+}
+
+void PocketLcdDisplay::UpdateStatusBar(bool update_all) {
+    // PocketLcdDisplay uses streamlined minimalist UI; status is presented in chat_line_
 }
 
 void PocketLcdDisplay::SetFaceMode(FaceMode mode) {
@@ -372,12 +422,13 @@ void PocketLcdDisplay::ApplyLayout() {
 void PocketLcdDisplay::UpdateAnimationFrame() {
     if (face_layer_ == nullptr) return;
     DisplayLockGuard lock(this);
+    if (!lock) return;
     ++animation_tick_;
 
     // Restore chat line after notification timeout
     if (notification_until_tick_ > 0 && animation_tick_ >= notification_until_tick_) {
         notification_until_tick_ = 0;
-        if (chat_line_ != nullptr && !has_chat_text_) {
+        if (chat_line_ != nullptr && !has_chat_text_ && !hide_subtitle_) {
             if (face_mode_ == FaceMode::kSleeping) {
                 lv_label_set_text(chat_line_, "zZz...");
             } else {
@@ -480,6 +531,10 @@ void PocketLcdDisplay::UpdateAnimationFrame() {
         target_left_height = 72;
         target_right_height = 8;
         target_right_y_offset = 20;
+    } else if (face_mode_ == FaceMode::kTongueOut) {
+        target_left_height = target_right_height = 42;
+        target_left_width = target_right_width = 72;
+        target_left_y_offset = target_right_y_offset = 6;
     } else if (face_mode_ == FaceMode::kAngry || face_mode_ == FaceMode::kFurious || face_mode_ == FaceMode::kFireFury) {
         target_left_height = target_right_height = 44;
         target_left_y_offset = target_right_y_offset = 12;
@@ -672,6 +727,45 @@ void PocketLcdDisplay::UpdateAnimationFrame() {
                 lv_obj_set_pos(extra_shape_[i], cx, left_y + current_left_height_ + 4);
             }
         }
+    } else if (face_mode_ == FaceMode::kTongueOut && !blink) {
+        if (extra_shape_[0] && extra_shape_[1]) {
+            int wiggle = ((animation_tick_ / 4) % 2 == 0) ? -2 : 2;
+            int tongue_w = 20;
+            int tongue_h = 22;
+            int tx = 120 - tongue_w / 2 + wiggle;
+            int ty = base_y + 44;
+            lv_obj_remove_flag(extra_shape_[0], LV_OBJ_FLAG_HIDDEN);
+            lv_obj_set_style_bg_color(extra_shape_[0], lv_color_hex(0xFF4081), 0);
+            lv_obj_set_pos(extra_shape_[0], tx, ty);
+            lv_obj_set_size(extra_shape_[0], tongue_w, tongue_h);
+            lv_obj_set_style_radius(extra_shape_[0], 8, 0);
+
+            // Midline
+            lv_obj_remove_flag(extra_shape_[1], LV_OBJ_FLAG_HIDDEN);
+            lv_obj_set_style_bg_color(extra_shape_[1], lv_color_hex(0xC2185B), 0);
+            lv_obj_set_pos(extra_shape_[1], tx + tongue_w / 2 - 1, ty + 2);
+            lv_obj_set_size(extra_shape_[1], 2, tongue_h - 6);
+            lv_obj_set_style_radius(extra_shape_[1], 1, 0);
+        }
+    } else if (face_mode_ == FaceMode::kPartyCelebrate) {
+        // Confetti burst
+        const lv_color_t confetti_colors[4] = {
+            lv_color_hex(0xFFD700),
+            lv_color_hex(0x00E5FF),
+            lv_color_hex(0xFF4081),
+            lv_color_hex(0x76FF03)
+        };
+        for (int i = 0; i < 4; ++i) {
+            if (extra_shape_[i]) {
+                lv_obj_remove_flag(extra_shape_[i], LV_OBJ_FLAG_HIDDEN);
+                lv_obj_set_style_bg_color(extra_shape_[i], confetti_colors[i], 0);
+                int cy = 15 + ((animation_tick_ * 3 + i * 20) % 65);
+                int cx = 25 + i * 55 + ((animation_tick_ + i * 5) % 8 - 4);
+                lv_obj_set_pos(extra_shape_[i], cx, cy);
+                lv_obj_set_size(extra_shape_[i], 6, 6);
+                lv_obj_set_style_radius(extra_shape_[i], 2, 0);
+            }
+        }
     } else if (face_mode_ == FaceMode::kLove) {
         // Heart eyes
         lv_obj_set_style_bg_color(left_eye_, lv_color_hex(0xFF2D55), 0);
@@ -680,66 +774,208 @@ void PocketLcdDisplay::UpdateAnimationFrame() {
 }
 
 PocketLcdDisplay::FaceMode PocketLcdDisplay::FaceModeFromEmotion(const char* emotion) const {
-    if (emotion == nullptr) return FaceMode::kNeutral;
-    if (Contains(emotion, "cry_stream") || Contains(emotion, "waterfall")) return FaceMode::kCryingStream;
-    if (Contains(emotion, "cry") || Contains(emotion, "tear")) return FaceMode::kSadCrying;
-    if (Contains(emotion, "heartbreak")) return FaceMode::kHeartbroken;
-    if (Contains(emotion, "sad")) return FaceMode::kSadEmpathy;
-    if (Contains(emotion, "party") || Contains(emotion, "celebrate")) return FaceMode::kPartyCelebrate;
-    if (Contains(emotion, "tongue")) return FaceMode::kTongueOut;
-    if (Contains(emotion, "laugh") || Contains(emotion, "lol")) return FaceMode::kEcstaticLaugh;
-    if (Contains(emotion, "wink")) return FaceMode::kPlayfulWink;
-    if (Contains(emotion, "happy") || Contains(emotion, "smile")) return FaceMode::kSmileGentle;
-    if (Contains(emotion, "fire") || Contains(emotion, "saiyan")) return FaceMode::kFireFury;
-    if (Contains(emotion, "furious")) return FaceMode::kFurious;
-    if (Contains(emotion, "angry")) return FaceMode::kAngry;
-    if (Contains(emotion, "matrix") || Contains(emotion, "glitch")) return FaceMode::kMatrixGlitch;
-    if (Contains(emotion, "loading")) return FaceMode::kLoadingBuffer;
-    if (Contains(emotion, "battery") || Contains(emotion, "low_battery")) return FaceMode::kLowBattery;
-    if (Contains(emotion, "overheat")) return FaceMode::kOverheat;
-    if (Contains(emotion, "reboot")) return FaceMode::kRebooting;
-    if (Contains(emotion, "target") || Contains(emotion, "sniper")) return FaceMode::kTargetLocked;
-    if (Contains(emotion, "side_eye")) return FaceMode::kSideEye;
-    if (Contains(emotion, "facepalm")) return FaceMode::kFacepalm;
-    if (Contains(emotion, "innocent")) return FaceMode::kInnocent;
-    if (Contains(emotion, "jealous")) return FaceMode::kJealous;
-    if (Contains(emotion, "scheming")) return FaceMode::kScheming;
-    if (Contains(emotion, "disgust")) return FaceMode::kDisgusted;
-    if (Contains(emotion, "whisper")) return FaceMode::kWhispering;
-    if (Contains(emotion, "freeze") || Contains(emotion, "cold")) return FaceMode::kFreezing;
-    if (Contains(emotion, "sneeze")) return FaceMode::kSneezing;
-    if (Contains(emotion, "headache")) return FaceMode::kHeadache;
-    if (Contains(emotion, "drunk")) return FaceMode::kDrunk;
-    if (Contains(emotion, "exhaust")) return FaceMode::kExhausted;
-    if (Contains(emotion, "zen") || Contains(emotion, "meditat")) return FaceMode::kZenMeditation;
-    if (Contains(emotion, "jawdrop") || Contains(emotion, "shocked")) return FaceMode::kShockedJawdrop;
-    if (Contains(emotion, "paranoid")) return FaceMode::kParanoid;
-    if (Contains(emotion, "confused")) return FaceMode::kConfusedQuestion;
-    if (Contains(emotion, "idea") || Contains(emotion, "eureka")) return FaceMode::kIdeaEureka;
-    if (Contains(emotion, "hypno")) return FaceMode::kHypnotized;
-    if (Contains(emotion, "money") || Contains(emotion, "dollar")) return FaceMode::kMoneyEyes;
-    if (Contains(emotion, "stealth") || Contains(emotion, "ninja")) return FaceMode::kStealthNinja;
-    if (Contains(emotion, "game_over") || Contains(emotion, "dead")) return FaceMode::kGameOver;
-    if (Contains(emotion, "thunder") || Contains(emotion, "lightning")) return FaceMode::kThunderShock;
-    if (Contains(emotion, "rain") || Contains(emotion, "gloomy")) return FaceMode::kRainyGloomy;
-    if (Contains(emotion, "sunny") || Contains(emotion, "dazzle")) return FaceMode::kSunnyDazzle;
-    if (Contains(emotion, "sleepwalk")) return FaceMode::kSleepwalking;
-    if (Contains(emotion, "angel") || Contains(emotion, "bless")) return FaceMode::kAngelBlessing;
-    if (Contains(emotion, "love") || Contains(emotion, "heart")) return FaceMode::kLove;
-    if (Contains(emotion, "dizzy") || Contains(emotion, "spin")) return FaceMode::kDizzy;
-    if (Contains(emotion, "scared") || Contains(emotion, "fear")) return FaceMode::kScared;
-    if (Contains(emotion, "excited") || Contains(emotion, "wow")) return FaceMode::kExcited;
-    if (Contains(emotion, "smug") || Contains(emotion, "proud")) return FaceMode::kSmug;
-    if (Contains(emotion, "bored")) return FaceMode::kBored;
-    if (Contains(emotion, "pout")) return FaceMode::kPout;
-    if (Contains(emotion, "music") || Contains(emotion, "sing")) return FaceMode::kMusic;
-    if (Contains(emotion, "scan") || Contains(emotion, "radar")) return FaceMode::kScanning;
-    if (Contains(emotion, "skeptic")) return FaceMode::kSkeptical;
-    if (Contains(emotion, "shy")) return FaceMode::kShy;
-    if (Contains(emotion, "surpris")) return FaceMode::kSurprised;
-    if (Contains(emotion, "think")) return FaceMode::kThinking;
-    if (Contains(emotion, "sleepy")) return FaceMode::kSleepy;
-    if (Contains(emotion, "sleeping") || Contains(emotion, "sleep")) return FaceMode::kSleeping;
+    if (emotion == nullptr) {
+        return FaceMode::kNeutral;
+    }
+    if (Contains(emotion, "cry_stream") || Contains(emotion, "waterfall") || Contains(emotion, "thac_nuoc")) {
+        return FaceMode::kCryingStream;
+    }
+    if (Contains(emotion, "cry") || Contains(emotion, "tear") || Contains(emotion, "grief") ||
+        Contains(emotion, "weep") || Contains(emotion, "khoc")) {
+        return FaceMode::kSadCrying;
+    }
+    if (Contains(emotion, "heartbreak") || Contains(emotion, "heartbroken") || Contains(emotion, "that_tinh") || Contains(emotion, "tan_nat")) {
+        return FaceMode::kHeartbroken;
+    }
+    if (Contains(emotion, "sad") || Contains(emotion, "sympath") || Contains(emotion, "comfort") ||
+        Contains(emotion, "sorrow") || Contains(emotion, "buon")) {
+        return FaceMode::kSadEmpathy;
+    }
+    if (Contains(emotion, "party") || Contains(emotion, "celebrate") || Contains(emotion, "tiec") || Contains(emotion, "an_mung")) {
+        return FaceMode::kPartyCelebrate;
+    }
+    if (Contains(emotion, "tongue") || Contains(emotion, "le_luoi") || Contains(emotion, "bleh")) {
+        return FaceMode::kTongueOut;
+    }
+    if (Contains(emotion, "laugh") || Contains(emotion, "hilarious") || Contains(emotion, "lol") ||
+        Contains(emotion, "ecstatic") || Contains(emotion, "joy") || Contains(emotion, "cuoi")) {
+        return FaceMode::kEcstaticLaugh;
+    }
+    if (Contains(emotion, "wink") || Contains(emotion, "playful") || Contains(emotion, "cheeky") ||
+        Contains(emotion, "joke") || Contains(emotion, "tease") || Contains(emotion, "nhay_mat")) {
+        return FaceMode::kPlayfulWink;
+    }
+    if (Contains(emotion, "happy") || Contains(emotion, "smile") || Contains(emotion, "grin") ||
+        Contains(emotion, "cheerful") || Contains(emotion, "vui")) {
+        return FaceMode::kSmileGentle;
+    }
+    if (Contains(emotion, "fire") || Contains(emotion, "lua") || Contains(emotion, "saiyan")) {
+        return FaceMode::kFireFury;
+    }
+    if (Contains(emotion, "furious") || Contains(emotion, "steaming") || Contains(emotion, "thinh_no") ||
+        Contains(emotion, "dien_tiet") || Contains(emotion, "cuc_gian") || Contains(emotion, "outraged")) {
+        return FaceMode::kFurious;
+    }
+    if (Contains(emotion, "angry") || Contains(emotion, "rage") || Contains(emotion, "mad") ||
+        Contains(emotion, "tuc_gian") || Contains(emotion, "gian")) {
+        return FaceMode::kAngry;
+    }
+    if (Contains(emotion, "matrix") || Contains(emotion, "glitch") || Contains(emotion, "loi")) {
+        return FaceMode::kMatrixGlitch;
+    }
+    if (Contains(emotion, "loading") || Contains(emotion, "buffer") || Contains(emotion, "spinner") || Contains(emotion, "tai")) {
+        return FaceMode::kLoadingBuffer;
+    }
+    if (Contains(emotion, "battery") || Contains(emotion, "pin") || Contains(emotion, "low_battery")) {
+        return FaceMode::kLowBattery;
+    }
+    if (Contains(emotion, "overheat") || Contains(emotion, "nong") || Contains(emotion, "qua_nhiet")) {
+        return FaceMode::kOverheat;
+    }
+    if (Contains(emotion, "reboot") || Contains(emotion, "restart") || Contains(emotion, "khoi_dong")) {
+        return FaceMode::kRebooting;
+    }
+    if (Contains(emotion, "target") || Contains(emotion, "sniper") || Contains(emotion, "khoa_muc_tieu") || Contains(emotion, "lock")) {
+        return FaceMode::kTargetLocked;
+    }
+    if (Contains(emotion, "side_eye") || Contains(emotion, "liec_xeo") || Contains(emotion, "phan_xet")) {
+        return FaceMode::kSideEye;
+    }
+    if (Contains(emotion, "facepalm") || Contains(emotion, "bat_luc") || Contains(emotion, "can_loi")) {
+        return FaceMode::kFacepalm;
+    }
+    if (Contains(emotion, "innocent") || Contains(emotion, "ngay_tho") || Contains(emotion, "halo")) {
+        return FaceMode::kInnocent;
+    }
+    if (Contains(emotion, "jealous") || Contains(emotion, "ghen") || Contains(emotion, "do_ky")) {
+        return FaceMode::kJealous;
+    }
+    if (Contains(emotion, "scheming") || Contains(emotion, "muu_mo") || Contains(emotion, "gian_xao") || Contains(emotion, "toan_tinh")) {
+        return FaceMode::kScheming;
+    }
+    if (Contains(emotion, "disgust") || Contains(emotion, "kinh_tom") || Contains(emotion, "oe")) {
+        return FaceMode::kDisgusted;
+    }
+    if (Contains(emotion, "whisper") || Contains(emotion, "thi_tham") || Contains(emotion, "bi_mat")) {
+        return FaceMode::kWhispering;
+    }
+    if (Contains(emotion, "freeze") || Contains(emotion, "freezing") || Contains(emotion, "cold") || Contains(emotion, "lanh") || Contains(emotion, "bang")) {
+        return FaceMode::kFreezing;
+    }
+    if (Contains(emotion, "sneeze") || Contains(emotion, "sneezing") || Contains(emotion, "hat_xi")) {
+        return FaceMode::kSneezing;
+    }
+    if (Contains(emotion, "headache") || Contains(emotion, "dau_dau") || Contains(emotion, "nhuc_oc")) {
+        return FaceMode::kHeadache;
+    }
+    if (Contains(emotion, "drunk") || Contains(emotion, "say_xin") || Contains(emotion, "say_ruou") || Contains(emotion, "beer")) {
+        return FaceMode::kDrunk;
+    }
+    if (Contains(emotion, "exhaust") || Contains(emotion, "kiet_suc") || Contains(emotion, "guc_nga")) {
+        return FaceMode::kExhausted;
+    }
+    if (Contains(emotion, "zen") || Contains(emotion, "meditat") || Contains(emotion, "thien") || Contains(emotion, "binh_yen")) {
+        return FaceMode::kZenMeditation;
+    }
+    if (Contains(emotion, "jawdrop") || Contains(emotion, "shocked") || Contains(emotion, "rot_ham") || Contains(emotion, "bang_hoang")) {
+        return FaceMode::kShockedJawdrop;
+    }
+    if (Contains(emotion, "paranoid") || Contains(emotion, "hoang_tuong") || Contains(emotion, "so_theo_doi")) {
+        return FaceMode::kParanoid;
+    }
+    if (Contains(emotion, "confused") || Contains(emotion, "question") || Contains(emotion, "ngo_ngac") || Contains(emotion, "kho_hieu")) {
+        return FaceMode::kConfusedQuestion;
+    }
+    if (Contains(emotion, "idea") || Contains(emotion, "eureka") || Contains(emotion, "bong_den") || Contains(emotion, "sang_kien")) {
+        return FaceMode::kIdeaEureka;
+    }
+    if (Contains(emotion, "hypno") || Contains(emotion, "hypnotized") || Contains(emotion, "thoi_mien") || Contains(emotion, "lu_lan")) {
+        return FaceMode::kHypnotized;
+    }
+    if (Contains(emotion, "money") || Contains(emotion, "dollar") || Contains(emotion, "tien") || Contains(emotion, "giau")) {
+        return FaceMode::kMoneyEyes;
+    }
+    if (Contains(emotion, "stealth") || Contains(emotion, "ninja") || Contains(emotion, "an_nap") || Contains(emotion, "bong_dem")) {
+        return FaceMode::kStealthNinja;
+    }
+    if (Contains(emotion, "game_over") || Contains(emotion, "dead") || Contains(emotion, "die") || Contains(emotion, "chet") || Contains(emotion, "thua")) {
+        return FaceMode::kGameOver;
+    }
+    if (Contains(emotion, "thunder") || Contains(emotion, "lightning") || Contains(emotion, "set") || Contains(emotion, "te_liet")) {
+        return FaceMode::kThunderShock;
+    }
+    if (Contains(emotion, "rain") || Contains(emotion, "gloomy") || Contains(emotion, "mua") || Contains(emotion, "am_dam")) {
+        return FaceMode::kRainyGloomy;
+    }
+    if (Contains(emotion, "sunny") || Contains(emotion, "dazzle") || Contains(emotion, "nang") || Contains(emotion, "choi_chang")) {
+        return FaceMode::kSunnyDazzle;
+    }
+    if (Contains(emotion, "sleepwalk") || Contains(emotion, "mong_du") || Contains(emotion, "zombie")) {
+        return FaceMode::kSleepwalking;
+    }
+    if (Contains(emotion, "angel") || Contains(emotion, "bless") || Contains(emotion, "thanh_thien") || Contains(emotion, "ban_phuoc")) {
+        return FaceMode::kAngelBlessing;
+    }
+    if (Contains(emotion, "love") || Contains(emotion, "heart") || Contains(emotion, "yeu") ||
+        Contains(emotion, "thich") || Contains(emotion, "crush") || Contains(emotion, "adore")) {
+        return FaceMode::kLove;
+    }
+    if (Contains(emotion, "dizzy") || Contains(emotion, "spin") || Contains(emotion, "chong_mat") ||
+        Contains(emotion, "hoa_mat") || Contains(emotion, "say") || Contains(emotion, "faint")) {
+        return FaceMode::kDizzy;
+    }
+    if (Contains(emotion, "scared") || Contains(emotion, "fear") || Contains(emotion, "afraid") ||
+        Contains(emotion, "hoang_so") || Contains(emotion, "panic") || Contains(emotion, "terrified")) {
+        return FaceMode::kScared;
+    }
+    if (Contains(emotion, "excited") || Contains(emotion, "star") || Contains(emotion, "hao_hung") ||
+        Contains(emotion, "phan_khich") || Contains(emotion, "wow") || Contains(emotion, "sparkle")) {
+        return FaceMode::kExcited;
+    }
+    if (Contains(emotion, "smug") || Contains(emotion, "pride") || Contains(emotion, "proud") ||
+        Contains(emotion, "dac_y") || Contains(emotion, "kieu_ngao") || Contains(emotion, "cuoi_khey")) {
+        return FaceMode::kSmug;
+    }
+    if (Contains(emotion, "bored") || Contains(emotion, "boring") || Contains(emotion, "chan") ||
+        Contains(emotion, "te_nhat") || Contains(emotion, "meh") || Contains(emotion, "uninterested")) {
+        return FaceMode::kBored;
+    }
+    if (Contains(emotion, "pout") || Contains(emotion, "plead") || Contains(emotion, "cute") ||
+        Contains(emotion, "nong_niu") || Contains(emotion, "phung_phinh") || Contains(emotion, "puppy")) {
+        return FaceMode::kPout;
+    }
+    if (Contains(emotion, "music") || Contains(emotion, "sing") || Contains(emotion, "song") ||
+        Contains(emotion, "nhac") || Contains(emotion, "hat") || Contains(emotion, "melody") ||
+        Contains(emotion, "dance") || Contains(emotion, "chill")) {
+        return FaceMode::kMusic;
+    }
+    if (Contains(emotion, "scan") || Contains(emotion, "radar") || Contains(emotion, "quet") ||
+        Contains(emotion, "phan_tich") || Contains(emotion, "analyze") || Contains(emotion, "reading")) {
+        return FaceMode::kScanning;
+    }
+    if (Contains(emotion, "skeptic") || Contains(emotion, "doubt") || Contains(emotion, "suspicio") ||
+        Contains(emotion, "disbelief") || Contains(emotion, "hoai_nghi") || Contains(emotion, "to_mo") ||
+        Contains(emotion, "curious")) {
+        return FaceMode::kSkeptical;
+    }
+    if (Contains(emotion, "shy") || Contains(emotion, "blush") || Contains(emotion, "embarrass") ||
+        Contains(emotion, "ngai") || Contains(emotion, "xau_ho")) {
+        return FaceMode::kShy;
+    }
+    if (Contains(emotion, "surpris") || Contains(emotion, "shock") || Contains(emotion, "amaz") ||
+        Contains(emotion, "astonish") || Contains(emotion, "ngac_nhien") || Contains(emotion, "bat_ngo")) {
+        return FaceMode::kSurprised;
+    }
+    if (Contains(emotion, "think") || Contains(emotion, "ponder") || Contains(emotion, "suy_nghi")) {
+        return FaceMode::kThinking;
+    }
+    if (Contains(emotion, "sleepy") || Contains(emotion, "tired") || Contains(emotion, "yawn") ||
+        Contains(emotion, "buon_ngu")) {
+        return FaceMode::kSleepy;
+    }
+    if (Contains(emotion, "sleeping") || Contains(emotion, "sleep") || Contains(emotion, "ngu")) {
+        return FaceMode::kSleeping;
+    }
     return FaceMode::kNeutral;
 }
 

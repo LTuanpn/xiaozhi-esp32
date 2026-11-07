@@ -21,6 +21,9 @@ public:
     void SetChatMessage(const char* role, const char* content) override;
     void ClearChatMessages() override;
     void RemoveChatMessage(const char* role, const char* content) override;
+    void SetTheme(Theme* theme) override;
+    void SetHideSubtitle(bool hide) override;
+    void UpdateStatusBar(bool update_all = false) override;
 
 private:
     enum class FaceMode {
@@ -81,6 +84,8 @@ private:
         kMoneyEyes,
         kStealthNinja,
         kGameOver,
+        kPartyCelebrate,
+        kTongueOut,
         // Group 6: Elemental & Powers
         kThunderShock,
         kRainyGloomy,
