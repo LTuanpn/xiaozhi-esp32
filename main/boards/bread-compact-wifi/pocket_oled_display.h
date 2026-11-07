@@ -134,8 +134,9 @@ private:
     lv_obj_t* music_note_[2] = {nullptr, nullptr};
     lv_obj_t* sweat_drop_ = nullptr;
     lv_obj_t* extra_shape_[6] = {nullptr, nullptr, nullptr, nullptr, nullptr, nullptr};
-    // Pixel-perfect catchlights: [eye][0]=disc body (wide rect), [1]=disc body (tall rect), [2]=small glint
-    lv_obj_t* catchlight_[2][3] = {{nullptr, nullptr, nullptr}, {nullptr, nullptr, nullptr}};
+    // 3-tier pixel-matrix catchlight per eye: [eye][0]=wide, [1]=tall, [2]=mid-core, [3]=secondary glint
+    lv_obj_t* catchlight_[2][4] = {{nullptr, nullptr, nullptr, nullptr},
+                                   {nullptr, nullptr, nullptr, nullptr}};
     lv_obj_t* chat_line_ = nullptr;
     lv_timer_t* animation_timer_ = nullptr;
 
@@ -159,9 +160,9 @@ private:
     uint32_t second_blink_until_tick_ = 0;
     uint32_t next_idle_tick_ = 30;
 
-    // Smoothed pupil size (left=0, right=1) so dilation never "pops"
-    int smooth_pupil_w_[2] = {12, 12};
-    int smooth_pupil_h_[2] = {14, 14};
+    // Smoothed pupil size (left=0, right=1)
+    int smooth_pupil_w_[2] = {16, 16};
+    int smooth_pupil_h_[2] = {18, 18};
     // Micro-saccades: tiny gaze jitter while idle
     int micro_look_x_ = 0;
     int micro_look_y_ = 0;
@@ -172,10 +173,10 @@ private:
     int current_look_y_ = 0;
     int target_look_x_ = 0;
     int target_look_y_ = 0;
-    int current_left_width_ = 44;
-    int current_right_width_ = 44;
-    int current_left_height_ = 36;
-    int current_right_height_ = 36;
+    int current_left_width_ = 42;
+    int current_right_width_ = 42;
+    int current_left_height_ = 38;
+    int current_right_height_ = 38;
     int current_left_y_offset_ = 0;
     int current_right_y_offset_ = 0;
     bool has_chat_text_ = false;

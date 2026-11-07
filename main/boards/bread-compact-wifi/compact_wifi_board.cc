@@ -12,6 +12,7 @@
 
 #include <esp_log.h>
 #include <esp_timer.h>
+#include <esp_random.h>
 #include <cstdio>
 #include <cstring>
 #include <freertos/FreeRTOS.h>
@@ -38,6 +39,11 @@ private:
     Button volume_down_button_;
     int64_t last_touch_down_us_ = 0;
     uint8_t rapid_touch_count_ = 0;
+    esp_timer_handle_t countdown_timer_ = nullptr;
+    esp_timer_handle_t guard_timer_ = nullptr;
+    esp_timer_handle_t workout_timer_ = nullptr;
+    bool guard_mode_active_ = false;
+    int workout_remaining_sec_ = 0;
 
     void InitializeDisplayI2c() {
         i2c_master_bus_config_t bus_config = {
@@ -199,10 +205,292 @@ private:
         });
     }
 
-    // 物联网初始化，逐步迁移到 MCP 协议
+    // Khởi tạo các công cụ tương tác MCP (Model Context Protocol) cho AI
     void InitializeTools() {
         static LampController lamp(LAMP_GPIO);
         auto& mcp_server = McpServer::GetInstance();
+
+        // 1. TOOL ĐẾM NGƯỢC / BÁO THỨC POMODORO TRỰC TIẾP TRÊN MẠCH
+        mcp_server.AddTool(
+            "self.timer.set_countdown",
+            "Đặt bộ đếm ngược thời gian hoặc hẹn giờ báo thức (tính bằng giây). Khi hết giờ, robot sẽ tự động phát âm thanh báo động và đổi biểu cảm trên màn hình. Truyền seconds = 0 nếu muốn hủy hẹn giờ.",
+            PropertyList({
+                Property("seconds", kPropertyTypeInteger, 60, 0, 86400),
+                Property("label", kPropertyTypeString, "Hết giờ rồi!")
+            }),
+            [this](const PropertyList& properties) -> ReturnValue {
+                int seconds = properties["seconds"].value<int>();
+                std::string label = properties["label"].value<std::string>();
+
+                // Khởi tạo timer lần đầu nếu chưa có
+                if (countdown_timer_ == nullptr) {
+                    esp_timer_create_args_t timer_args = {
+                        .callback = [](void* arg) {
+                            auto* board = static_cast<CompactWifiBoard*>(arg);
+                            Application::GetInstance().Schedule([board]() {
+                                auto* disp = board->GetDisplay();
+                                if (disp != nullptr) {
+                                    disp->SetEmotion("thunder");
+                                    disp->ShowNotification("⏰ HẾT GIỜ RỒI ĐẠI CA!", 15000);
+                                }
+                                Application::GetInstance().PlaySound(Lang::Sounds::OGG_VIBRATION);
+                            });
+                        },
+                        .arg = this,
+                        .dispatch_method = ESP_TIMER_TASK,
+                        .name = "pomodoro_timer",
+                        .skip_unhandled_events = true
+                    };
+                    esp_timer_create(&timer_args, &countdown_timer_);
+                } else {
+                    esp_timer_stop(countdown_timer_);
+                }
+
+                if (seconds <= 0) {
+                    if (display_ != nullptr) {
+                        display_->ShowNotification("Đã hủy hẹn giờ", 3000);
+                    }
+                    return "Đã hủy bộ đếm ngược";
+                }
+
+                // Bắt đầu đếm ngược (đổi ra micro-giây)
+                esp_timer_start_once(countdown_timer_, static_cast<uint64_t>(seconds) * 1000000ULL);
+
+                if (display_ != nullptr) {
+                    std::string notify_msg = "⏳ Hẹn " + std::to_string(seconds) + "s: " + label;
+                    display_->ShowNotification(notify_msg.c_str(), 5000);
+                    display_->SetEmotion("target");
+                }
+                return "Đã bật đếm ngược " + std::to_string(seconds) + " giây cho: " + label;
+            }
+        );
+
+        // 2. TOOL GHIM GHI CHÚ / NHẮC VIỆC LÊN MÀN HÌNH OLED (STICKY MEMO)
+        mcp_server.AddTool(
+            "self.screen.pin_memo",
+            "Ghim một dòng ghi chú, địa chỉ IP, mật khẩu, hoặc việc cần làm lên màn hình OLED trong thời gian dài (mặc định 10 phút) để người dùng nhìn vào làm việc.",
+            PropertyList({
+                Property("text", kPropertyTypeString, ""),
+                Property("duration_seconds", kPropertyTypeInteger, 600, 10, 3600)
+            }),
+            [this](const PropertyList& properties) -> ReturnValue {
+                std::string text = properties["text"].value<std::string>();
+                int duration = properties["duration_seconds"].value<int>();
+
+                if (display_ != nullptr) {
+                    if (text.empty()) {
+                        display_->ShowNotification("", 100);
+                        return "Đã xóa ghi chú trên màn hình";
+                    }
+                    std::string pinned = "📌 " + text;
+                    display_->ShowNotification(pinned.c_str(), duration * 1000);
+                    display_->SetEmotion("idea");
+                }
+                return "Đã ghim nội dung lên màn hình OLED: " + text;
+            }
+        );
+
+        // 3. TOOL BẬT/TẮT CHẾ ĐỘ NGẮT LỜI (REALTIME FULL-DUPLEX)
+        mcp_server.AddTool(
+            "self.audio.set_realtime_mode",
+            "Bật hoặc tắt chế độ trò chuyện rảnh tay liên tục (cho phép người dùng nói chen ngang ngắt lời robot khi robot đang nói). enable = true để bật, false để tắt.",
+            PropertyList({Property("enable", kPropertyTypeBoolean, true)}),
+            [](const PropertyList& properties) -> ReturnValue {
+                bool enable = properties["enable"].value<bool>();
+                Application::GetInstance().SetAecMode(enable ? Application::kAecOnServerSide : Application::kAecOff);
+                return enable ? "Đã bật chế độ Realtime (cho phép ngắt lời)" 
+                              : "Đã chuyển về chế độ đàm thoại tiêu chuẩn";
+            }
+        );
+
+        // 4. TOOL CANH TRỘM PHÒNG BẰNG CẢM BIẾN ÂM THANH MIC (SENTRY MODE)
+        mcp_server.AddTool(
+            "self.security.guard_mode",
+            "Bật hoặc tắt chế độ canh gác phòng (Sentry Mode). Khi bật, robot sẽ quét âm thanh trong phòng, nếu phát hiện tiếng động lạ sẽ hú còi báo động.",
+            PropertyList({Property("enable", kPropertyTypeBoolean, true)}),
+            [this](const PropertyList& properties) -> ReturnValue {
+                guard_mode_active_ = properties["enable"].value<bool>();
+                if (guard_timer_ != nullptr) {
+                    esp_timer_stop(guard_timer_);
+                }
+
+                if (!guard_mode_active_) {
+                    if (display_ != nullptr) {
+                        display_->SetEmotion("neutral");
+                        display_->ShowNotification("🛡️ Đã tắt canh gác", 3000);
+                    }
+                    return "Đã tắt chế độ canh phòng";
+                }
+
+                if (display_ != nullptr) {
+                    display_->SetEmotion("scanning");
+                    display_->ShowNotification("🛡️ SENTRY MODE: ON", 60000);
+                }
+
+                if (guard_timer_ == nullptr) {
+                    esp_timer_create_args_t timer_args = {
+                        .callback = [](void* arg) {
+                            auto* board = static_cast<CompactWifiBoard*>(arg);
+                            auto& app = Application::GetInstance();
+                            // Chỉ bắt trộm khi bot đang ở trạng thái Idle (đã nói xong)
+                            if (board->guard_mode_active_ && app.GetDeviceState() == kDeviceStateIdle) {
+                                uint8_t mic_lvl = app.GetAudioService().GetInputLevel();
+                                if (mic_lvl > 35) { // Phát hiện tiếng động lớn bất thường!
+                                    board->guard_mode_active_ = false;
+                                    esp_timer_stop(board->guard_timer_);
+                                    app.Schedule([board, &app]() {
+                                        if (board->GetDisplay() != nullptr) {
+                                            board->GetDisplay()->SetEmotion("furious");
+                                            board->GetDisplay()->ShowNotification("🚨 PHÁT HIỆN XÂM NHẬP!", 10000);
+                                        }
+                                        app.PlaySound(Lang::Sounds::OGG_EXCLAMATION);
+                                    });
+                                }
+                            }
+                        },
+                        .arg = this,
+                        .dispatch_method = ESP_TIMER_TASK,
+                        .name = "guard_timer",
+                        .skip_unhandled_events = true
+                    };
+                    esp_timer_create(&timer_args, &guard_timer_);
+                }
+                esp_timer_start_periodic(guard_timer_, 200 * 1000); // Kiểm tra mỗi 200ms
+                return "Đã kích hoạt chế độ canh gác phòng bằng cảm biến âm thanh";
+            }
+        );
+
+        // 5. TOOL ĐẾM GIÂY ĐU XÀ / WORKOUT (BÍP MỖI 10 GIÂY + CẢNH BÁO TIẾN ĐỘ)
+        mcp_server.AddTool(
+            "self.fitness.start_workout",
+            "Bắt đầu bộ đếm thời gian tập thể dục, đu xà đơn, plank (tính bằng giây). Robot sẽ hiển thị tiến trình và phát tiếng bíp mỗi 10 giây để báo tiến độ.",
+            PropertyList({Property("seconds", kPropertyTypeInteger, 45, 5, 600)}),
+            [this](const PropertyList& properties) -> ReturnValue {
+                workout_remaining_sec_ = properties["seconds"].value<int>();
+                if (workout_timer_ != nullptr) {
+                    esp_timer_stop(workout_timer_);
+                }
+
+                if (workout_timer_ == nullptr) {
+                    esp_timer_create_args_t timer_args = {
+                        .callback = [](void* arg) {
+                            auto* board = static_cast<CompactWifiBoard*>(arg);
+                            auto& app = Application::GetInstance();
+                            board->workout_remaining_sec_--;
+                            int rem = board->workout_remaining_sec_;
+
+                            if (rem <= 0) {
+                                esp_timer_stop(board->workout_timer_);
+                                app.Schedule([board, &app]() {
+                                    if (board->GetDisplay() != nullptr) {
+                                        board->GetDisplay()->SetEmotion("party");
+                                        board->GetDisplay()->ShowNotification("🏆 HOÀN THÀNH HIỆP TẬP!", 8000);
+                                    }
+                                    app.PlaySound(Lang::Sounds::OGG_SUCCESS);
+                                });
+                                return;
+                            }
+
+                            app.Schedule([board, &app, rem]() {
+                                if (board->GetDisplay() != nullptr) {
+                                    std::string msg = "💪 Hiệp tập: còn " + std::to_string(rem) + "s";
+                                    board->GetDisplay()->ShowNotification(msg.c_str(), 1500);
+                                    if (rem <= 5) {
+                                        board->GetDisplay()->SetEmotion("fire");
+                                    }
+                                }
+                                // Phát tiếng bíp mỗi 10 giây hoặc trong 3 giây cuối
+                                if (rem % 10 == 0 || rem <= 3) {
+                                    app.PlaySound(Lang::Sounds::OGG_POPUP);
+                                }
+                            });
+                        },
+                        .arg = this,
+                        .dispatch_method = ESP_TIMER_TASK,
+                        .name = "workout_timer",
+                        .skip_unhandled_events = true
+                    };
+                    esp_timer_create(&timer_args, &workout_timer_);
+                }
+                esp_timer_start_periodic(workout_timer_, 1000 * 1000); // 1 giây
+                if (display_ != nullptr) {
+                    display_->SetEmotion("excited");
+                }
+                return "Đã bắt đầu đếm hiệp tập " + std::to_string(workout_remaining_sec_) + " giây";
+            }
+        );
+
+        // 6. TOOL VÒNG QUAY QUYẾT ĐỊNH SỐ PHẬN (DECISION ROULETTE)
+        mcp_server.AddTool(
+            "self.fun.pick_random",
+            "Quay số ngẫu nhiên để chốt lựa chọn giúp người dùng (ví dụ: ăn gì, làm gì, mua gì). Truyền các lựa chọn cách nhau bởi dấu phẩy vào options.",
+            PropertyList({Property("options", kPropertyTypeString, "Có, Không")}),
+            [this](const PropertyList& properties) -> ReturnValue {
+                std::string raw = properties["options"].value<std::string>();
+                std::vector<std::string> items;
+                size_t start = 0;
+                while (start < raw.size()) {
+                    size_t comma = raw.find(',', start);
+                    std::string token = (comma == std::string::npos) ? raw.substr(start) : raw.substr(start, comma - start);
+                    size_t first = token.find_first_not_of(" \t");
+                    if (first != std::string::npos) {
+                        items.push_back(token.substr(first, token.find_last_not_of(" \t") - first + 1));
+                    }
+                    if (comma == std::string::npos) break;
+                    start = comma + 1;
+                }
+
+                if (items.empty()) {
+                    return "Không có lựa chọn nào để bốc thăm";
+                }
+
+                uint32_t idx = esp_random() % items.size();
+                std::string chosen = items[idx];
+
+                if (display_ != nullptr) {
+                    display_->SetEmotion("smug");
+                    std::string result_msg = "🎯 Chốt: " + chosen;
+                    display_->ShowNotification(result_msg.c_str(), 10000);
+                }
+                return "Kết quả bốc thăm ngẫu nhiên từ phần cứng là: " + chosen;
+            }
+        );
+
+        // 7. TOOL ĐỔ XÚC XẮC / TUNG ĐỒNG XU THỰC TẾ ẢO (ROLL RNG)
+        mcp_server.AddTool(
+            "self.fun.roll_rng",
+            "Đổ xúc xắc (xúc xắc 6 mặt d6, 20 mặt d20...) hoặc tung đồng xu sấp ngửa bằng bộ tạo số ngẫu nhiên phần cứng ESP32. type='dice' hoặc 'coin'. sides là số mặt của xúc xắc (mặc định 6).",
+            PropertyList({
+                Property("type", kPropertyTypeString, "dice"),
+                Property("sides", kPropertyTypeInteger, 6, 2, 100)
+            }),
+            [this](const PropertyList& properties) -> ReturnValue {
+                std::string type = properties["type"].value<std::string>();
+                int sides = properties["sides"].value<int>();
+
+                if (type == "coin" || sides == 2) {
+                    bool is_heads = (esp_random() % 2) == 1;
+                    std::string outcome = is_heads ? "🪙 NGỬA (Heads)" : "🪙 SẤP (Tails)";
+                    if (display_ != nullptr) {
+                        display_->SetEmotion("dizzy");
+                        display_->ShowNotification(outcome.c_str(), 8000);
+                    }
+                    Application::GetInstance().PlaySound(Lang::Sounds::OGG_POPUP);
+                    return "Kết quả tung đồng xu: " + outcome;
+                } else {
+                    int roll = static_cast<int>((esp_random() % sides) + 1);
+                    std::string outcome = "🎲 [ " + std::to_string(roll) + " / d" + std::to_string(sides) + " ]";
+                    if (display_ != nullptr) {
+                        display_->SetEmotion(roll == sides ? "party" : (roll == 1 ? "facepalm" : "smug"));
+                        display_->ShowNotification(outcome.c_str(), 8000);
+                    }
+                    Application::GetInstance().PlaySound(roll == sides ? Lang::Sounds::OGG_SUCCESS : Lang::Sounds::OGG_POPUP);
+                    return "Kết quả đổ xúc xắc " + std::to_string(sides) + " mặt: " + std::to_string(roll);
+                }
+            }
+        );
+
+        // --- CÁC TOOL MÀN HÌNH CŨ ---
         mcp_server.AddTool("self.screen.flip", "Flip or rotate the OLED screen 180 degrees",
             PropertyList(),
             [this](const PropertyList& properties) -> ReturnValue {
