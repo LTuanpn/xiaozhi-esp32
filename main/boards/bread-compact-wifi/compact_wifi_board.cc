@@ -1,4 +1,6 @@
 #include "wifi_board.h"
+#include <wifi_manager.h>
+#include <ssid_manager.h>
 #include "codecs/no_audio_codec.h"
 #include "pocket_oled_display.h"
 #include "system_reset.h"
@@ -265,10 +267,10 @@ private:
             }
         );
 
-        // 2. TOOL GHIM GHI CHÚ / NHẮC VIỆC LÊN MÀN HÌNH OLED (STICKY MEMO)
+        // 2. TOOL GHIM GHI CHÚ / HIỂN THỊ IP, WIFI, MẬT KHẨU, MÃ QR
         mcp_server.AddTool(
             "self.screen.pin_memo",
-            "Ghim một dòng ghi chú, địa chỉ IP, mật khẩu, hoặc việc cần làm lên màn hình OLED trong thời gian dài (mặc định 10 phút) để người dùng nhìn vào làm việc.",
+            "Ghim ghi chú lên màn hình. ĐẶC BIỆT: Khi người dùng hỏi hoặc muốn xem IP, WiFi, mật khẩu hoặc mã QR cấu hình, hãy gọi tool này với text='ip', 'wifi' hoặc 'qr' để phần cứng tự động trích xuất thông tin thật và hiển thị lên màn hình đồng thời trả về kết quả cho bạn.",
             PropertyList({
                 Property("text", kPropertyTypeString, ""),
                 Property("duration_seconds", kPropertyTypeInteger, 600, 10, 3600)
@@ -277,16 +279,66 @@ private:
                 std::string text = properties["text"].value<std::string>();
                 int duration = properties["duration_seconds"].value<int>();
 
-                if (display_ != nullptr) {
-                    if (text.empty()) {
-                        display_->ShowNotification("", 100);
-                        return "Đã xóa ghi chú trên màn hình";
+                // Chuẩn hóa text sang chữ thường để phát hiện từ khóa
+                std::string lower_text = text;
+                std::transform(lower_text.begin(), lower_text.end(), lower_text.begin(), ::tolower);
+
+                // TRƯỜNG HỢP 1: Yêu cầu hiển thị Mã QR
+                if (lower_text.find("qr") != std::string::npos) {
+                    auto& wifi = WifiManager::GetInstance();
+                    std::string url;
+                    if (wifi.IsConfigMode()) {
+                        url = "http://192.168.4.1";
+                    } else {
+                        std::string ip = wifi.GetIpAddress();
+                        url = ip.empty() ? "http://192.168.4.1" : ("http://" + ip);
                     }
+                    if (display_ != nullptr) {
+                        display_->ShowQrCode(url, "QUET MA CAU HINH", duration * 1000);
+                    }
+                    return "Đã hiển thị mã QR cấu hình lên màn hình: " + url + ". Người dùng có thể quét bằng điện thoại.";
+                }
+
+                // TRƯỜNG HỢP 2: Yêu cầu thông tin IP / WiFi / Mật khẩu
+                if (lower_text.find("ip") != std::string::npos || lower_text.find("wifi") != std::string::npos ||
+                    lower_text.find("mat_khau") != std::string::npos || lower_text.find("mật khẩu") != std::string::npos ||
+                    lower_text.find("password") != std::string::npos || lower_text.find("mang") != std::string::npos ||
+                    lower_text.find("mạng") != std::string::npos || text.empty()) {
+                    auto& wifi = WifiManager::GetInstance();
+                    std::string ssid = wifi.GetSsid();
+                    std::string ip = wifi.GetIpAddress();
+                    int rssi = wifi.GetRssi();
+                    std::string pwd = "(Khong co mat khau)";
+
+                    auto& ssid_mgr = SsidManager::GetInstance();
+                    for (const auto& item : ssid_mgr.GetSsidList()) {
+                        if (item.ssid == ssid && !item.password.empty()) {
+                            pwd = item.password;
+                            break;
+                        }
+                    }
+
+                    if (display_ != nullptr) {
+                        std::string info_disp = "[WIFI] IP: " + (ip.empty() ? "Chua co IP" : ip) +
+                                                " | WF: " + (ssid.empty() ? "Chua ket noi" : ssid) +
+                                                " | MK: " + pwd;
+                        display_->ShowNotification(info_disp.c_str(), duration * 1000);
+                        display_->SetEmotion("idea");
+                    }
+
+                    return "Thông tin mạng phần cứng hiện tại: WiFi = " + (ssid.empty() ? "Chưa kết nối" : ssid) +
+                           ", Mật khẩu = " + pwd +
+                           ", Địa chỉ IP = " + (ip.empty() ? "Chưa nhận IP" : ip) +
+                           ", Cường độ sóng = " + std::to_string(rssi) + "dBm. Đã ghim thông tin lên màn hình.";
+                }
+
+                // TRƯỜNG HỢP 3: Ghim ghi chú văn bản thông thường
+                if (display_ != nullptr) {
                     std::string pinned = "[GHI CHU] " + text;
                     display_->ShowNotification(pinned.c_str(), duration * 1000);
                     display_->SetEmotion("idea");
                 }
-                return "Đã ghim nội dung lên màn hình OLED: " + text;
+                return "Đã ghim nội dung lên màn hình: " + text;
             }
         );
 

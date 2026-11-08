@@ -24,6 +24,8 @@ public:
     void SetTheme(Theme* theme) override;
     void SetHideSubtitle(bool hide) override;
     void UpdateStatusBar(bool update_all = false) override;
+    void ShowQrCode(const std::string& text, const std::string& title = "", int duration_ms = 30000) override;
+    void HideQrCode() override;
 
 private:
     enum class FaceMode {
@@ -177,6 +179,13 @@ private:
     bool has_chat_text_ = false;
     std::string last_status_text_;
     uint32_t random_state_ = 0x12345678;
+
+    // QR Code UI elements
+    lv_obj_t* qr_container_ = nullptr;
+    lv_obj_t* qr_canvas_ = nullptr;
+    lv_obj_t* qr_title_label_ = nullptr;
+    lv_obj_t* qr_url_label_ = nullptr;
+    uint32_t qr_until_tick_ = 0;
 };
 
 #endif  // POCKET_LCD_DISPLAY_H

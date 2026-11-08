@@ -20,6 +20,8 @@ public:
     void SetChatMessage(const char* role, const char* content) override;
     void ClearChatMessages() override;
     void RemoveChatMessage(const char* role, const char* content) override;
+    void ShowQrCode(const std::string& text, const std::string& title = "", int duration_ms = 30000) override;
+    void HideQrCode() override;
 
 private:
     enum class FaceMode {
@@ -194,6 +196,12 @@ private:
     FaceMode InferEmotionFromText(const char* text) const;
     uint32_t NextRandom();
     void WakeUp();
+
+    // QR Code UI elements
+    lv_obj_t* qr_container_ = nullptr;
+    lv_obj_t* qr_canvas_ = nullptr;
+    lv_obj_t* qr_info_label_ = nullptr;
+    uint32_t qr_until_tick_ = 0;
 };
 
 #endif  // POCKET_OLED_DISPLAY_H

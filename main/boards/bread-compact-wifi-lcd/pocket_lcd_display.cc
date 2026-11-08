@@ -1,6 +1,7 @@
 #include "pocket_lcd_display.h"
 #include "application.h"
 #include "display/lvgl_display/lvgl_theme.h"
+#include "qrcodegen.h"
 
 #include <esp_err.h>
 #include <esp_log.h>
@@ -426,6 +427,11 @@ void PocketLcdDisplay::UpdateAnimationFrame() {
     ++animation_tick_;
 
     // Restore chat line after notification timeout
+        // Restore QR code display after timeout
+    if (qr_until_tick_ > 0 && animation_tick_ >= qr_until_tick_) {
+        HideQrCode();
+    }
+
     if (notification_until_tick_ > 0 && animation_tick_ >= notification_until_tick_) {
         notification_until_tick_ = 0;
         if (chat_line_ != nullptr && !has_chat_text_ && !hide_subtitle_) {
@@ -1144,3 +1150,81 @@ uint32_t PocketLcdDisplay::NextRandom() {
     random_state_ = random_state_ * 1664525U + 1013904223U;
     return random_state_ >> 8;
 }
+
+void PocketLcdDisplay::ShowQrCode(const std::string& text, const std::string& title, int duration_ms) {
+    DisplayLockGuard lock(this);
+    if (!lock) return;
+    WakeUp();
+
+    if (qr_container_ == nullptr) {
+        auto scr = lv_screen_active();
+        qr_container_ = lv_obj_create(scr);
+        lv_obj_remove_style_all(qr_container_);
+        lv_obj_set_size(qr_container_, 240, 240);
+        lv_obj_set_pos(qr_container_, 0, 0);
+        lv_obj_set_style_bg_color(qr_container_, lv_color_white(), 0);
+        lv_obj_set_style_bg_opa(qr_container_, LV_OPA_COVER, 0);
+
+        qr_title_label_ = lv_label_create(qr_container_);
+        lv_obj_set_style_text_color(qr_title_label_, lv_color_black(), 0);
+        lv_obj_set_style_text_align(qr_title_label_, LV_TEXT_ALIGN_CENTER, 0);
+        lv_obj_set_width(qr_title_label_, 220);
+        lv_obj_set_pos(qr_title_label_, 10, 8);
+
+        qr_canvas_ = lv_canvas_create(qr_container_);
+        lv_obj_set_pos(qr_canvas_, 40, 32);
+
+        qr_url_label_ = lv_label_create(qr_container_);
+        lv_obj_set_style_text_color(qr_url_label_, lv_color_hex(0x0055AA), 0);
+        lv_obj_set_style_text_align(qr_url_label_, LV_TEXT_ALIGN_CENTER, 0);
+        lv_obj_set_width(qr_url_label_, 220);
+        lv_obj_set_pos(qr_url_label_, 10, 204);
+    }
+
+    lv_obj_remove_flag(qr_container_, LV_OBJ_FLAG_HIDDEN);
+    lv_obj_move_foreground(qr_container_);
+
+    std::string disp_title = title.empty() ? "QUET MA DE CAU HINH" : title;
+    lv_label_set_text(qr_title_label_, disp_title.c_str());
+    lv_label_set_text(qr_url_label_, text.c_str());
+
+    uint8_t qrcode[qrcodegen_BUFFER_LEN_MAX];
+    uint8_t tempBuffer[qrcodegen_BUFFER_LEN_MAX];
+    bool ok = qrcodegen_encodeText(text.c_str(), tempBuffer, qrcode, qrcodegen_Ecc_LOW, 1, 8, qrcodegen_Mask_AUTO, true);
+    if (ok) {
+        int qr_size = qrcodegen_getSize(qrcode);
+        int scale = 160 / qr_size;
+        if (scale < 1) scale = 1;
+        int render_w = qr_size * scale;
+        int offset_x = (160 - render_w) / 2;
+        int offset_y = (160 - render_w) / 2;
+
+        static lv_color_t s_qr_cbuf[160 * 160];
+        lv_canvas_set_buffer(qr_canvas_, s_qr_cbuf, 160, 160, LV_COLOR_FORMAT_RGB565);
+        lv_canvas_fill_bg(qr_canvas_, lv_color_white(), LV_OPA_COVER);
+
+        for (int y = 0; y < qr_size; y++) {
+            for (int x = 0; x < qr_size; x++) {
+                if (qrcodegen_getModule(qrcode, x, y)) {
+                    for (int dy = 0; dy < scale; dy++) {
+                        for (int dx = 0; dx < scale; dx++) {
+                            lv_canvas_set_px(qr_canvas_, offset_x + x * scale + dx, offset_y + y * scale + dy, lv_color_black(), LV_OPA_COVER);
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    qr_until_tick_ = animation_tick_ + (duration_ms / kAnimationPeriodMs);
+}
+
+void PocketLcdDisplay::HideQrCode() {
+    DisplayLockGuard lock(this);
+    if (!lock) return;
+    qr_until_tick_ = 0;
+    if (qr_container_ != nullptr) {
+        lv_obj_add_flag(qr_container_, LV_OBJ_FLAG_HIDDEN);
+    }
+}
+

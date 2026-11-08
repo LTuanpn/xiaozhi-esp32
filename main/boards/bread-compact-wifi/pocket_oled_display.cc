@@ -1,4 +1,5 @@
 #include "pocket_oled_display.h"
+#include "qrcodegen.h"
 
 #include "application.h"
 #include "assets/lang_config.h"
@@ -609,6 +610,11 @@ void PocketOledDisplay::UpdateAnimationFrame() {
     ++animation_tick_;
 
     // Restore chat_line_ after temporary notification expires
+        // Restore QR code display after timeout
+    if (qr_until_tick_ > 0 && animation_tick_ >= qr_until_tick_) {
+        HideQrCode();
+    }
+
     if (notification_until_tick_ > 0 && animation_tick_ >= notification_until_tick_) {
         notification_until_tick_ = 0;
         if (chat_line_ != nullptr && !has_chat_text_) {
@@ -2463,3 +2469,72 @@ uint32_t PocketOledDisplay::NextRandom() {
     random_state_ = random_state_ * 1664525U + 1013904223U;
     return random_state_ >> 8;
 }
+
+void PocketOledDisplay::ShowQrCode(const std::string& text, const std::string& title, int duration_ms) {
+    WakeUp();
+
+    if (qr_container_ == nullptr) {
+        auto scr = lv_screen_active();
+        qr_container_ = lv_obj_create(scr);
+        lv_obj_remove_style_all(qr_container_);
+        lv_obj_set_size(qr_container_, 128, 64);
+        lv_obj_set_pos(qr_container_, 0, 0);
+        lv_obj_set_style_bg_color(qr_container_, lv_color_black(), 0);
+        lv_obj_set_style_bg_opa(qr_container_, LV_OPA_COVER, 0);
+
+        qr_canvas_ = lv_canvas_create(qr_container_);
+        lv_obj_set_pos(qr_canvas_, 2, 8);
+
+        qr_info_label_ = lv_label_create(qr_container_);
+        lv_obj_set_style_text_color(qr_info_label_, lv_color_white(), 0);
+        lv_obj_set_width(qr_info_label_, 74);
+        lv_obj_set_pos(qr_info_label_, 52, 6);
+    }
+
+    lv_obj_remove_flag(qr_container_, LV_OBJ_FLAG_HIDDEN);
+    lv_obj_move_foreground(qr_container_);
+
+    std::string info_text = title.empty() ? "[QUET MA]
+" : "[" + title + "]
+";
+    info_text += text;
+    lv_label_set_text(qr_info_label_, info_text.c_str());
+
+    uint8_t qrcode[qrcodegen_BUFFER_LEN_MAX];
+    uint8_t tempBuffer[qrcodegen_BUFFER_LEN_MAX];
+    bool ok = qrcodegen_encodeText(text.c_str(), tempBuffer, qrcode, qrcodegen_Ecc_LOW, 1, 4, qrcodegen_Mask_AUTO, true);
+    if (ok) {
+        int qr_size = qrcodegen_getSize(qrcode);
+        int scale = 48 / qr_size;
+        if (scale < 1) scale = 1;
+        int render_w = qr_size * scale;
+        int offset_x = (48 - render_w) / 2;
+        int offset_y = (48 - render_w) / 2;
+
+        static lv_color_t s_oled_qr_cbuf[48 * 48];
+        lv_canvas_set_buffer(qr_canvas_, s_oled_qr_cbuf, 48, 48, LV_COLOR_FORMAT_RGB565);
+        lv_canvas_fill_bg(qr_canvas_, lv_color_white(), LV_OPA_COVER);
+
+        for (int y = 0; y < qr_size; y++) {
+            for (int x = 0; x < qr_size; x++) {
+                if (qrcodegen_getModule(qrcode, x, y)) {
+                    for (int dy = 0; dy < scale; dy++) {
+                        for (int dx = 0; dx < scale; dx++) {
+                            lv_canvas_set_px(qr_canvas_, offset_x + x * scale + dx, offset_y + y * scale + dy, lv_color_black(), LV_OPA_COVER);
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    qr_until_tick_ = animation_tick_ + (duration_ms / kAnimationPeriodMs);
+}
+
+void PocketOledDisplay::HideQrCode() {
+    qr_until_tick_ = 0;
+    if (qr_container_ != nullptr) {
+        lv_obj_add_flag(qr_container_, LV_OBJ_FLAG_HIDDEN);
+    }
+}
+
