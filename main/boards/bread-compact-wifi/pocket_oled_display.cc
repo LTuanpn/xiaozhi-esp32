@@ -2525,9 +2525,7 @@ void PocketOledDisplay::ShowQrCode(const std::string& text, const std::string& t
     lv_obj_remove_flag(qr_container_, LV_OBJ_FLAG_HIDDEN);
     lv_obj_move_foreground(qr_container_);
 
-    std::string info_text = title.empty() ? "[QUET MA]
-" : "[" + title + "]
-";
+    std::string info_text = title.empty() ? "[QUET MA]\n" : "[" + title + "]\n";
     info_text += text;
     lv_label_set_text(qr_info_label_, info_text.c_str());
 

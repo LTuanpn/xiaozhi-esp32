@@ -477,7 +477,6 @@ void PocketLcdDisplay::UpdateAnimationFrame() {
         }
     }
 
-    auto& app = Application::GetInstance();
     const uint8_t mic_level = app.GetAudioService().GetInputLevel();
 
     // 240x240 Geometry: eye_width = 76, eye_height = 72, gap = 24
@@ -492,10 +491,10 @@ void PocketLcdDisplay::UpdateAnimationFrame() {
     constexpr int max_look_y = 10;
 
     // State machine updates
-    auto dev_state = app.GetDeviceState();
+    dev_state = app.GetDeviceState();
     if (dev_state == kDeviceStateListening) {
         SetFaceMode(FaceMode::kListening);
-    } else if (dev_state == kDeviceStateThinking) {
+    } else if (dev_state == kDeviceStateConnecting) {
         SetFaceMode(FaceMode::kThinking);
     } else if (face_mode_ == FaceMode::kWakingUp) {
         if (animation_tick_ > last_active_tick_ + 14) {
