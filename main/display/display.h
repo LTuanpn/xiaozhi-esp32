@@ -45,6 +45,9 @@ public:
     virtual void ShowNotification(const std::string& notification, int duration_ms = 3000);
     virtual void ShowQrCode(const std::string& text, const std::string& title = "", int duration_ms = 30000) {}
     virtual void HideQrCode() {}
+    virtual void ShowStandbyClock() {}
+    virtual void HideStandbyClock() {}
+    virtual bool IsStandbyClockActive() const { return false; }
     // Returns true when the requested emotion was accepted and set in the rendering
     // system. False means invalid input, a missing resource, an uninitialised display, or
     // an unsupported operation. For asynchronous displays, true does not promise that the

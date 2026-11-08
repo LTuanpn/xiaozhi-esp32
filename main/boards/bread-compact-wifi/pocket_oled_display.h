@@ -22,6 +22,9 @@ public:
     void RemoveChatMessage(const char* role, const char* content) override;
     void ShowQrCode(const std::string& text, const std::string& title = "", int duration_ms = 30000) override;
     void HideQrCode() override;
+    void ShowStandbyClock() override;
+    void HideStandbyClock() override;
+    bool IsStandbyClockActive() const override { return standby_active_; }
 
 private:
     enum class FaceMode {
@@ -202,6 +205,14 @@ private:
     lv_obj_t* qr_canvas_ = nullptr;
     lv_obj_t* qr_info_label_ = nullptr;
     uint32_t qr_until_tick_ = 0;
+
+    // Standby Clock UI elements
+    void UpdateStandbyClock();
+    bool standby_active_ = false;
+    uint32_t last_clock_tick_ = 0;
+    lv_obj_t* standby_container_ = nullptr;
+    lv_obj_t* clock_time_label_ = nullptr;
+    lv_obj_t* clock_info_label_ = nullptr;
 };
 
 #endif  // POCKET_OLED_DISPLAY_H

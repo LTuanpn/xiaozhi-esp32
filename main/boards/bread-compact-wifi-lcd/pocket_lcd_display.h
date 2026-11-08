@@ -26,6 +26,9 @@ public:
     void UpdateStatusBar(bool update_all = false) override;
     void ShowQrCode(const std::string& text, const std::string& title = "", int duration_ms = 30000) override;
     void HideQrCode() override;
+    void ShowStandbyClock() override;
+    void HideStandbyClock() override;
+    bool IsStandbyClockActive() const override { return standby_active_; }
 
 private:
     enum class FaceMode {
@@ -186,6 +189,20 @@ private:
     lv_obj_t* qr_title_label_ = nullptr;
     lv_obj_t* qr_url_label_ = nullptr;
     uint32_t qr_until_tick_ = 0;
+
+    // Standby Clock UI elements
+    void UpdateStandbyClock();
+    bool standby_active_ = false;
+    uint32_t last_clock_tick_ = 0;
+    lv_obj_t* standby_container_ = nullptr;
+    lv_obj_t* clock_time_label_ = nullptr;
+    lv_obj_t* clock_sec_label_ = nullptr;
+    lv_obj_t* clock_date_label_ = nullptr;
+    lv_obj_t* clock_card_ = nullptr;
+    lv_obj_t* clock_wifi_label_ = nullptr;
+    lv_obj_t* clock_ip_label_ = nullptr;
+    lv_obj_t* clock_tips_label_ = nullptr;
+    lv_obj_t* clock_mini_robot_ = nullptr;
 };
 
 #endif  // POCKET_LCD_DISPLAY_H

@@ -1,5 +1,7 @@
 #include "pocket_oled_display.h"
 #include "qrcodegen.h"
+#include <ctime>
+#include <wifi_manager.h>
 
 #include "application.h"
 #include "assets/lang_config.h"
@@ -376,6 +378,9 @@ void PocketOledDisplay::SetupUI() {
 }
 
 void PocketOledDisplay::WakeUp() {
+    if (standby_active_) {
+        HideStandbyClock();
+    }
     if (face_mode_ == FaceMode::kSleeping || face_mode_ == FaceMode::kSleepy) {
         wake_up_until_tick_ = animation_tick_ + 30;  // 1.2s wake up animation
         SetFaceMode(FaceMode::kWakingUp);
@@ -608,6 +613,19 @@ void PocketOledDisplay::UpdateAnimationFrame() {
         return;
     }
     ++animation_tick_;
+
+    if (standby_active_) {
+        if (animation_tick_ - last_clock_tick_ >= 20) {
+            last_clock_tick_ = animation_tick_;
+            UpdateStandbyClock();
+        }
+        return;
+    } else {
+        if (face_mode_ == FaceMode::kSleeping && animation_tick_ > 200) {
+            ShowStandbyClock();
+            return;
+        }
+    }
 
     // Restore chat_line_ after temporary notification expires
         // Restore QR code display after timeout
@@ -2536,5 +2554,68 @@ void PocketOledDisplay::HideQrCode() {
     if (qr_container_ != nullptr) {
         lv_obj_add_flag(qr_container_, LV_OBJ_FLAG_HIDDEN);
     }
+}
+
+void PocketOledDisplay::ShowStandbyClock() {
+    standby_active_ = true;
+    last_clock_tick_ = animation_tick_;
+
+    if (standby_container_ == nullptr) {
+        auto scr = lv_screen_active();
+        standby_container_ = lv_obj_create(scr);
+        lv_obj_remove_style_all(standby_container_);
+        lv_obj_set_size(standby_container_, 128, 64);
+        lv_obj_set_pos(standby_container_, 0, 0);
+        lv_obj_set_style_bg_color(standby_container_, lv_color_black(), 0);
+        lv_obj_set_style_bg_opa(standby_container_, LV_OPA_COVER, 0);
+
+        clock_time_label_ = lv_label_create(standby_container_);
+        lv_obj_set_style_text_color(clock_time_label_, lv_color_white(), 0);
+        lv_obj_set_style_text_align(clock_time_label_, LV_TEXT_ALIGN_CENTER, 0);
+        lv_obj_set_width(clock_time_label_, 128);
+        lv_obj_set_pos(clock_time_label_, 0, 8);
+
+        clock_info_label_ = lv_label_create(standby_container_);
+        lv_obj_set_style_text_color(clock_info_label_, lv_color_white(), 0);
+        lv_obj_set_style_text_align(clock_info_label_, LV_TEXT_ALIGN_CENTER, 0);
+        lv_obj_set_width(clock_info_label_, 128);
+        lv_obj_set_pos(clock_info_label_, 0, 36);
+    }
+
+    lv_obj_remove_flag(standby_container_, LV_OBJ_FLAG_HIDDEN);
+    lv_obj_move_foreground(standby_container_);
+    UpdateStandbyClock();
+}
+
+void PocketOledDisplay::HideStandbyClock() {
+    standby_active_ = false;
+    if (standby_container_ != nullptr) {
+        lv_obj_add_flag(standby_container_, LV_OBJ_FLAG_HIDDEN);
+    }
+}
+
+void PocketOledDisplay::UpdateStandbyClock() {
+    if (!standby_active_ || standby_container_ == nullptr) return;
+
+    time_t now = time(nullptr);
+    struct tm tm_now;
+    localtime_r(&now, &tm_now);
+
+    char time_buf[24];
+    char info_buf[48];
+
+    if (tm_now.tm_year >= (2025 - 1900)) {
+        snprintf(time_buf, sizeof(time_buf), "%02d:%02d :%02ds", tm_now.tm_hour, tm_now.tm_min, tm_now.tm_sec);
+        snprintf(info_buf, sizeof(info_buf), "%02d/%02d | Jarvis", tm_now.tm_mday, tm_now.tm_mon + 1);
+    } else {
+        uint32_t uptime_sec = animation_tick_ / 20;
+        uint32_t mins = uptime_sec / 60;
+        uint32_t secs = uptime_sec % 60;
+        snprintf(time_buf, sizeof(time_buf), "%02lu:%02lus (UP)", (unsigned long)mins, (unsigned long)secs);
+        snprintf(info_buf, sizeof(info_buf), "WiFi Connecting...");
+    }
+
+    if (clock_time_label_) lv_label_set_text(clock_time_label_, time_buf);
+    if (clock_info_label_) lv_label_set_text(clock_info_label_, info_buf);
 }
 

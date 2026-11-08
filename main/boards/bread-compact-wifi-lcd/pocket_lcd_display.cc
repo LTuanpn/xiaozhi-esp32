@@ -2,6 +2,8 @@
 #include "application.h"
 #include "display/lvgl_display/lvgl_theme.h"
 #include "qrcodegen.h"
+#include <ctime>
+#include <wifi_manager.h>
 
 #include <esp_err.h>
 #include <esp_log.h>
@@ -251,6 +253,9 @@ void PocketLcdDisplay::SetupUI() {
 
 void PocketLcdDisplay::WakeUp() {
     last_active_tick_ = animation_tick_;
+    if (standby_active_) {
+        HideStandbyClock();
+    }
     if (face_mode_ == FaceMode::kSleeping || face_mode_ == FaceMode::kSleepy) {
         SetFaceMode(FaceMode::kWakingUp);
     }
@@ -425,6 +430,19 @@ void PocketLcdDisplay::UpdateAnimationFrame() {
     DisplayLockGuard lock(this);
     if (!lock) return;
     ++animation_tick_;
+
+    if (standby_active_) {
+        if (animation_tick_ - last_clock_tick_ >= 20) {
+            last_clock_tick_ = animation_tick_;
+            UpdateStandbyClock();
+        }
+        return;
+    } else {
+        if (face_mode_ == FaceMode::kSleeping && animation_tick_ - last_active_tick_ > 200) {
+            ShowStandbyClock();
+            return;
+        }
+    }
 
     // Restore chat line after notification timeout
         // Restore QR code display after timeout
@@ -1225,6 +1243,199 @@ void PocketLcdDisplay::HideQrCode() {
     qr_until_tick_ = 0;
     if (qr_container_ != nullptr) {
         lv_obj_add_flag(qr_container_, LV_OBJ_FLAG_HIDDEN);
+    }
+}
+
+void PocketLcdDisplay::ShowStandbyClock() {
+    DisplayLockGuard lock(this);
+    if (!lock) return;
+
+    standby_active_ = true;
+    last_clock_tick_ = animation_tick_;
+
+    if (standby_container_ == nullptr) {
+        auto scr = lv_screen_active();
+        standby_container_ = lv_obj_create(scr);
+        lv_obj_remove_style_all(standby_container_);
+        lv_obj_set_size(standby_container_, width_, height_);
+        lv_obj_set_pos(standby_container_, 0, 0);
+        lv_obj_set_style_bg_color(standby_container_, lv_color_hex(0x070B14), 0);
+        lv_obj_set_style_bg_opa(standby_container_, LV_OPA_COVER, 0);
+
+        if (height_ <= 240) {
+            // ================= LAYOUT MÀN HÌNH VUÔNG 240x240 =================
+            // Viền Bezel vuông bo góc kép Neon
+            lv_obj_t* bezel = lv_obj_create(standby_container_);
+            lv_obj_remove_style_all(bezel);
+            lv_obj_set_size(bezel, 230, 230);
+            lv_obj_set_pos(bezel, 5, 5);
+            lv_obj_set_style_border_width(bezel, 2, 0);
+            lv_obj_set_style_border_color(bezel, lv_color_hex(0x00E5FF), 0);
+            lv_obj_set_style_border_opa(bezel, LV_OPA_70, 0);
+            lv_obj_set_style_radius(bezel, 14, 0);
+
+            // Status bar trên cùng
+            clock_wifi_label_ = lv_label_create(standby_container_);
+            lv_obj_set_style_text_color(clock_wifi_label_, lv_color_hex(0x80D8FF), 0);
+            lv_obj_set_pos(clock_wifi_label_, 14, 12);
+
+            clock_mini_robot_ = lv_label_create(standby_container_);
+            lv_obj_set_style_text_color(clock_mini_robot_, lv_color_hex(0xFFD700), 0);
+            lv_obj_set_pos(clock_mini_robot_, 180, 12);
+            lv_label_set_text(clock_mini_robot_, "(•) zZz");
+
+            // Ngày tháng
+            clock_date_label_ = lv_label_create(standby_container_);
+            lv_obj_set_style_text_color(clock_date_label_, lv_color_hex(0x00E5FF), 0);
+            lv_obj_set_style_text_align(clock_date_label_, LV_TEXT_ALIGN_CENTER, 0);
+            lv_obj_set_width(clock_date_label_, 220);
+            lv_obj_set_pos(clock_date_label_, 10, 42);
+
+            // Giờ : Phút khổng lồ
+            clock_time_label_ = lv_label_create(standby_container_);
+            lv_obj_set_style_text_color(clock_time_label_, lv_color_white(), 0);
+            lv_obj_set_style_text_align(clock_time_label_, LV_TEXT_ALIGN_CENTER, 0);
+            lv_obj_set_width(clock_time_label_, 220);
+            lv_obj_set_pos(clock_time_label_, 10, 78);
+
+            // Giây
+            clock_sec_label_ = lv_label_create(standby_container_);
+            lv_obj_set_style_text_color(clock_sec_label_, lv_color_hex(0xFFB300), 0);
+            lv_obj_set_style_text_align(clock_sec_label_, LV_TEXT_ALIGN_CENTER, 0);
+            lv_obj_set_width(clock_sec_label_, 220);
+            lv_obj_set_pos(clock_sec_label_, 10, 142);
+
+            // Footer IP & Tips
+            clock_ip_label_ = lv_label_create(standby_container_);
+            lv_obj_set_style_text_color(clock_ip_label_, lv_color_hex(0x90CAF9), 0);
+            lv_obj_set_style_text_align(clock_ip_label_, LV_TEXT_ALIGN_CENTER, 0);
+            lv_obj_set_width(clock_ip_label_, 220);
+            lv_obj_set_pos(clock_ip_label_, 10, 185);
+
+            clock_tips_label_ = lv_label_create(standby_container_);
+            lv_obj_set_style_text_color(clock_tips_label_, lv_color_hex(0x64748B), 0);
+            lv_obj_set_style_text_align(clock_tips_label_, LV_TEXT_ALIGN_CENTER, 0);
+            lv_obj_set_width(clock_tips_label_, 220);
+            lv_obj_set_pos(clock_tips_label_, 10, 208);
+            lv_label_set_text(clock_tips_label_, "Noi \"Jarvis\" de danh thuc");
+        } else {
+            // ================= LAYOUT MÀN HÌNH 2.4 INCH 240x320 =================
+            // Giữ robot icon ở top
+            clock_mini_robot_ = lv_label_create(standby_container_);
+            lv_obj_set_style_text_color(clock_mini_robot_, lv_color_hex(0xFFD700), 0);
+            lv_obj_set_style_text_align(clock_mini_robot_, LV_TEXT_ALIGN_CENTER, 0);
+            lv_obj_set_width(clock_mini_robot_, 220);
+            lv_obj_set_pos(clock_mini_robot_, 10, 25);
+            lv_label_set_text(clock_mini_robot_, "[ - . - ]  ~ z Z z ~");
+
+            // Ngày tháng
+            clock_date_label_ = lv_label_create(standby_container_);
+            lv_obj_set_style_text_color(clock_date_label_, lv_color_hex(0x00E5FF), 0);
+            lv_obj_set_style_text_align(clock_date_label_, LV_TEXT_ALIGN_CENTER, 0);
+            lv_obj_set_width(clock_date_label_, 220);
+            lv_obj_set_pos(clock_date_label_, 10, 70);
+
+            // Giờ : Phút khổng lồ
+            clock_time_label_ = lv_label_create(standby_container_);
+            lv_obj_set_style_text_color(clock_time_label_, lv_color_white(), 0);
+            lv_obj_set_style_text_align(clock_time_label_, LV_TEXT_ALIGN_CENTER, 0);
+            lv_obj_set_width(clock_time_label_, 220);
+            lv_obj_set_pos(clock_time_label_, 10, 105);
+
+            // Giây
+            clock_sec_label_ = lv_label_create(standby_container_);
+            lv_obj_set_style_text_color(clock_sec_label_, lv_color_hex(0xFFB300), 0);
+            lv_obj_set_style_text_align(clock_sec_label_, LV_TEXT_ALIGN_CENTER, 0);
+            lv_obj_set_width(clock_sec_label_, 220);
+            lv_obj_set_pos(clock_sec_label_, 10, 165);
+
+            // Hộp thẻ kính mờ (Frosted Glass Card) ở tầng dưới
+            clock_card_ = lv_obj_create(standby_container_);
+            lv_obj_remove_style_all(clock_card_);
+            lv_obj_set_size(clock_card_, 220, 105);
+            lv_obj_set_pos(clock_card_, 10, 200);
+            lv_obj_set_style_bg_color(clock_card_, lv_color_hex(0x101726), 0);
+            lv_obj_set_style_bg_opa(clock_card_, LV_OPA_COVER, 0);
+            lv_obj_set_style_border_width(clock_card_, 1, 0);
+            lv_obj_set_style_border_color(clock_card_, lv_color_hex(0x1E293B), 0);
+            lv_obj_set_style_radius(clock_card_, 10, 0);
+
+            clock_wifi_label_ = lv_label_create(clock_card_);
+            lv_obj_set_style_text_color(clock_wifi_label_, lv_color_hex(0x80D8FF), 0);
+            lv_obj_set_pos(clock_wifi_label_, 10, 10);
+
+            clock_ip_label_ = lv_label_create(clock_card_);
+            lv_obj_set_style_text_color(clock_ip_label_, lv_color_hex(0x90CAF9), 0);
+            lv_obj_set_pos(clock_ip_label_, 10, 36);
+
+            clock_tips_label_ = lv_label_create(clock_card_);
+            lv_obj_set_style_text_color(clock_tips_label_, lv_color_hex(0xFBBF24), 0);
+            lv_obj_set_pos(clock_tips_label_, 10, 68);
+            lv_label_set_text(clock_tips_label_, "Noi \"Jarvis\" de danh thuc!");
+        }
+    }
+
+    lv_obj_remove_flag(standby_container_, LV_OBJ_FLAG_HIDDEN);
+    lv_obj_move_foreground(standby_container_);
+    UpdateStandbyClock();
+}
+
+void PocketLcdDisplay::HideStandbyClock() {
+    DisplayLockGuard lock(this);
+    if (!lock) return;
+
+    standby_active_ = false;
+    if (standby_container_ != nullptr) {
+        lv_obj_add_flag(standby_container_, LV_OBJ_FLAG_HIDDEN);
+    }
+}
+
+void PocketLcdDisplay::UpdateStandbyClock() {
+    if (!standby_active_ || standby_container_ == nullptr) return;
+
+    time_t now = time(nullptr);
+    struct tm tm_now;
+    localtime_r(&now, &tm_now);
+
+    char time_buf[16];
+    char sec_buf[16];
+    char date_buf[64];
+
+    if (tm_now.tm_year >= (2025 - 1900)) {
+        snprintf(time_buf, sizeof(time_buf), "%02d:%02d", tm_now.tm_hour, tm_now.tm_min);
+        snprintf(sec_buf, sizeof(sec_buf), ": %02ds", tm_now.tm_sec);
+
+        const char* days[] = {"CN", "THU 2", "THU 3", "THU 4", "THU 5", "THU 6", "THU 7"};
+        snprintf(date_buf, sizeof(date_buf), "%s  *  %02d/%02d/%04d",
+                 days[tm_now.tm_wday % 7], tm_now.tm_mday, tm_now.tm_mon + 1, tm_now.tm_year + 1900);
+    } else {
+        // Chưa đồng bộ NTP qua WiFi
+        uint32_t uptime_sec = animation_tick_ / 20;
+        uint32_t hrs = uptime_sec / 3600;
+        uint32_t mins = (uptime_sec % 3600) / 60;
+        uint32_t secs = uptime_sec % 60;
+        snprintf(time_buf, sizeof(time_buf), "%02lu:%02lu", (unsigned long)hrs, (unsigned long)mins);
+        snprintf(sec_buf, sizeof(sec_buf), ": %02lus", (unsigned long)secs);
+        snprintf(date_buf, sizeof(date_buf), "DANG KET NOI WIFI...");
+    }
+
+    if (clock_time_label_) lv_label_set_text(clock_time_label_, time_buf);
+    if (clock_sec_label_) lv_label_set_text(clock_sec_label_, sec_buf);
+    if (clock_date_label_) lv_label_set_text(clock_date_label_, date_buf);
+
+    // Cập nhật thông tin WiFi & IP
+    auto& wifi = WifiManager::GetInstance();
+    std::string ssid = wifi.GetSsid();
+    std::string ip = wifi.GetIpAddress();
+    int rssi = wifi.GetRssi();
+
+    if (clock_wifi_label_) {
+        std::string wf_str = "WF: " + (ssid.empty() ? "Offline" : (ssid + " (" + std::to_string(rssi) + "dB)"));
+        lv_label_set_text(clock_wifi_label_, wf_str.c_str());
+    }
+    if (clock_ip_label_) {
+        std::string ip_str = "IP: " + (ip.empty() ? "192.168.4.1 (AP)" : ip);
+        lv_label_set_text(clock_ip_label_, ip_str.c_str());
     }
 }
 

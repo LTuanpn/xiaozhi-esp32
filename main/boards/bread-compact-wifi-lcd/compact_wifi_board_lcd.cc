@@ -215,6 +215,16 @@ private:
                 std::string lower_text = text;
                 std::transform(lower_text.begin(), lower_text.end(), lower_text.begin(), ::tolower);
 
+                // TRƯỜNG HỢP 0: Yêu cầu chuyển sang Màn hình chờ (Standby Clock)
+                if (lower_text.find("standby") != std::string::npos || lower_text.find("cho") != std::string::npos ||
+                    lower_text.find("chờ") != std::string::npos || lower_text.find("dong_ho") != std::string::npos ||
+                    lower_text.find("đồng hồ") != std::string::npos || lower_text.find("clock") != std::string::npos) {
+                    if (display_ != nullptr) {
+                        display_->ShowStandbyClock();
+                    }
+                    return "Đã chuyển sang màn hình chờ đồng hồ. Bạn có thể gọi 'Jarvis' bất kỳ lúc nào để đánh thức tôi.";
+                }
+
                 // TRƯỜNG HỢP 1: Yêu cầu hiển thị Mã QR
                 if (lower_text.find("qr") != std::string::npos) {
                     auto& wifi = WifiManager::GetInstance();
@@ -491,6 +501,24 @@ private:
         );
 
         // CÁC TOOL MÀN HÌNH
+        // TOOL CHUYỂN ĐỔI MÀN HÌNH CHỜ ĐỒNG HỒ
+        mcp_server.AddTool(
+            "self.screen.set_standby",
+            "Chuyển robot sang chế độ Màn hình chờ đồng hồ (Standby Clock) hoặc thoát khỏi màn hình chờ về khuôn mặt robot. enable=true để bật màn hình chờ, false để đánh thức robot.",
+            PropertyList({Property("enable", kPropertyTypeBoolean, true)}),
+            [this](const PropertyList& properties) -> ReturnValue {
+                bool enable = properties["enable"].value<bool>();
+                if (display_ != nullptr) {
+                    if (enable) {
+                        display_->ShowStandbyClock();
+                    } else {
+                        display_->HideStandbyClock();
+                    }
+                }
+                return enable ? "Đã bật màn hình chờ đồng hồ" : "Đã đánh thức robot trở lại trạng thái sẵn sàng";
+            }
+        );
+
         mcp_server.AddTool("self.screen.set_emotion", "Set emotion of robot display. Supports 60 emotions: happy, sad, angry, laugh, cry, wink, sleepy, surprised, skeptical, smug, furious, love, dizzy, scared, excited, bored, pout, music, scanning, thinking, shy, neutral, matrix, loading, battery, overheat, reboot, target, side_eye, facepalm, innocent, jealous, scheming, disgusted, whisper, freeze, sneeze, waterfall, headache, drunk, exhausted, zen, jawdrop, paranoid, question, idea, hypno, money, heartbroken, tongue, party, ninja, game_over, fire, thunder, rain, sunny, sleepwalk, angel",
             PropertyList({Property("emotion", kPropertyTypeString, "happy")}),
             [this](const PropertyList& properties) -> ReturnValue {
