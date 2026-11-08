@@ -1,3 +1,4 @@
+#include <vector>
 #include "pocket_lcd_display.h"
 #include "application.h"
 #include "display/lvgl_display/lvgl_theme.h"
@@ -1220,11 +1221,11 @@ void PocketLcdDisplay::ShowQrCode(const std::string& text, const std::string& ti
     lv_label_set_text(qr_title_label_, disp_title.c_str());
     lv_label_set_text(qr_url_label_, text.c_str());
 
-    uint8_t qrcode[qrcodegen_BUFFER_LEN_MAX];
-    uint8_t tempBuffer[qrcodegen_BUFFER_LEN_MAX];
-    bool ok = qrcodegen_encodeText(text.c_str(), tempBuffer, qrcode, qrcodegen_Ecc_LOW, 1, 8, qrcodegen_Mask_AUTO, true);
+    std::vector<uint8_t> qrcode(qrcodegen_BUFFER_LEN_MAX);
+    std::vector<uint8_t> tempBuffer(qrcodegen_BUFFER_LEN_MAX);
+    bool ok = qrcodegen_encodeText(text.c_str(), tempBuffer.data(), qrcode.data(), qrcodegen_Ecc_LOW, 1, 8, qrcodegen_Mask_AUTO, true);
     if (ok) {
-        int qr_size = qrcodegen_getSize(qrcode);
+        int qr_size = qrcodegen_getSize(qrcode.data());
         int scale = 160 / qr_size;
         if (scale < 1) scale = 1;
         int render_w = qr_size * scale;
@@ -1237,7 +1238,7 @@ void PocketLcdDisplay::ShowQrCode(const std::string& text, const std::string& ti
 
         for (int y = 0; y < qr_size; y++) {
             for (int x = 0; x < qr_size; x++) {
-                if (qrcodegen_getModule(qrcode, x, y)) {
+                if (qrcodegen_getModule(qrcode.data(), x, y)) {
                     for (int dy = 0; dy < scale; dy++) {
                         for (int dx = 0; dx < scale; dx++) {
                             lv_canvas_set_px(qr_canvas_, offset_x + x * scale + dx, offset_y + y * scale + dy, lv_color_black(), LV_OPA_COVER);

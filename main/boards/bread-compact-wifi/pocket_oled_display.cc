@@ -1,3 +1,4 @@
+#include <vector>
 #include "pocket_oled_display.h"
 #include "qrcodegen.h"
 #include <ctime>
@@ -2528,11 +2529,11 @@ void PocketOledDisplay::ShowQrCode(const std::string& text, const std::string& t
     info_text += text;
     lv_label_set_text(qr_info_label_, info_text.c_str());
 
-    uint8_t qrcode[qrcodegen_BUFFER_LEN_MAX];
-    uint8_t tempBuffer[qrcodegen_BUFFER_LEN_MAX];
-    bool ok = qrcodegen_encodeText(text.c_str(), tempBuffer, qrcode, qrcodegen_Ecc_LOW, 1, 4, qrcodegen_Mask_AUTO, true);
+    std::vector<uint8_t> qrcode(qrcodegen_BUFFER_LEN_MAX);
+    std::vector<uint8_t> tempBuffer(qrcodegen_BUFFER_LEN_MAX);
+    bool ok = qrcodegen_encodeText(text.c_str(), tempBuffer.data(), qrcode.data(), qrcodegen_Ecc_LOW, 1, 4, qrcodegen_Mask_AUTO, true);
     if (ok) {
-        int qr_size = qrcodegen_getSize(qrcode);
+        int qr_size = qrcodegen_getSize(qrcode.data());
         int scale = 48 / qr_size;
         if (scale < 1) scale = 1;
         int render_w = qr_size * scale;
@@ -2545,7 +2546,7 @@ void PocketOledDisplay::ShowQrCode(const std::string& text, const std::string& t
 
         for (int y = 0; y < qr_size; y++) {
             for (int x = 0; x < qr_size; x++) {
-                if (qrcodegen_getModule(qrcode, x, y)) {
+                if (qrcodegen_getModule(qrcode.data(), x, y)) {
                     for (int dy = 0; dy < scale; dy++) {
                         for (int dx = 0; dx < scale; dx++) {
                             lv_canvas_set_px(qr_canvas_, offset_x + x * scale + dx, offset_y + y * scale + dy, lv_color_black(), LV_OPA_COVER);
