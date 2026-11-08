@@ -100,25 +100,19 @@ private:
         kFireFury,
         kCryingStream,
         kHeartbroken,
-        // Group 7: Anime Special FX (GIF-like Animations)
-        kAnimeStarlight,
-        kSharingan,
     };
 
     enum class IdleQuirk {
         kNone,
-        kCuriousHeadTilt,
-        kSaccadeLeft,
-        kSaccadeRight,
-        kSquintFocus,
         kBugTracking,
-        kWideLookAround,
-        kLazyHalfBlink,
+        kPeekABoo,
+        kEyeRoll,
     };
 
     void UpdateAnimationFrame();
     void SetFaceMode(FaceMode mode);
     FaceMode FaceModeFromEmotion(const char* emotion) const;
+    FaceMode InferEmotionFromText(const char* text) const;
     void ApplyLayout();
     void WakeUp();
     uint32_t NextRandom();
@@ -132,6 +126,38 @@ private:
     lv_obj_t* left_pupil_ = nullptr;
     lv_obj_t* right_pupil_ = nullptr;
 
+    // Dynamic Eyelids & Crescent Masks
+    lv_obj_t* left_top_lid_ = nullptr;
+    lv_obj_t* right_top_lid_ = nullptr;
+    lv_obj_t* left_bottom_lid_ = nullptr;
+    lv_obj_t* right_bottom_lid_ = nullptr;
+    lv_obj_t* left_crescent_mask_ = nullptr;
+    lv_obj_t* right_crescent_mask_ = nullptr;
+
+    // Teardrops & Blush
+    lv_obj_t* left_tear_ = nullptr;
+    lv_obj_t* right_tear_ = nullptr;
+    lv_obj_t* left_blush_ = nullptr;
+    lv_obj_t* right_blush_ = nullptr;
+
+    // FX Labels
+    lv_obj_t* fx_label_a_ = nullptr;
+    lv_obj_t* fx_label_b_ = nullptr;
+
+    // Hearts, Dizzy X & Sparkles
+    lv_obj_t* left_heart_a_ = nullptr;
+    lv_obj_t* left_heart_b_ = nullptr;
+    lv_obj_t* right_heart_a_ = nullptr;
+    lv_obj_t* right_heart_b_ = nullptr;
+    lv_obj_t* left_dizzy_a_ = nullptr;
+    lv_obj_t* left_dizzy_b_ = nullptr;
+    lv_obj_t* right_dizzy_a_ = nullptr;
+    lv_obj_t* right_dizzy_b_ = nullptr;
+    lv_obj_t* left_sparkle_a_ = nullptr;
+    lv_obj_t* left_sparkle_b_ = nullptr;
+    lv_obj_t* right_sparkle_a_ = nullptr;
+    lv_obj_t* right_sparkle_b_ = nullptr;
+
     // Dynamic 3-tier catchlights
     lv_obj_t* catchlight_[2][4] = {
         {nullptr, nullptr, nullptr, nullptr},
@@ -139,10 +165,6 @@ private:
     };
 
     // Accessories & Visual Elements
-    lv_obj_t* left_sparkle_a_ = nullptr;
-    lv_obj_t* left_sparkle_b_ = nullptr;
-    lv_obj_t* right_sparkle_a_ = nullptr;
-    lv_obj_t* right_sparkle_b_ = nullptr;
     lv_obj_t* laser_line_ = nullptr;
     lv_obj_t* smoke_puff_[6] = {nullptr, nullptr, nullptr, nullptr, nullptr, nullptr};
     lv_obj_t* music_note_[2] = {nullptr, nullptr};
@@ -152,14 +174,22 @@ private:
     FaceMode face_mode_ = FaceMode::kWakingUp;
     FaceMode emotion_mode_ = FaceMode::kNeutral;
     IdleQuirk idle_quirk_ = IdleQuirk::kNone;
+    bool is_speaking_ = false;
 
     esp_timer_handle_t frame_timer_ = nullptr;
     uint32_t animation_tick_ = 0;
     uint32_t last_active_tick_ = 0;
+    uint32_t wake_up_until_tick_ = 0;
     uint32_t surprised_start_tick_ = 0;
     uint32_t notification_until_tick_ = 0;
     uint32_t temporary_emotion_until_tick_ = 0;
-    uint32_t next_blink_tick_ = 40;
+    uint32_t quirk_start_tick_ = 0;
+    uint32_t quirk_until_tick_ = 0;
+    uint32_t next_quirk_tick_ = 300;
+    uint32_t next_blink_tick_ = 45;
+    uint32_t blink_until_tick_ = 0;
+    uint32_t second_blink_start_tick_ = 0;
+    uint32_t second_blink_until_tick_ = 0;
     uint32_t next_idle_tick_ = 30;
 
     // Smoothed pupil size (left=0, right=1)
@@ -168,7 +198,9 @@ private:
     // Micro-saccades
     int micro_look_x_ = 0;
     int micro_look_y_ = 0;
-    uint32_t next_micro_saccade_tick_ = 10;
+    uint32_t next_micro_tick_ = 40;
+    uint32_t micro_until_tick_ = 0;
+
     int current_look_x_ = 0;
     int current_look_y_ = 0;
     int target_look_x_ = 0;
@@ -181,7 +213,7 @@ private:
     int current_right_y_offset_ = 0;
     bool has_chat_text_ = false;
     std::string last_status_text_;
-    uint32_t random_state_ = 0x12345678;
+    uint32_t random_state_ = 0x57414C4C;
 
     // QR Code UI elements
     lv_obj_t* qr_container_ = nullptr;

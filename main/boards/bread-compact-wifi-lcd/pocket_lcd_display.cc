@@ -1,6 +1,7 @@
 #include <vector>
 #include "pocket_lcd_display.h"
 #include "application.h"
+#include "assets/lang_config.h"
 #include "display/lvgl_display/lvgl_theme.h"
 #include "qrcodegen.h"
 #include <ctime>
@@ -101,6 +102,10 @@ void PlaceDisc(lv_obj_t* wide, lv_obj_t* tall, lv_obj_t* mid, int x, int y, int 
     lv_obj_set_size(mid, diameter - 2 * c2, diameter - 2 * c2);
 }
 
+inline int32_t NormalizeAngle(int32_t angle) {
+    return ((angle % 3600) + 3600) % 3600;
+}
+
 inline bool Contains(const char* haystack, const char* needle) {
     if (haystack == nullptr || needle == nullptr) return false;
     return strstr(haystack, needle) != nullptr;
@@ -138,11 +143,11 @@ void PocketLcdDisplay::SetupUI() {
     lv_obj_set_style_bg_opa(scr, LV_OPA_COVER, 0);
     lv_obj_clear_flag(scr, LV_OBJ_FLAG_SCROLLABLE);
 
-    // 2. Face Layer (240x180, centered on upper canvas)
+    // 2. Face Layer (240x190, centered on upper canvas)
     face_layer_ = lv_obj_create(scr);
     PrepareShape(face_layer_);
-    lv_obj_set_pos(face_layer_, 0, 10);
-    lv_obj_set_size(face_layer_, 240, 180);
+    lv_obj_set_pos(face_layer_, 0, 0);
+    lv_obj_set_size(face_layer_, 240, 190);
     lv_obj_set_style_bg_color(face_layer_, lv_color_black(), 0);
     lv_obj_set_style_bg_opa(face_layer_, LV_OPA_COVER, 0);
 
@@ -178,17 +183,108 @@ void PocketLcdDisplay::SetupUI() {
         }
     }
 
-    // 6. Visual Effects & Accessories (Laser, Sweat drop, Smoke puffs, Music notes, Extra shapes)
+    // 6. Sparkles & Dizzy X (Drawn inside/over eyes, underneath eyelids)
+    left_dizzy_a_ = lv_obj_create(face_layer_);
+    left_dizzy_b_ = lv_obj_create(face_layer_);
+    right_dizzy_a_ = lv_obj_create(face_layer_);
+    right_dizzy_b_ = lv_obj_create(face_layer_);
+    for (auto* d : {left_dizzy_a_, left_dizzy_b_, right_dizzy_a_, right_dizzy_b_}) {
+        PrepareShape(d);
+        lv_obj_set_style_bg_color(d, lv_color_black(), 0);
+        lv_obj_set_style_bg_opa(d, LV_OPA_COVER, 0);
+        lv_obj_set_style_radius(d, 4, 0);
+        lv_obj_add_flag(d, LV_OBJ_FLAG_HIDDEN);
+    }
+
+    left_sparkle_a_ = lv_obj_create(face_layer_);
+    left_sparkle_b_ = lv_obj_create(face_layer_);
+    right_sparkle_a_ = lv_obj_create(face_layer_);
+    right_sparkle_b_ = lv_obj_create(face_layer_);
+    for (auto* s : {left_sparkle_a_, left_sparkle_b_, right_sparkle_a_, right_sparkle_b_}) {
+        PrepareShape(s);
+        lv_obj_set_style_bg_color(s, lv_color_white(), 0);
+        lv_obj_set_style_bg_opa(s, LV_OPA_COVER, 0);
+        lv_obj_set_style_radius(s, LV_RADIUS_CIRCLE, 0);
+        lv_obj_add_flag(s, LV_OBJ_FLAG_HIDDEN);
+    }
+
+    // 7. Crescent Masks (For curved sleeping eyes and winking eyes)
+    left_crescent_mask_ = lv_obj_create(face_layer_);
+    right_crescent_mask_ = lv_obj_create(face_layer_);
+    for (auto* mask : {left_crescent_mask_, right_crescent_mask_}) {
+        PrepareShape(mask);
+        lv_obj_set_style_bg_color(mask, lv_color_black(), 0);
+        lv_obj_set_style_bg_opa(mask, LV_OPA_COVER, 0);
+        lv_obj_set_style_radius(mask, 24, 0);
+        lv_obj_add_flag(mask, LV_OBJ_FLAG_HIDDEN);
+    }
+
+    // 8. Eyelids (Angled top lids for angry / sad, lower lids for squinting)
+    left_top_lid_ = lv_obj_create(face_layer_);
+    right_top_lid_ = lv_obj_create(face_layer_);
+    left_bottom_lid_ = lv_obj_create(face_layer_);
+    right_bottom_lid_ = lv_obj_create(face_layer_);
+    for (auto* lid : {left_top_lid_, right_top_lid_, left_bottom_lid_, right_bottom_lid_}) {
+        PrepareShape(lid);
+        lv_obj_set_style_bg_color(lid, lv_color_black(), 0);
+        lv_obj_set_style_bg_opa(lid, LV_OPA_COVER, 0);
+        lv_obj_set_style_radius(lid, 0, 0);
+        lv_obj_add_flag(lid, LV_OBJ_FLAG_HIDDEN);
+    }
+
+    // 9. Dual Teardrops for crying
+    left_tear_ = lv_obj_create(face_layer_);
+    right_tear_ = lv_obj_create(face_layer_);
+    for (auto* tear : {left_tear_, right_tear_}) {
+        PrepareShape(tear);
+        lv_obj_set_style_bg_color(tear, lv_color_hex(0x00E5FF), 0);
+        lv_obj_set_style_bg_opa(tear, LV_OPA_COVER, 0);
+        lv_obj_set_style_radius(tear, 6, 0);
+        lv_obj_add_flag(tear, LV_OBJ_FLAG_HIDDEN);
+    }
+
+    // 10. Blushing marks & FX Labels
+    left_blush_ = lv_label_create(face_layer_);
+    right_blush_ = lv_label_create(face_layer_);
+    for (auto* blush : {left_blush_, right_blush_}) {
+        lv_label_set_text(blush, "///");
+        lv_obj_set_style_text_color(blush, lv_color_hex(0xFF80AB), 0);
+        lv_obj_set_style_text_font(blush, &lv_font_montserrat_14, 0);
+        lv_obj_add_flag(blush, LV_OBJ_FLAG_HIDDEN);
+    }
+
+    fx_label_a_ = lv_label_create(face_layer_);
+    fx_label_b_ = lv_label_create(face_layer_);
+    for (auto* lbl : {fx_label_a_, fx_label_b_}) {
+        lv_label_set_text(lbl, "");
+        lv_obj_set_style_text_color(lbl, lv_color_white(), 0);
+        lv_obj_set_style_text_font(lbl, &lv_font_montserrat_14, 0);
+        lv_obj_add_flag(lbl, LV_OBJ_FLAG_HIDDEN);
+    }
+
+    // 11. Foreground Special Expression Elements (Hearts, Sweat, Laser, Smoke, Notes, Extra Shapes)
+    left_heart_a_ = lv_obj_create(face_layer_);
+    left_heart_b_ = lv_obj_create(face_layer_);
+    right_heart_a_ = lv_obj_create(face_layer_);
+    right_heart_b_ = lv_obj_create(face_layer_);
+    for (auto* h : {left_heart_a_, left_heart_b_, right_heart_a_, right_heart_b_}) {
+        PrepareShape(h);
+        lv_obj_set_style_bg_color(h, lv_color_hex(0xFF1493), 0);
+        lv_obj_set_style_bg_opa(h, LV_OPA_COVER, 0);
+        lv_obj_set_style_radius(h, 12, 0);
+        lv_obj_add_flag(h, LV_OBJ_FLAG_HIDDEN);
+    }
+
     sweat_drop_ = lv_obj_create(face_layer_);
     PrepareShape(sweat_drop_);
-    lv_obj_set_style_bg_color(sweat_drop_, lv_color_hex(0x40C4FF), 0);
+    lv_obj_set_style_bg_color(sweat_drop_, lv_color_hex(0x00E5FF), 0);
     lv_obj_set_style_bg_opa(sweat_drop_, LV_OPA_COVER, 0);
-    lv_obj_set_style_radius(sweat_drop_, 3, 0);
+    lv_obj_set_style_radius(sweat_drop_, 6, 0);
     lv_obj_add_flag(sweat_drop_, LV_OBJ_FLAG_HIDDEN);
 
     laser_line_ = lv_obj_create(face_layer_);
     PrepareShape(laser_line_);
-    lv_obj_set_style_bg_color(laser_line_, lv_color_hex(0xFF1744), 0);
+    lv_obj_set_style_bg_color(laser_line_, lv_color_hex(0xFFFF00), 0);
     lv_obj_set_style_bg_opa(laser_line_, LV_OPA_COVER, 0);
     lv_obj_set_style_radius(laser_line_, 2, 0);
     lv_obj_add_flag(laser_line_, LV_OBJ_FLAG_HIDDEN);
@@ -207,7 +303,7 @@ void PocketLcdDisplay::SetupUI() {
         PrepareShape(music_note_[i]);
         lv_obj_set_style_bg_color(music_note_[i], (i == 0 ? lv_color_hex(0x00E5FF) : lv_color_hex(0xFF4081)), 0);
         lv_obj_set_style_bg_opa(music_note_[i], LV_OPA_COVER, 0);
-        lv_obj_set_style_radius(music_note_[i], 2, 0);
+        lv_obj_set_style_radius(music_note_[i], 4, 0);
         lv_obj_add_flag(music_note_[i], LV_OBJ_FLAG_HIDDEN);
     }
 
@@ -220,15 +316,14 @@ void PocketLcdDisplay::SetupUI() {
         lv_obj_add_flag(extra_shape_[i], LV_OBJ_FLAG_HIDDEN);
     }
 
-    // 7. Subtitle / Chat Line (Positioned below the eyes, Marquee / Circular scrolling)
+    // 12. Subtitle / Chat Line
     chat_line_ = lv_label_create(scr);
     lv_label_set_long_mode(chat_line_, LV_LABEL_LONG_SCROLL_CIRCULAR);
     lv_obj_set_width(chat_line_, 230);
-    lv_obj_set_pos(chat_line_, 5, 200);
+    lv_obj_set_pos(chat_line_, 5, 202);
     lv_obj_set_style_text_align(chat_line_, LV_TEXT_ALIGN_CENTER, 0);
     lv_obj_set_style_text_color(chat_line_, lv_color_white(), 0);
 
-    // Apply font from theme if available (supports Vietnamese UTF-8 accents)
     auto lvgl_theme = static_cast<LvglTheme*>(current_theme_);
     if (lvgl_theme != nullptr && lvgl_theme->text_font() != nullptr) {
         lv_obj_set_style_text_font(chat_line_, lvgl_theme->text_font()->font(), 0);
@@ -237,7 +332,7 @@ void PocketLcdDisplay::SetupUI() {
 
     ApplyLayout();
 
-    // 8. Start Animation Frame Timer (20 FPS)
+    // 13. Start Animation Frame Timer (20 FPS)
     esp_timer_create_args_t timer_args = {
         .callback = [](void* arg) {
             auto* self = static_cast<PocketLcdDisplay*>(arg);
@@ -259,15 +354,51 @@ void PocketLcdDisplay::WakeUp() {
     }
     HideQrCode();
     if (face_mode_ == FaceMode::kSleeping || face_mode_ == FaceMode::kSleepy) {
+        wake_up_until_tick_ = animation_tick_ + 30;  // 1.5s wake up animation
         SetFaceMode(FaceMode::kWakingUp);
+        if (chat_line_ != nullptr && !has_chat_text_) {
+            lv_label_set_text(chat_line_, "");
+        }
     }
+    idle_quirk_ = IdleQuirk::kNone;
+    temporary_emotion_until_tick_ = 0;
 }
 
 void PocketLcdDisplay::SetStatus(const char* status) {
     DisplayLockGuard lock(this);
     if (!lock) return;
-    WakeUp();
-    last_status_text_ = (status != nullptr) ? status : "";
+
+    if (status == nullptr) return;
+    last_status_text_ = status;
+
+    if (std::strcmp(status, Lang::Strings::LISTENING) == 0 ||
+        std::strcmp(status, Lang::Strings::SPEAKING) == 0 ||
+        std::strcmp(status, Lang::Strings::WIFI_CONFIG_MODE) == 0 ||
+        Contains(status, "Wi-Fi") || Contains(status, "Config")) {
+        WakeUp();
+    }
+
+    if (std::strcmp(status, Lang::Strings::LISTENING) == 0) {
+        is_speaking_ = false;
+        SetFaceMode(FaceMode::kListening);
+    } else if (std::strcmp(status, Lang::Strings::SPEAKING) == 0) {
+        is_speaking_ = true;
+        last_active_tick_ = animation_tick_;
+        if (face_mode_ == FaceMode::kNeutral || face_mode_ == FaceMode::kListening) {
+            SetFaceMode(emotion_mode_ != FaceMode::kNeutral ? emotion_mode_ : FaceMode::kSmileGentle);
+        }
+    } else if (std::strcmp(status, Lang::Strings::CONNECTING) == 0 || Contains(status, "Đang") ||
+               Contains(status, "dang")) {
+        is_speaking_ = false;
+        SetFaceMode(FaceMode::kThinking);
+    } else if (std::strcmp(status, Lang::Strings::STANDBY) == 0) {
+        is_speaking_ = false;
+        last_active_tick_ = animation_tick_;
+        if (face_mode_ != FaceMode::kSleeping && face_mode_ != FaceMode::kWakingUp) {
+            SetFaceMode(FaceMode::kNeutral);
+        }
+    }
+
     if (chat_line_ != nullptr && !has_chat_text_ && !hide_subtitle_) {
         lv_label_set_text(chat_line_, last_status_text_.c_str());
     }
@@ -398,7 +529,6 @@ void PocketLcdDisplay::SetHideSubtitle(bool hide) {
 }
 
 void PocketLcdDisplay::UpdateStatusBar(bool update_all) {
-    // PocketLcdDisplay uses streamlined minimalist UI; status is presented in chat_line_
 }
 
 void PocketLcdDisplay::SetFaceMode(FaceMode mode) {
@@ -408,12 +538,16 @@ void PocketLcdDisplay::SetFaceMode(FaceMode mode) {
     if (mode == FaceMode::kSurprised) {
         surprised_start_tick_ = animation_tick_;
     }
+    if (mode != FaceMode::kNeutral && mode != FaceMode::kSleeping) {
+        target_look_x_ = 0;
+        target_look_y_ = 0;
+    }
 }
 
 void PocketLcdDisplay::ApplyLayout() {
     if (face_layer_ == nullptr) return;
-    lv_obj_set_pos(face_layer_, 0, 10);
-    lv_obj_set_size(face_layer_, 240, 180);
+    lv_obj_set_pos(face_layer_, 0, 0);
+    lv_obj_set_size(face_layer_, 240, 190);
     current_left_width_ = std::min(current_left_width_, 76);
     current_right_width_ = std::min(current_right_width_, 76);
     current_left_height_ = std::min(current_left_height_, 72);
@@ -427,555 +561,41 @@ void PocketLcdDisplay::ApplyLayout() {
     UpdateAnimationFrame();
 }
 
-void PocketLcdDisplay::UpdateAnimationFrame() {
-    if (face_layer_ == nullptr) return;
-    DisplayLockGuard lock(this);
-    if (!lock) return;
-    ++animation_tick_;
-
-    auto& app = Application::GetInstance();
-    auto dev_state = app.GetDeviceState();
-
-    // TỰ ĐỘNG THOÁT NGAY LẬP TỨC MÀN HÌNH CHỜ & QR KHI CÓ TƯƠNG TÁC (Listening, Speaking, Connecting...)
-    if (dev_state != kDeviceStateIdle) {
-        if (standby_active_) {
-            HideStandbyClock();
-        }
-        HideQrCode();
-        last_active_tick_ = animation_tick_;
-    } else {
-        // TỰ ĐỘNG VÀO MÀN HÌNH CHỜ NẾU NHÀN RỖI 30 GIÂY (600 ticks * 50ms = 30s) HOẶC ĐANG NGỦ
-        if (!standby_active_ && (animation_tick_ - last_active_tick_ >= 600 || face_mode_ == FaceMode::kSleeping)) {
-            ShowStandbyClock();
-            return;
-        }
+PocketLcdDisplay::FaceMode PocketLcdDisplay::InferEmotionFromText(const char* text) const {
+    if (text == nullptr) {
+        return FaceMode::kNeutral;
     }
-
-    if (standby_active_) {
-        if (animation_tick_ - last_clock_tick_ >= 20) {
-            last_clock_tick_ = animation_tick_;
-            UpdateStandbyClock();
-        }
-        if (height_ <= 240) {
-            return; // Màn vuông 240x240 return để tối ưu CPU
-        }
+    if (Contains(text, "haha") || Contains(text, "hihi") || Contains(text, "hehe") ||
+        Contains(text, "buồn cười") || Contains(text, " mắc cười")) {
+        return FaceMode::kEcstaticLaugh;
     }
-
-    // Restore chat line after notification timeout
-        // Restore QR code display after timeout
-    if (qr_until_tick_ > 0 && animation_tick_ >= qr_until_tick_) {
-        HideQrCode();
+    if (Contains(text, "yêu ") || Contains(text, "thả tim") || Contains(text, "đáng yêu") ||
+        Contains(text, "cưng quá") || Contains(text, "<3")) {
+        return FaceMode::kLove;
     }
-
-    if (notification_until_tick_ > 0 && animation_tick_ >= notification_until_tick_) {
-        notification_until_tick_ = 0;
-        if (chat_line_ != nullptr && !has_chat_text_ && !hide_subtitle_) {
-            if (face_mode_ == FaceMode::kSleeping) {
-                lv_label_set_text(chat_line_, "zZz...");
-            } else {
-                lv_label_set_text(chat_line_, last_status_text_.c_str());
-            }
-        }
+    if (Contains(text, "xin lỗi") || Contains(text, "tiếc quá") || Contains(text, "buồn") ||
+        Contains(text, "chia buồn")) {
+        return FaceMode::kSadEmpathy;
     }
-
-    const uint8_t mic_level = app.GetAudioService().GetInputLevel();
-
-    // 240x240 Geometry: eye_width = 76, eye_height = 72, gap = 24
-    constexpr int face_width = 240;
-    constexpr int eye_width = 76;
-    constexpr int eye_height = 72;
-    constexpr int eye_gap = 24;
-    const int pair_width = eye_width * 2 + eye_gap;
-    const int base_x = (face_width - pair_width) / 2;     // 32px
-    const int base_y = (180 - eye_height) / 2;             // 54px
-    constexpr int max_look_x = 12;
-    constexpr int max_look_y = 10;
-
-    // State machine updates
-    dev_state = app.GetDeviceState();
-    if (dev_state == kDeviceStateListening) {
-        SetFaceMode(FaceMode::kListening);
-    } else if (dev_state == kDeviceStateConnecting) {
-        SetFaceMode(FaceMode::kThinking);
-    } else if (face_mode_ == FaceMode::kWakingUp) {
-        if (animation_tick_ > last_active_tick_ + 14) {
-            SetFaceMode(FaceMode::kNeutral);
-        }
-    } else if (face_mode_ == FaceMode::kSleeping) {
-        // Sleep state
-    } else if (temporary_emotion_until_tick_ > 0 && animation_tick_ >= temporary_emotion_until_tick_) {
-        temporary_emotion_until_tick_ = 0;
-        SetFaceMode(FaceMode::kNeutral);
-    } else if (animation_tick_ > last_active_tick_ + kAutoSleepTimeoutTicks && face_mode_ == FaceMode::kNeutral) {
-        SetFaceMode(FaceMode::kSleeping);
+    if (Contains(text, "tuyệt vời") || Contains(text, "xuất sắc") || Contains(text, "wow") ||
+        Contains(text, "chúc mừng")) {
+        return FaceMode::kExcited;
     }
-
-    // Natural Blinking
-    bool blink = false;
-    if (animation_tick_ >= next_blink_tick_) {
-        uint32_t blink_phase = animation_tick_ - next_blink_tick_;
-        if (blink_phase < 3) {
-            blink = true;
-        } else {
-            next_blink_tick_ = animation_tick_ + 40 + (NextRandom() % 80);
-        }
+    if (Contains(text, "bí mật") || Contains(text, "suỵt") || Contains(text, "thì thầm")) {
+        return FaceMode::kWhispering;
     }
-
-    // Target geometry initialization
-    int target_left_width = eye_width;
-    int target_right_width = eye_width;
-    int target_left_height = eye_height;
-    int target_right_height = eye_height;
-    int target_left_y_offset = 0;
-    int target_right_y_offset = 0;
-
-    // Colors: Default is pure natural White Sclera, Black Pupil, White Catchlight
-    lv_color_t eye_color = lv_color_white();
-    lv_color_t pupil_color = lv_color_black();
-
-    // 1. Dynamic Emotion Colors (Giải Pháp 2: Chuẩn màu Anime GIF rực rỡ)
-    if (face_mode_ == FaceMode::kFireFury || face_mode_ == FaceMode::kFurious) {
-        eye_color = lv_color_hex(0xFF3D00);       // Lửa Siêu Saiyan đỏ cam bốc cháy
-    } else if (face_mode_ == FaceMode::kAngry) {
-        eye_color = lv_color_hex(0xFF5722);       // Hổ phách giận dữ
-    } else if (face_mode_ == FaceMode::kLove) {
-        eye_color = lv_color_hex(0xFF1493);       // Hồng Ruby Doki-Doki Waifu
-    } else if (face_mode_ == FaceMode::kSharingan) {
-        eye_color = lv_color_hex(0xD50000);       // Đỏ máu Sharingan Uchiha
-    } else if (face_mode_ == FaceMode::kAnimeStarlight) {
-        eye_color = lv_color_hex(0x2A0845);       // Tím ngân hà Oshi no Ko
-    } else if (face_mode_ == FaceMode::kHeartbroken) {
-        eye_color = lv_color_hex(0xAB47BC);       // Tím thương đau
-    } else if (face_mode_ == FaceMode::kFreezing) {
-        eye_color = lv_color_hex(0x00E5FF);       // Băng tuyết Cyan
-    } else if (face_mode_ == FaceMode::kMoneyEyes) {
-        eye_color = lv_color_hex(0xFFD700);       // Vàng kim hoàng gia
-    } else if (face_mode_ == FaceMode::kIdeaEureka) {
-        eye_color = lv_color_hex(0xFFEB3B);       // Vàng sáng kiến
-    } else if (face_mode_ == FaceMode::kMatrixGlitch) {
-        eye_color = lv_color_hex(0x00E676);       // Xanh hacker Matrix
-    } else if (face_mode_ == FaceMode::kThunderShock) {
-        eye_color = lv_color_hex(0x00E5FF);       // Xanh điện quang Zenitsu
-    } else if (face_mode_ == FaceMode::kSadCrying || face_mode_ == FaceMode::kCryingStream) {
-        eye_color = lv_color_hex(0x01579B);       // Xanh thẫm nhắm mắt Chibi Waterfall
-    } else if (face_mode_ == FaceMode::kRainyGloomy) {
-        eye_color = lv_color_hex(0xB0BEC5);       // Xám mưa ảm đạm
-    } else if (face_mode_ == FaceMode::kZenMeditation || face_mode_ == FaceMode::kAngelBlessing) {
-        eye_color = lv_color_hex(0xFFF9C4);       // Vàng thiên thần
+    if (Contains(text, "bất ngờ") || Contains(text, "ngạc nhiên") || Contains(text, "thật sao")) {
+        return FaceMode::kSurprised;
     }
-
-    // Target Emotion Shapes
-    if (blink || face_mode_ == FaceMode::kSleeping) {
-        target_left_height = target_right_height = 8;
-        target_left_y_offset = target_right_y_offset = 20;
-    } else if (face_mode_ == FaceMode::kSmileGentle || face_mode_ == FaceMode::kEcstaticLaugh ||
-               face_mode_ == FaceMode::kPartyCelebrate) {
-        target_left_height = target_right_height = 40;
-        target_left_y_offset = target_right_y_offset = 12;
-    } else if (face_mode_ == FaceMode::kPlayfulWink) {
-        target_left_height = 72;
-        target_right_height = 8;
-        target_right_y_offset = 20;
-    } else if (face_mode_ == FaceMode::kTongueOut) {
-        target_left_height = target_right_height = 42;
-        target_left_width = target_right_width = 72;
-        target_left_y_offset = target_right_y_offset = 6;
-    } else if (face_mode_ == FaceMode::kAngry || face_mode_ == FaceMode::kFurious || face_mode_ == FaceMode::kFireFury) {
-        // Siêu Saiyan bùng cháy: Nheo mắt sắc bén dốc chéo
-        target_left_height = target_right_height = 40;
-        target_left_y_offset = target_right_y_offset = 14;
-    } else if (face_mode_ == FaceMode::kThunderShock) {
-        // Lôi Độn sấm chớp: Nheo mỏng như lưỡi kiếm
-        target_left_height = target_right_height = 14;
-        target_left_y_offset = target_right_y_offset = 18;
-    } else if (face_mode_ == FaceMode::kSadCrying || face_mode_ == FaceMode::kCryingStream) {
-        // Thác lệ Chibi: Mắt nhắm tịt run rẩy
-        target_left_height = target_right_height = 10;
-        target_left_y_offset = target_right_y_offset = 20;
-    } else if (face_mode_ == FaceMode::kAnimeStarlight || face_mode_ == FaceMode::kSharingan) {
-        target_left_height = target_right_height = 72;
-        target_left_width = target_right_width = 76;
-    } else if (face_mode_ == FaceMode::kSurprised || face_mode_ == FaceMode::kShockedJawdrop) {
-        target_left_height = target_right_height = 78;
-        target_left_width = target_right_width = 80;
-    } else if (face_mode_ == FaceMode::kSadEmpathy) {
-        target_left_height = target_right_height = 42;
-        target_left_y_offset = target_right_y_offset = 14;
-    } else if (face_mode_ == FaceMode::kSideEye) {
-        target_left_width = target_right_width = 68;
-        target_left_height = target_right_height = 40;
+    if (Contains(text, "ý tưởng") || Contains(text, "nghĩ ra rồi") || Contains(text, "mẹo")) {
+        return FaceMode::kIdeaEureka;
     }
-
-    // Easing dimensions
-    current_left_width_ = Ease(current_left_width_, target_left_width);
-    current_right_width_ = Ease(current_right_width_, target_right_width);
-    current_left_height_ = EaseLid(current_left_height_, target_left_height);
-    current_right_height_ = EaseLid(current_right_height_, target_right_height);
-    current_left_y_offset_ = Ease(current_left_y_offset_, target_left_y_offset);
-    current_right_y_offset_ = Ease(current_right_y_offset_, target_right_y_offset);
-
-    // Apply eye colors
-    lv_obj_set_style_bg_color(left_eye_, eye_color, 0);
-    lv_obj_set_style_bg_color(right_eye_, eye_color, 0);
-    lv_obj_set_style_radius(left_eye_, EyeRadius(current_left_width_, current_left_height_), 0);
-    lv_obj_set_style_radius(right_eye_, EyeRadius(current_right_width_, current_right_height_), 0);
-
-    const int left_x = base_x + (eye_width - current_left_width_) / 2;
-    const int right_x = base_x + eye_width + eye_gap + (eye_width - current_right_width_) / 2;
-    const int left_y = base_y + current_left_y_offset_ + (eye_height - current_left_height_) / 2;
-    const int right_y = base_y + current_right_y_offset_ + (eye_height - current_right_height_) / 2;
-
-    lv_obj_set_pos(left_eye_, left_x, left_y);
-    lv_obj_set_size(left_eye_, current_left_width_, current_left_height_);
-    lv_obj_set_pos(right_eye_, right_x, right_y);
-    lv_obj_set_size(right_eye_, current_right_width_, current_right_height_);
-
-    // Look coordinates
-    current_look_x_ = Ease(current_look_x_, target_look_x_);
-    current_look_y_ = Ease(current_look_y_, target_look_y_);
-    const int look_x = std::clamp(current_look_x_, -max_look_x, max_look_x);
-    const int look_y = std::clamp(current_look_y_, -max_look_y, max_look_y);
-
-    // Pupil Visibility
-    const bool show_left_pupil = !blink && face_mode_ != FaceMode::kSleeping && face_mode_ != FaceMode::kLove &&
-                                 face_mode_ != FaceMode::kHeartbroken && face_mode_ != FaceMode::kDizzy &&
-                                 face_mode_ != FaceMode::kRebooting && face_mode_ != FaceMode::kGameOver &&
-                                 face_mode_ != FaceMode::kZenMeditation && face_mode_ != FaceMode::kSadCrying &&
-                                 face_mode_ != FaceMode::kCryingStream && face_mode_ != FaceMode::kThunderShock;
-    const bool show_right_pupil = !blink && face_mode_ != FaceMode::kSleeping && face_mode_ != FaceMode::kPlayfulWink &&
-                                  face_mode_ != FaceMode::kLove && face_mode_ != FaceMode::kHeartbroken &&
-                                  face_mode_ != FaceMode::kDizzy && face_mode_ != FaceMode::kRebooting &&
-                                  face_mode_ != FaceMode::kGameOver && face_mode_ != FaceMode::kZenMeditation &&
-                                  face_mode_ != FaceMode::kSadCrying && face_mode_ != FaceMode::kCryingStream &&
-                                  face_mode_ != FaceMode::kThunderShock;
-
-    // Pupil Geometry: Proportional 28x32
-    int left_pupil_w = 28;
-    int left_pupil_h = 32;
-    int right_pupil_w = 28;
-    int right_pupil_h = 32;
-
-    if (face_mode_ == FaceMode::kListening && mic_level > 10) {
-        int boost = (mic_level > 60) ? 4 : 2;
-        left_pupil_w = right_pupil_w = 28 + boost;
-        left_pupil_h = right_pupil_h = 32 + boost;
-    } else if (face_mode_ == FaceMode::kSurprised) {
-        left_pupil_w = right_pupil_w = 34;
-        left_pupil_h = right_pupil_h = 38;
-    } else if (face_mode_ == FaceMode::kAngry || face_mode_ == FaceMode::kFurious) {
-        left_pupil_w = right_pupil_w = 24;
-        left_pupil_h = right_pupil_h = 26;
-    }
-
-    smooth_pupil_w_[0] = Ease(smooth_pupil_w_[0], left_pupil_w);
-    smooth_pupil_h_[0] = Ease(smooth_pupil_h_[0], left_pupil_h);
-    smooth_pupil_w_[1] = Ease(smooth_pupil_w_[1], right_pupil_w);
-    smooth_pupil_h_[1] = Ease(smooth_pupil_h_[1], right_pupil_h);
-
-    left_pupil_w = smooth_pupil_w_[0];
-    left_pupil_h = smooth_pupil_h_[0];
-    right_pupil_w = smooth_pupil_w_[1];
-    right_pupil_h = smooth_pupil_h_[1];
-
-    auto place_pupil = [&](int eye_x, int eye_y, int eye_w, int eye_h, int pw, int ph, int& ox, int& oy) {
-        const float cx = eye_x + (eye_w - pw) / 2.0f;
-        const float cy = eye_y + (eye_h - ph) / 2.0f;
-        ox = static_cast<int>(std::lround(cx + look_x));
-        oy = static_cast<int>(std::lround(cy + look_y));
-        ox = std::clamp(ox, eye_x + 4, std::max(eye_x + 4, eye_x + eye_w - pw - 4));
-        oy = std::clamp(oy, eye_y + 3, std::max(eye_y + 3, eye_y + eye_h - ph - 3));
-    };
-
-    int left_px = 0, left_py = 0, right_px = 0, right_py = 0;
-    if (show_left_pupil) {
-        lv_obj_remove_flag(left_pupil_, LV_OBJ_FLAG_HIDDEN);
-        place_pupil(left_x, left_y, current_left_width_, current_left_height_, left_pupil_w, left_pupil_h, left_px, left_py);
-        lv_obj_set_pos(left_pupil_, left_px, left_py);
-        lv_obj_set_size(left_pupil_, left_pupil_w, left_pupil_h);
-        lv_obj_set_style_radius(left_pupil_, PupilRadius(left_pupil_w, left_pupil_h), 0);
-        lv_obj_set_style_bg_color(left_pupil_, pupil_color, 0);
-    } else {
-        lv_obj_add_flag(left_pupil_, LV_OBJ_FLAG_HIDDEN);
-    }
-
-    if (show_right_pupil) {
-        lv_obj_remove_flag(right_pupil_, LV_OBJ_FLAG_HIDDEN);
-        place_pupil(right_x, right_y, current_right_width_, current_right_height_, right_pupil_w, right_pupil_h, right_px, right_py);
-        lv_obj_set_pos(right_pupil_, right_px, right_py);
-        lv_obj_set_size(right_pupil_, right_pupil_w, right_pupil_h);
-        lv_obj_set_style_radius(right_pupil_, PupilRadius(right_pupil_w, right_pupil_h), 0);
-        lv_obj_set_style_bg_color(right_pupil_, pupil_color, 0);
-    } else {
-        lv_obj_add_flag(right_pupil_, LV_OBJ_FLAG_HIDDEN);
-    }
-
-    // Dynamic Catchlights (Anime glint)
-    for (int e = 0; e < 2; ++e) {
-        for (int i = 0; i < 4; ++i) {
-            if (catchlight_[e][i]) lv_obj_add_flag(catchlight_[e][i], LV_OBJ_FLAG_HIDDEN);
-        }
-    }
-
-    if (!blink && current_left_height_ >= 28 && current_right_height_ >= 28) {
-        // Left Eye: 6px round dot hugged tight against middle-right edge
-        if (show_left_pupil && left_pupil_w >= 14 && catchlight_[0][0] != nullptr) {
-            int ld = 6;
-            int lx = left_px + left_pupil_w - ld - 2;
-            int ly = left_py + (left_pupil_h - ld) / 2;
-            PlaceDisc(catchlight_[0][0], catchlight_[0][1], catchlight_[0][2], lx, ly, ld);
-        }
-        // Right Eye: 12px 3-tier round pixel circle hugged at top-right corner
-        if (show_right_pupil && right_pupil_w >= 16 && catchlight_[1][0] != nullptr) {
-            int rd = 12;
-            int rx = right_px + right_pupil_w - rd - 2;
-            int ry = right_py + 2;
-            PlaceDisc(catchlight_[1][0], catchlight_[1][1], catchlight_[1][2], rx, ry, rd);
-
-            // Secondary tiny glint (4x4) at bottom-left corner
-            if (catchlight_[1][3] != nullptr) {
-                lv_obj_remove_flag(catchlight_[1][3], LV_OBJ_FLAG_HIDDEN);
-                lv_obj_set_pos(catchlight_[1][3], right_px + 4, right_py + right_pupil_h - 7);
-                lv_obj_set_size(catchlight_[1][3], 4, 4);
-                lv_obj_set_style_radius(catchlight_[1][3], 1, 0);
-            }
-        }
-    }
-
-    // Reset accessories
-    if (sweat_drop_) lv_obj_add_flag(sweat_drop_, LV_OBJ_FLAG_HIDDEN);
-    if (laser_line_) lv_obj_add_flag(laser_line_, LV_OBJ_FLAG_HIDDEN);
-    for (int i = 0; i < 6; ++i) {
-        if (smoke_puff_[i]) lv_obj_add_flag(smoke_puff_[i], LV_OBJ_FLAG_HIDDEN);
-        if (extra_shape_[i]) lv_obj_add_flag(extra_shape_[i], LV_OBJ_FLAG_HIDDEN);
-    }
-    for (int i = 0; i < 2; ++i) {
-        if (music_note_[i]) lv_obj_add_flag(music_note_[i], LV_OBJ_FLAG_HIDDEN);
-    }
-
-    // Sleeping Bubbles (Scaled to 10px and 14px 3-tier round pixel circles!)
-    if (face_mode_ == FaceMode::kSleeping) {
-        // Bong bóng 1 (10px):
-        int b1_prog = (animation_tick_ / 3) % 24;
-        int b1_x = 110 + b1_prog;
-        int b1_y = 35 - b1_prog;
-        PlaceDisc(smoke_puff_[0], smoke_puff_[1], smoke_puff_[2], b1_x, b1_y, 10);
-
-        // Bong bóng 2 (14px):
-        int b2_prog = (animation_tick_ / 3 + 12) % 24;
-        int b2_x = 125 + b2_prog;
-        int b2_y = 35 - b2_prog;
-        PlaceDisc(smoke_puff_[3], smoke_puff_[4], smoke_puff_[5], b2_x, b2_y, 14);
-    } else if (face_mode_ == FaceMode::kMusic) {
-        for (int i = 0; i < 2; ++i) {
-            if (music_note_[i]) {
-                lv_obj_remove_flag(music_note_[i], LV_OBJ_FLAG_HIDDEN);
-                int ny = 20 - ((animation_tick_ / 3 + i * 8) % 18);
-                int nx = (i == 0) ? (left_x + 10) : (right_x + current_right_width_ - 18);
-                lv_obj_set_pos(music_note_[i], nx, ny);
-                lv_obj_set_size(music_note_[i], 8, 8);
-            }
-        }
-    } else if (face_mode_ == FaceMode::kShy) {
-        // Blushing pink cheeks below eyes
-        for (int i = 0; i < 2; ++i) {
-            if (extra_shape_[i]) {
-                lv_obj_remove_flag(extra_shape_[i], LV_OBJ_FLAG_HIDDEN);
-                lv_obj_set_style_bg_color(extra_shape_[i], lv_color_hex(0xFF80AB), 0);
-                lv_obj_set_size(extra_shape_[i], 16, 6);
-                lv_obj_set_style_radius(extra_shape_[i], 3, 0);
-                int cx = (i == 0) ? (left_x + 8) : (right_x + current_right_width_ - 24);
-                lv_obj_set_pos(extra_shape_[i], cx, left_y + current_left_height_ + 4);
-            }
-        }
-    } else if (face_mode_ == FaceMode::kTongueOut && !blink) {
-        if (extra_shape_[0] && extra_shape_[1]) {
-            int wiggle = ((animation_tick_ / 4) % 2 == 0) ? -2 : 2;
-            int tongue_w = 20;
-            int tongue_h = 22;
-            int tx = 120 - tongue_w / 2 + wiggle;
-            int ty = base_y + 44;
-            lv_obj_remove_flag(extra_shape_[0], LV_OBJ_FLAG_HIDDEN);
-            lv_obj_set_style_bg_color(extra_shape_[0], lv_color_hex(0xFF4081), 0);
-            lv_obj_set_pos(extra_shape_[0], tx, ty);
-            lv_obj_set_size(extra_shape_[0], tongue_w, tongue_h);
-            lv_obj_set_style_radius(extra_shape_[0], 8, 0);
-
-            // Midline
-            lv_obj_remove_flag(extra_shape_[1], LV_OBJ_FLAG_HIDDEN);
-            lv_obj_set_style_bg_color(extra_shape_[1], lv_color_hex(0xC2185B), 0);
-            lv_obj_set_pos(extra_shape_[1], tx + tongue_w / 2 - 1, ty + 2);
-            lv_obj_set_size(extra_shape_[1], 2, tongue_h - 6);
-            lv_obj_set_style_radius(extra_shape_[1], 1, 0);
-        }
-    } else if (face_mode_ == FaceMode::kPartyCelebrate) {
-        // Confetti burst
-        const lv_color_t confetti_colors[4] = {
-            lv_color_hex(0xFFD700),
-            lv_color_hex(0x00E5FF),
-            lv_color_hex(0xFF4081),
-            lv_color_hex(0x76FF03)
-        };
-        for (int i = 0; i < 4; ++i) {
-            if (extra_shape_[i]) {
-                lv_obj_remove_flag(extra_shape_[i], LV_OBJ_FLAG_HIDDEN);
-                lv_obj_set_style_bg_color(extra_shape_[i], confetti_colors[i], 0);
-                int cy = 15 + ((animation_tick_ * 3 + i * 20) % 65);
-                int cx = 25 + i * 55 + ((animation_tick_ + i * 5) % 8 - 4);
-                lv_obj_set_pos(extra_shape_[i], cx, cy);
-                lv_obj_set_size(extra_shape_[i], 6, 6);
-                lv_obj_set_style_radius(extra_shape_[i], 2, 0);
-            }
-        }
-    } else if (face_mode_ == FaceMode::kLove) {
-        // Doki-Doki Waifu Heartbeat (Nhịp đập 75 BPM + bong bóng bay + má hồng)
-        int pulse = (animation_tick_ % 14 < 7) ? 4 : -2;
-        lv_obj_set_style_bg_color(left_eye_, lv_color_hex(0xFF1493), 0);
-        lv_obj_set_style_bg_color(right_eye_, lv_color_hex(0xFF1493), 0);
-        lv_obj_set_size(left_eye_, current_left_width_ + pulse, current_left_height_ + pulse);
-        lv_obj_set_size(right_eye_, current_right_width_ + pulse, current_right_height_ + pulse);
-
-        // Má hồng đào
-        for (int i = 0; i < 2; ++i) {
-            if (extra_shape_[i]) {
-                lv_obj_remove_flag(extra_shape_[i], LV_OBJ_FLAG_HIDDEN);
-                lv_obj_set_style_bg_color(extra_shape_[i], lv_color_hex(0xFF80AB), 0);
-                lv_obj_set_size(extra_shape_[i], 20, 8);
-                lv_obj_set_style_radius(extra_shape_[i], 4, 0);
-                int cx = (i == 0) ? (left_x + 6) : (right_x + current_right_width_ - 26);
-                lv_obj_set_pos(extra_shape_[i], cx, left_y + current_left_height_ + 6);
-            }
-        }
-        // Bong bóng trái tim bay lên
-        for (int i = 2; i < 4; ++i) {
-            if (extra_shape_[i]) {
-                lv_obj_remove_flag(extra_shape_[i], LV_OBJ_FLAG_HIDDEN);
-                lv_obj_set_style_bg_color(extra_shape_[i], lv_color_hex(0xFF4081), 0);
-                int prog = ((animation_tick_ * 2 + i * 16) % 60);
-                int bx = (i == 2 ? 65 : 155) + ((prog % 8 < 4) ? -2 : 2);
-                int by = 130 - prog;
-                lv_obj_set_pos(extra_shape_[i], bx, by);
-                lv_obj_set_size(extra_shape_[i], 8, 8);
-                lv_obj_set_style_radius(extra_shape_[i], 4, 0);
-            }
-        }
-    } else if (face_mode_ == FaceMode::kSadCrying || face_mode_ == FaceMode::kCryingStream) {
-        // Thác Lệ Chibi Xanh Pha Lê (Waterfall Tears) tuôn trào cuồn cuộn
-        for (int i = 0; i < 2; ++i) {
-            // Má hồng ngượng ngùng nấc nở
-            if (extra_shape_[i]) {
-                lv_obj_remove_flag(extra_shape_[i], LV_OBJ_FLAG_HIDDEN);
-                lv_obj_set_style_bg_color(extra_shape_[i], lv_color_hex(0xFF80AB), 0);
-                lv_obj_set_size(extra_shape_[i], 18, 6);
-                lv_obj_set_style_radius(extra_shape_[i], 3, 0);
-                int cx = (i == 0) ? (left_x + 6) : (right_x + current_right_width_ - 24);
-                lv_obj_set_pos(extra_shape_[i], cx, left_y + 14);
-            }
-        }
-        // Dòng thác nước 2 bên mắt
-        for (int i = 0; i < 2; ++i) {
-            if (smoke_puff_[i * 3]) {
-                lv_obj_remove_flag(smoke_puff_[i * 3], LV_OBJ_FLAG_HIDDEN);
-                lv_obj_set_style_bg_color(smoke_puff_[i * 3], lv_color_hex(0x00E5FF), 0); // Thác xanh cyan
-                int wx = (i == 0) ? (left_x + 18) : (right_x + 36);
-                lv_obj_set_pos(smoke_puff_[i * 3], wx, left_y + 12);
-                lv_obj_set_size(smoke_puff_[i * 3], 14, 110);
-                lv_obj_set_style_radius(smoke_puff_[i * 3], 6, 0);
-            }
-            // Bọt tuyết trượt xuống
-            if (smoke_puff_[i * 3 + 1]) {
-                lv_obj_remove_flag(smoke_puff_[i * 3 + 1], LV_OBJ_FLAG_HIDDEN);
-                lv_obj_set_style_bg_color(smoke_puff_[i * 3 + 1], lv_color_hex(0xE0F7FA), 0);
-                int wx = (i == 0) ? (left_x + 20) : (right_x + 38);
-                int wy = left_y + 15 + ((animation_tick_ * 6 + i * 20) % 95);
-                lv_obj_set_pos(smoke_puff_[i * 3 + 1], wx, wy);
-                lv_obj_set_size(smoke_puff_[i * 3 + 1], 10, 8);
-                lv_obj_set_style_radius(smoke_puff_[i * 3 + 1], 3, 0);
-            }
-        }
-    } else if (face_mode_ == FaceMode::kFireFury || face_mode_ == FaceMode::kFurious) {
-        // Hào quang Siêu Saiyan 3 tầng lửa bốc lên cuồn cuộn
-        const lv_color_t flame_colors[3] = {lv_color_hex(0xFFEA00), lv_color_hex(0xFF6D00), lv_color_hex(0xD50000)};
-        for (int i = 0; i < 6; ++i) {
-            if (smoke_puff_[i]) {
-                lv_obj_remove_flag(smoke_puff_[i], LV_OBJ_FLAG_HIDDEN);
-                lv_obj_set_style_bg_color(smoke_puff_[i], flame_colors[i % 3], 0);
-                int fx = 30 + i * 32 + ((animation_tick_ + i * 4) % 6 - 3);
-                int fy = base_y - 6 - ((animation_tick_ * 4 + i * 12) % 36);
-                lv_obj_set_pos(smoke_puff_[i], fx, fy);
-                lv_obj_set_size(smoke_puff_[i], 12, 18);
-                lv_obj_set_style_radius(smoke_puff_[i], 6, 0);
-            }
-        }
-    } else if (face_mode_ == FaceMode::kThunderShock) {
-        // Zenitsu Thunder Flash (Lôi Độn sấm sét neon zic-zac)
-        if (laser_line_) {
-            lv_obj_remove_flag(laser_line_, LV_OBJ_FLAG_HIDDEN);
-            lv_obj_set_style_bg_color(laser_line_, lv_color_hex(0xFFFF00), 0); // Vàng điện
-            int flash_w = (animation_tick_ % 3 == 0) ? 220 : 160;
-            lv_obj_set_pos(laser_line_, (240 - flash_w) / 2, base_y + 30);
-            lv_obj_set_size(laser_line_, flash_w, 4);
-            lv_obj_set_style_radius(laser_line_, 2, 0);
-        }
-    } else if (face_mode_ == FaceMode::kAnimeStarlight) {
-        // Oshi no Ko Starlight (Ngôi sao vàng kim xoay trong đồng tử tím)
-        for (int e = 0; e < 2; ++e) {
-            if (catchlight_[e][0]) {
-                lv_obj_remove_flag(catchlight_[e][0], LV_OBJ_FLAG_HIDDEN);
-                lv_obj_set_style_bg_color(catchlight_[e][0], lv_color_hex(0xFFD700), 0);
-                int star_sz = 18 + ((animation_tick_ % 16 < 8) ? 4 : 0);
-                int ex = (e == 0 ? left_x : right_x) + (current_left_width_ - star_sz) / 2;
-                int ey = left_y + (current_left_height_ - star_sz) / 2;
-                lv_obj_set_pos(catchlight_[e][0], ex, ey);
-                lv_obj_set_size(catchlight_[e][0], star_sz, star_sz);
-                lv_obj_set_style_radius(catchlight_[e][0], 3, 0);
-            }
-        }
-        // Bụi sao lấp lánh khóe mắt
-        for (int i = 0; i < 4; ++i) {
-            if (extra_shape_[i]) {
-                lv_obj_remove_flag(extra_shape_[i], LV_OBJ_FLAG_HIDDEN);
-                lv_obj_set_style_bg_color(extra_shape_[i], lv_color_white(), 0);
-                int sx = (i < 2 ? left_x - 12 : right_x + current_right_width_ + 4) + (i % 2) * 8;
-                int sy = base_y + 10 + (i % 2) * 35;
-                lv_obj_set_pos(extra_shape_[i], sx, sy);
-                lv_obj_set_size(extra_shape_[i], 4, 4);
-                lv_obj_set_style_radius(extra_shape_[i], 2, 0);
-            }
-        }
-    } else if (face_mode_ == FaceMode::kSharingan) {
-        // Sharingan Uchiha (3 câu ngọc Tomoe đen xoay 120 độ quanh đồng tử)
-        for (int e = 0; e < 2; ++e) {
-            int cx = (e == 0 ? left_x : right_x) + current_left_width_ / 2;
-            int cy = left_y + current_left_height_ / 2;
-            float angle_base = (animation_tick_ * 12.0f) * 3.14159f / 180.0f;
-            for (int t = 0; t < 3; ++t) {
-                if (catchlight_[e][t]) {
-                    lv_obj_remove_flag(catchlight_[e][t], LV_OBJ_FLAG_HIDDEN);
-                    lv_obj_set_style_bg_color(catchlight_[e][t], lv_color_black(), 0);
-                    float a = angle_base + t * (2.0f * 3.14159f / 3.0f);
-                    int tx = static_cast<int>(cx + 18.0f * cos(a) - 4);
-                    int ty = static_cast<int>(cy + 18.0f * sin(a) - 4);
-                    lv_obj_set_pos(catchlight_[e][t], tx, ty);
-                    lv_obj_set_size(catchlight_[e][t], 8, 8);
-                    lv_obj_set_style_radius(catchlight_[e][t], 4, 0);
-                }
-            }
-        }
-    }
+    return FaceMode::kNeutral;
 }
 
 PocketLcdDisplay::FaceMode PocketLcdDisplay::FaceModeFromEmotion(const char* emotion) const {
     if (emotion == nullptr) {
         return FaceMode::kNeutral;
-    }
-    // Group 7: Anime Special FX (GIF-like Animations)
-    if (Contains(emotion, "starlight") || Contains(emotion, "idol") || Contains(emotion, "ngoi_sao") ||
-        Contains(emotion, "oshi_no_ko") || Contains(emotion, "toa_sang") || Contains(emotion, "sieu_sao")) {
-        return FaceMode::kAnimeStarlight;
-    }
-    if (Contains(emotion, "sharingan") || Contains(emotion, "uchiha") || Contains(emotion, "nhan_thuat") ||
-        Contains(emotion, "cau_ngoc") || Contains(emotion, "nhin_thau")) {
-        return FaceMode::kSharingan;
     }
     if (Contains(emotion, "cry_stream") || Contains(emotion, "waterfall") || Contains(emotion, "thac_nuoc")) {
         return FaceMode::kCryingStream;
@@ -1179,6 +799,1617 @@ PocketLcdDisplay::FaceMode PocketLcdDisplay::FaceModeFromEmotion(const char* emo
     return FaceMode::kNeutral;
 }
 
+void PocketLcdDisplay::UpdateAnimationFrame() {
+    if (face_layer_ == nullptr) return;
+    DisplayLockGuard lock(this);
+    if (!lock) return;
+    ++animation_tick_;
+
+    auto& app = Application::GetInstance();
+    auto dev_state = app.GetDeviceState();
+
+    if (dev_state != kDeviceStateIdle) {
+        if (standby_active_) {
+            HideStandbyClock();
+        }
+        HideQrCode();
+        last_active_tick_ = animation_tick_;
+    } else {
+        if (!standby_active_ && (animation_tick_ - last_active_tick_ >= 600 || face_mode_ == FaceMode::kSleeping)) {
+            ShowStandbyClock();
+            return;
+        }
+    }
+
+    if (standby_active_) {
+        if (animation_tick_ - last_clock_tick_ >= 20) {
+            last_clock_tick_ = animation_tick_;
+            UpdateStandbyClock();
+        }
+        if (height_ <= 240) {
+            return;
+        }
+    }
+
+    if (qr_until_tick_ > 0 && animation_tick_ >= qr_until_tick_) {
+        HideQrCode();
+    }
+
+    if (notification_until_tick_ > 0 && animation_tick_ >= notification_until_tick_) {
+        notification_until_tick_ = 0;
+        if (chat_line_ != nullptr && !has_chat_text_ && !hide_subtitle_) {
+            if (face_mode_ == FaceMode::kSleeping) {
+                lv_label_set_text(chat_line_, "zZz...");
+            } else {
+                lv_label_set_text(chat_line_, last_status_text_.c_str());
+            }
+        }
+    }
+
+    const uint8_t mic_level = app.GetAudioService().GetInputLevel();
+    const uint8_t spk_level = app.GetAudioService().GetOutputLevel();
+
+    // 240x240 Geometry: eye_width = 76, eye_height = 72, gap = 24
+    constexpr int face_width = 240;
+    constexpr int eye_width = 76;
+    constexpr int eye_height = 72;
+    constexpr int eye_gap = 24;
+    const int pair_width = eye_width * 2 + eye_gap;      // 176px
+    const int base_x = (face_width - pair_width) / 2;      // 32px
+    const int base_y = (180 - eye_height) / 2;              // 54px
+    constexpr int max_look_x = 12;
+    constexpr int max_look_y = 8;
+
+    // 1. Temporary Emotion Timeout
+    if (temporary_emotion_until_tick_ > 0 && animation_tick_ >= temporary_emotion_until_tick_ && !is_speaking_) {
+        temporary_emotion_until_tick_ = 0;
+        emotion_mode_ = FaceMode::kNeutral;
+        SetFaceMode(FaceMode::kNeutral);
+    }
+
+    // 2. Autonomous Sleep & Mini Idle Quirks
+    if (face_mode_ != FaceMode::kSleeping && face_mode_ != FaceMode::kWakingUp && temporary_emotion_until_tick_ == 0) {
+        if (animation_tick_ >= last_active_tick_ + kAutoSleepTimeoutTicks) {
+            idle_quirk_ = IdleQuirk::kNone;
+            SetFaceMode(FaceMode::kSleeping);
+            is_speaking_ = false;
+        } else if (animation_tick_ >= last_active_tick_ + (kAutoSleepTimeoutTicks / 2) && face_mode_ == FaceMode::kNeutral) {
+            idle_quirk_ = IdleQuirk::kNone;
+            SetFaceMode(FaceMode::kSleepy);
+        } else if (face_mode_ == FaceMode::kNeutral && !is_speaking_) {
+            if (idle_quirk_ != IdleQuirk::kNone && animation_tick_ >= quirk_until_tick_) {
+                idle_quirk_ = IdleQuirk::kNone;
+                next_quirk_tick_ = animation_tick_ + 300 + (NextRandom() % 200);
+            } else if (idle_quirk_ == IdleQuirk::kNone && animation_tick_ >= next_quirk_tick_) {
+                uint32_t pick = NextRandom() % 3;
+                quirk_start_tick_ = animation_tick_;
+                if (pick == 0) {
+                    idle_quirk_ = IdleQuirk::kBugTracking;
+                    quirk_until_tick_ = animation_tick_ + 75;
+                } else if (pick == 1) {
+                    idle_quirk_ = IdleQuirk::kPeekABoo;
+                    quirk_until_tick_ = animation_tick_ + 60;
+                } else {
+                    idle_quirk_ = IdleQuirk::kEyeRoll;
+                    quirk_until_tick_ = animation_tick_ + 48;
+                }
+            }
+        } else {
+            idle_quirk_ = IdleQuirk::kNone;
+        }
+    }
+
+    // 3. Waking Up Transition
+    if (face_mode_ == FaceMode::kWakingUp) {
+        if (animation_tick_ >= wake_up_until_tick_) {
+            SetFaceMode(FaceMode::kNeutral);
+        }
+    }
+
+    // 4. Natural Blinking with Double-Blink Realism
+    bool blink = false;
+    if (face_mode_ != FaceMode::kSleeping && face_mode_ != FaceMode::kPlayfulWink &&
+        face_mode_ != FaceMode::kEcstaticLaugh && face_mode_ != FaceMode::kHeartbroken &&
+        face_mode_ != FaceMode::kLove && face_mode_ != FaceMode::kSneezing &&
+        face_mode_ != FaceMode::kRebooting && face_mode_ != FaceMode::kGameOver &&
+        face_mode_ != FaceMode::kZenMeditation && face_mode_ != FaceMode::kAngelBlessing) {
+        if (animation_tick_ >= next_blink_tick_) {
+            blink_until_tick_ = animation_tick_ + 2;
+            if (face_mode_ == FaceMode::kInnocent || (NextRandom() % 100) < 35) {
+                second_blink_start_tick_ = animation_tick_ + 5;
+                second_blink_until_tick_ = animation_tick_ + 7;
+            } else {
+                second_blink_start_tick_ = 0;
+                second_blink_until_tick_ = 0;
+            }
+            next_blink_tick_ = (face_mode_ == FaceMode::kInnocent)
+                                   ? (animation_tick_ + 28 + (NextRandom() % 25))
+                                   : (animation_tick_ + 70 + (NextRandom() % 100));
+        }
+        blink = (animation_tick_ < blink_until_tick_) ||
+                (second_blink_start_tick_ > 0 && animation_tick_ >= second_blink_start_tick_ &&
+                 animation_tick_ < second_blink_until_tick_);
+    }
+
+    // 5. Look Around & Quirk Gaze Tracking
+    int bug_x = 0;
+    int bug_y = 0;
+    if (face_mode_ == FaceMode::kNeutral && idle_quirk_ != IdleQuirk::kNone && !is_speaking_) {
+        uint32_t qt = animation_tick_ - quirk_start_tick_;
+        if (idle_quirk_ == IdleQuirk::kBugTracking) {
+            bug_x = 24 + static_cast<int>((qt * 192) / 75);
+            int wave = static_cast<int>(qt % 20) - 10;
+            bug_y = 44 + (wave < 0 ? -wave : wave) * 2 - 10;
+            target_look_x_ = (bug_x - 120) / 9;
+            target_look_y_ = (bug_y - 50) / 5;
+        } else if (idle_quirk_ == IdleQuirk::kPeekABoo) {
+            if (qt < 42) {
+                target_look_x_ = -10;
+                target_look_y_ = 4;
+            } else {
+                target_look_x_ = 0;
+                target_look_y_ = 0;
+            }
+        } else if (idle_quirk_ == IdleQuirk::kEyeRoll) {
+            int phase = (qt / 12) % 4;
+            if (phase == 0) { target_look_x_ = -10; target_look_y_ = 0; }
+            else if (phase == 1) { target_look_x_ = 0; target_look_y_ = -8; }
+            else if (phase == 2) { target_look_x_ = 10; target_look_y_ = 0; }
+            else { target_look_x_ = 0; target_look_y_ = 8; }
+        }
+    } else if (animation_tick_ >= next_idle_tick_ && (face_mode_ == FaceMode::kNeutral || face_mode_ == FaceMode::kSleepy) && !is_speaking_) {
+        target_look_x_ = static_cast<int>(NextRandom() % (max_look_x * 2 + 1)) - max_look_x;
+        target_look_y_ = static_cast<int>(NextRandom() % (max_look_y * 2 + 1)) - max_look_y;
+        next_idle_tick_ = animation_tick_ + 50 + (NextRandom() % 80);
+    }
+
+    if (face_mode_ == FaceMode::kSleeping || face_mode_ == FaceMode::kLove || face_mode_ == FaceMode::kHeartbroken ||
+        face_mode_ == FaceMode::kDizzy || face_mode_ == FaceMode::kScared ||
+        face_mode_ == FaceMode::kRebooting || face_mode_ == FaceMode::kZenMeditation ||
+        face_mode_ == FaceMode::kGameOver || face_mode_ == FaceMode::kHypnotized ||
+        face_mode_ == FaceMode::kAngelBlessing) {
+        target_look_x_ = 0;
+        target_look_y_ = 0;
+    } else if (face_mode_ == FaceMode::kLoadingBuffer) {
+        target_look_x_ = ((animation_tick_ / 6) % 2 == 0) ? -4 : 4;
+        target_look_y_ = -8;
+    } else if (face_mode_ == FaceMode::kInnocent) {
+        target_look_x_ = ((animation_tick_ / 22) % 2 == 0) ? -5 : 5;
+        target_look_y_ = -6;
+    } else if (face_mode_ == FaceMode::kThinking) {
+        int read_cycle = animation_tick_ % 36;
+        if (read_cycle < 20) {
+            target_look_x_ = -10 + (read_cycle * 20) / 20;
+            target_look_y_ = -4;
+        } else {
+            target_look_x_ = max_look_x;
+            target_look_y_ = -max_look_y;
+        }
+    } else if (face_mode_ == FaceMode::kListening) {
+        target_look_x_ = 0;
+        target_look_y_ = (mic_level > 15) ? 0 : (((animation_tick_ / 8) % 2 == 0) ? -4 : 2);
+    } else if (face_mode_ == FaceMode::kShy) {
+        target_look_x_ = -7;
+        target_look_y_ = 6;
+    } else if (face_mode_ == FaceMode::kSadEmpathy || face_mode_ == FaceMode::kSadCrying || face_mode_ == FaceMode::kCryingStream) {
+        target_look_x_ = 0;
+        target_look_y_ = 6;
+    } else if (face_mode_ == FaceMode::kAngry || face_mode_ == FaceMode::kJealous) {
+        target_look_x_ = 0;
+        target_look_y_ = -6;
+    } else if (face_mode_ == FaceMode::kFurious || face_mode_ == FaceMode::kFireFury) {
+        target_look_x_ = 0;
+        target_look_y_ = -4;
+    } else if (face_mode_ == FaceMode::kSmug) {
+        target_look_x_ = 8;
+        target_look_y_ = -6;
+    } else if (face_mode_ == FaceMode::kSideEye) {
+        target_look_x_ = 12;
+        target_look_y_ = -4;
+    } else if (face_mode_ == FaceMode::kScheming) {
+        target_look_x_ = ((animation_tick_ / 15) % 2 == 0) ? -8 : 8;
+        target_look_y_ = -4;
+    } else if (face_mode_ == FaceMode::kWhispering) {
+        target_look_x_ = -9;
+        target_look_y_ = 2;
+    } else if (face_mode_ == FaceMode::kTargetLocked) {
+        target_look_x_ = 0;
+        target_look_y_ = 0;
+    } else if (face_mode_ == FaceMode::kDisgusted) {
+        target_look_x_ = -6;
+        target_look_y_ = -4;
+    } else if (face_mode_ == FaceMode::kParanoid) {
+        target_look_x_ = (animation_tick_ % 10 < 5) ? -12 : 12;
+        target_look_y_ = 0;
+    } else if (face_mode_ == FaceMode::kConfusedQuestion) {
+        target_look_x_ = 6;
+        target_look_y_ = -4;
+    } else if (face_mode_ == FaceMode::kIdeaEureka) {
+        target_look_x_ = 0;
+        target_look_y_ = -6;
+    } else if (face_mode_ == FaceMode::kExhausted) {
+        target_look_x_ = 0;
+        target_look_y_ = 6;
+    } else if (face_mode_ == FaceMode::kDrunk) {
+        target_look_x_ = ((animation_tick_ / 20) % 2 == 0) ? -8 : 8;
+        target_look_y_ = 4;
+    } else if (face_mode_ == FaceMode::kBored) {
+        int bored_phase = (animation_tick_ / 25) % 3;
+        if (bored_phase == 0) {
+            target_look_x_ = -10; target_look_y_ = 4;
+        } else if (bored_phase == 1) {
+            target_look_x_ = 10; target_look_y_ = 4;
+        } else {
+            target_look_x_ = 0; target_look_y_ = -8;
+        }
+    } else if (face_mode_ == FaceMode::kScanning) {
+        target_look_x_ = ((animation_tick_ / 6) % 2 == 0) ? -10 : 10;
+        target_look_y_ = 0;
+    } else if (face_mode_ == FaceMode::kSkeptical) {
+        target_look_x_ = ((animation_tick_ / 25) % 2 == 0) ? -4 : 6;
+        target_look_y_ = -2;
+    } else if (face_mode_ == FaceMode::kPout) {
+        target_look_x_ = 0;
+        target_look_y_ = 4;
+    } else if (face_mode_ == FaceMode::kSunnyDazzle) {
+        target_look_x_ = 0;
+        target_look_y_ = -4;
+    } else if (face_mode_ == FaceMode::kMusic) {
+        target_look_x_ = 0;
+        target_look_y_ = 2;
+    } else if (is_speaking_ || face_mode_ == FaceMode::kWakingUp || face_mode_ == FaceMode::kSmileGentle ||
+               face_mode_ == FaceMode::kEcstaticLaugh || face_mode_ == FaceMode::kPlayfulWink ||
+               face_mode_ == FaceMode::kExcited || face_mode_ == FaceMode::kTongueOut) {
+        target_look_x_ = 0;
+        target_look_y_ = 0;
+    }
+
+    current_look_x_ = Ease(current_look_x_, target_look_x_);
+    current_look_y_ = Ease(current_look_y_, target_look_y_);
+
+    // 6. Multi-tier Eye Heights & Squash-and-Stretch Widths (Scaled to 76x72 TFT)
+    int target_left_height = eye_height;
+    int target_right_height = eye_height;
+    int target_left_width = eye_width;
+    int target_right_width = eye_width;
+    int target_left_y_offset = 0;
+    int target_right_y_offset = 0;
+
+    if (face_mode_ == FaceMode::kSleeping || face_mode_ == FaceMode::kZenMeditation ||
+        face_mode_ == FaceMode::kAngelBlessing) {
+        target_left_height = 38;
+        target_right_height = 38;
+        target_left_y_offset = 8;
+        target_right_y_offset = 8;
+    } else if (blink) {
+        target_left_height = 4;
+        target_right_height = 4;
+        target_left_width = 72;
+        target_right_width = 72;
+    } else if (face_mode_ == FaceMode::kListening) {
+        int boost = (mic_level > 15) ? std::min(10, static_cast<int>(mic_level / 9)) : -4;
+        target_left_height = target_right_height = eye_height + boost;
+        target_left_width = target_right_width = eye_width - (boost > 4 ? 2 : 0);
+    } else if (face_mode_ == FaceMode::kNeutral && idle_quirk_ == IdleQuirk::kPeekABoo) {
+        uint32_t qt = animation_tick_ - quirk_start_tick_;
+        if (qt < 42) {
+            target_left_height = target_right_height = 42;
+            target_left_width = target_right_width = 68;
+        } else {
+            target_left_height = target_right_height = 80;
+            target_left_width = target_right_width = 62;
+        }
+    } else if (face_mode_ == FaceMode::kLove || face_mode_ == FaceMode::kHeartbroken) {
+        target_left_height = 0;
+        target_right_height = 0;
+    } else if (face_mode_ == FaceMode::kRebooting) {
+        int ph = animation_tick_ % 30;
+        if (ph < 10) {
+            target_left_height = target_right_height = 4;
+            target_left_width = target_right_width = 76;
+        } else if (ph < 20) {
+            target_left_height = target_right_height = 4;
+            target_left_width = target_right_width = 16;
+        } else {
+            target_left_height = target_right_height = eye_height;
+            target_left_width = target_right_width = eye_width;
+        }
+    } else if (face_mode_ == FaceMode::kLoadingBuffer) {
+        target_left_height = target_right_height = 54;
+        target_left_width = target_right_width = 72;
+        target_left_y_offset = target_right_y_offset = 10;
+    } else if (face_mode_ == FaceMode::kLowBattery) {
+        target_left_height = target_right_height = 32;
+        target_left_width = target_right_width = 68;
+        target_left_y_offset = target_right_y_offset = 16;
+    } else if (face_mode_ == FaceMode::kFacepalm) {
+        target_left_height = 16;
+        target_right_height = 28;
+        target_left_y_offset = 12;
+        target_right_y_offset = 12;
+    } else if (face_mode_ == FaceMode::kTargetLocked) {
+        target_left_height = 32;
+        target_left_width = 68;
+        target_left_y_offset = 4;
+        target_right_height = 76;
+        target_right_width = 64;
+    } else if (face_mode_ == FaceMode::kDisgusted) {
+        target_left_height = 32;
+        target_right_height = 46;
+        target_left_width = 68;
+        target_left_y_offset = 10;
+        target_right_y_offset = 4;
+    } else if (face_mode_ == FaceMode::kWhispering) {
+        target_left_height = target_right_height = 46;
+        target_left_y_offset = target_right_y_offset = 4;
+    } else if (face_mode_ == FaceMode::kSneezing) {
+        int ph = animation_tick_ % 35;
+        if (ph < 22) {
+            target_left_height = target_right_height = 72 + (ph / 2);
+            target_left_width = target_right_width = 64;
+            target_left_y_offset = target_right_y_offset = -(ph / 2);
+        } else {
+            target_left_height = target_right_height = 8;
+            target_left_width = target_right_width = 76;
+            target_left_y_offset = target_right_y_offset = 16;
+        }
+    } else if (face_mode_ == FaceMode::kInnocent || face_mode_ == FaceMode::kShockedJawdrop || face_mode_ == FaceMode::kIdeaEureka) {
+        target_left_height = target_right_height = 80;
+        target_left_width = target_right_width = 68;
+        target_left_y_offset = target_right_y_offset = (face_mode_ == FaceMode::kShockedJawdrop) ? -6 : 2;
+    } else if (face_mode_ == FaceMode::kExhausted) {
+        target_left_height = target_right_height = 24;
+        target_left_width = target_right_width = 72;
+        target_left_y_offset = target_right_y_offset = 20;
+    } else if (face_mode_ == FaceMode::kParanoid) {
+        target_left_height = target_right_height = 32;
+        target_left_width = target_right_width = 76;
+        target_left_y_offset = target_right_y_offset = 4;
+    } else if (face_mode_ == FaceMode::kStealthNinja) {
+        target_left_height = target_right_height = 20;
+        target_left_width = target_right_width = 72;
+        target_left_y_offset = target_right_y_offset = 0;
+    } else if (face_mode_ == FaceMode::kMatrixGlitch) {
+        int glitch_squash = (animation_tick_ % 5) * 8;
+        target_left_height = eye_height - glitch_squash;
+        target_right_height = 38 + glitch_squash;
+        target_left_y_offset = (animation_tick_ % 2 == 0) ? -6 : 6;
+        target_right_y_offset = -target_left_y_offset;
+    } else if (face_mode_ == FaceMode::kHeadache) {
+        target_left_height = 28;
+        target_right_height = 46;
+        target_left_y_offset = 8;
+        target_right_y_offset = 4;
+    } else if (face_mode_ == FaceMode::kSunnyDazzle) {
+        target_left_height = target_right_height = 50;
+        target_left_y_offset = target_right_y_offset = 8;
+    } else if (face_mode_ == FaceMode::kPlayfulWink) {
+        target_left_height = eye_height;
+        target_right_height = 38;
+        target_right_width = 68;
+        target_right_y_offset = 8;
+    } else if (face_mode_ == FaceMode::kTongueOut) {
+        target_left_height = target_right_height = 46;
+        target_left_width = target_right_width = 72;
+        target_left_y_offset = target_right_y_offset = -4;
+    } else if (face_mode_ == FaceMode::kSkeptical || face_mode_ == FaceMode::kConfusedQuestion || face_mode_ == FaceMode::kDrunk) {
+        target_left_height = eye_height + 8;
+        target_left_width = 64;
+        target_left_y_offset = -4;
+        target_right_height = 42;
+        target_right_width = 68;
+        target_right_y_offset = 10;
+    } else if (face_mode_ == FaceMode::kSmug) {
+        target_left_height = eye_height;
+        target_right_height = eye_height - 4;
+        target_right_y_offset = -4;
+    } else if (face_mode_ == FaceMode::kSurprised || face_mode_ == FaceMode::kWakingUp) {
+        target_left_height = 84;
+        target_right_height = 84;
+        target_left_width = 64;
+        target_right_width = 64;
+    } else if (face_mode_ == FaceMode::kScanning) {
+        target_left_height = 54;
+        target_right_height = 54;
+        target_left_width = 68;
+        target_right_width = 68;
+    } else if (face_mode_ == FaceMode::kScared) {
+        target_left_height = 72;
+        target_right_height = 72;
+        target_left_width = 64;
+        target_right_width = 64;
+    } else if (face_mode_ == FaceMode::kExcited || face_mode_ == FaceMode::kPout) {
+        target_left_height = eye_height + 4;
+        target_right_height = eye_height + 4;
+    } else if (face_mode_ == FaceMode::kSadCrying || face_mode_ == FaceMode::kSadEmpathy || face_mode_ == FaceMode::kCryingStream) {
+        target_left_height = eye_height - 8;
+        target_right_height = eye_height - 8;
+        target_left_y_offset = 4;
+        target_right_y_offset = 4;
+    } else if (face_mode_ == FaceMode::kShy) {
+        target_left_height = eye_height - 8;
+        target_right_height = eye_height - 8;
+        target_left_y_offset = 6;
+        target_right_y_offset = 6;
+    }
+
+    // Breathing effect
+    if (!blink && !is_speaking_ &&
+        (face_mode_ == FaceMode::kNeutral || face_mode_ == FaceMode::kListening ||
+         face_mode_ == FaceMode::kSmileGentle || face_mode_ == FaceMode::kSleepy)) {
+        const int phase = static_cast<int>(animation_tick_ % 120);
+        const int triangle = (phase < 60) ? phase : (120 - phase);
+        const int breath = (triangle * 6) / 61;
+        target_left_height += breath;
+        target_right_height += breath;
+    }
+
+    const bool lid_snap = animation_tick_ < std::max(blink_until_tick_, second_blink_until_tick_) + 6;
+    if (lid_snap) {
+        current_left_height_ = EaseLid(current_left_height_, target_left_height);
+        current_right_height_ = EaseLid(current_right_height_, target_right_height);
+    } else {
+        current_left_height_ = Ease(current_left_height_, target_left_height);
+        current_right_height_ = Ease(current_right_height_, target_right_height);
+    }
+    current_left_width_ = Ease(current_left_width_, target_left_width);
+    current_right_width_ = Ease(current_right_width_, target_right_width);
+    current_left_y_offset_ = Ease(current_left_y_offset_, target_left_y_offset);
+    current_right_y_offset_ = Ease(current_right_y_offset_, target_right_y_offset);
+
+    // 7. Animations: Audio-reactive speaking bounce, Laugh bounce, Rage shake
+    int animation_x = 0;
+    int animation_y = 0;
+    if (is_speaking_) {
+        int amp_bounce = 2 + (spk_level / 16);
+        animation_y = ((animation_tick_ / 2) % 2 == 0) ? -amp_bounce : (amp_bounce / 2);
+    } else if (face_mode_ == FaceMode::kSleeping) {
+        uint32_t sleep_ticks = (animation_tick_ > last_active_tick_ + kAutoSleepTimeoutTicks)
+                                   ? (animation_tick_ - (last_active_tick_ + kAutoSleepTimeoutTicks))
+                                   : 0;
+        if (sleep_ticks > 200 && (sleep_ticks % 300) < 16) {
+            animation_x = (animation_tick_ % 2 == 0) ? -2 : 2;
+        }
+    } else if (face_mode_ == FaceMode::kEcstaticLaugh) {
+        animation_y = ((animation_tick_ / 3) % 2 == 0) ? -4 : 2;
+    } else if (face_mode_ == FaceMode::kSadCrying || face_mode_ == FaceMode::kHeartbroken) {
+        animation_y = (animation_tick_ % 4 < 2) ? -2 : 0;
+    } else if (face_mode_ == FaceMode::kExcited) {
+        animation_y = ((animation_tick_ / 3) % 2 == 0) ? -6 : 0;
+    } else if (face_mode_ == FaceMode::kMusic) {
+        animation_x = ((animation_tick_ / 10) % 2 == 0) ? -6 : 6;
+        animation_y = ((animation_tick_ / 5) % 2 == 0) ? -2 : 2;
+    } else if (face_mode_ == FaceMode::kSmug) {
+        animation_y = ((animation_tick_ / 10) % 2 == 0) ? -2 : 0;
+    } else if (face_mode_ == FaceMode::kDizzy) {
+        animation_x = ((animation_tick_ / 4) % 4 < 2) ? -4 : 4;
+        animation_y = ((animation_tick_ / 6) % 4 < 2) ? -4 : 4;
+    } else if (face_mode_ == FaceMode::kPout) {
+        animation_y = ((animation_tick_ / 8) % 2 == 0) ? -2 : 0;
+    } else if (face_mode_ == FaceMode::kFreezing) {
+        animation_x = (animation_tick_ % 2 == 0) ? -4 : 4;
+    } else if (face_mode_ == FaceMode::kHeadache || face_mode_ == FaceMode::kOverheat) {
+        animation_x = (animation_tick_ % 4 < 2) ? -4 : 4;
+    } else if (face_mode_ == FaceMode::kThunderShock) {
+        animation_x = (animation_tick_ % 2 == 0) ? -6 : 6;
+        animation_y = (animation_tick_ % 3 == 0) ? -4 : 4;
+    } else if (face_mode_ == FaceMode::kPartyCelebrate) {
+        animation_y = ((animation_tick_ / 3) % 2 == 0) ? -6 : 2;
+    } else if (face_mode_ == FaceMode::kMatrixGlitch) {
+        animation_x = (animation_tick_ % 3 == 0) ? -8 : 6;
+    } else if (face_mode_ == FaceMode::kZenMeditation || face_mode_ == FaceMode::kAngelBlessing) {
+        animation_y = ((animation_tick_ / 20) % 2 == 0) ? -4 : 2;
+    } else if (face_mode_ == FaceMode::kDrunk) {
+        animation_x = ((animation_tick_ / 15) % 2 == 0) ? -4 : 4;
+        animation_y = ((animation_tick_ / 10) % 2 == 0) ? -4 : 4;
+    } else if (face_mode_ == FaceMode::kSneezing) {
+        int ph = animation_tick_ % 35;
+        if (ph >= 22 && ph < 28) {
+            animation_x = (ph % 2 == 0) ? -6 : 6;
+            animation_y = 8;
+        }
+    }
+
+    if (face_mode_ == FaceMode::kThinking) {
+        animation_y = ((animation_tick_ / 6) % 2 == 0) ? -2 : 0;
+    } else if (face_mode_ == FaceMode::kSurprised) {
+        animation_x = (animation_tick_ % 2 == 0) ? -2 : 2;
+    } else if (face_mode_ == FaceMode::kFurious || face_mode_ == FaceMode::kFireFury) {
+        animation_x = (animation_tick_ % 2 == 0) ? -4 : 4;
+        animation_y = (animation_tick_ % 3 == 0) ? -2 : 2;
+    } else if (face_mode_ == FaceMode::kScared) {
+        animation_x = (animation_tick_ % 2 == 0) ? -4 : 4;
+        animation_y = (animation_tick_ % 2 == 0) ? 2 : -2;
+    }
+
+    // Micro-saccades
+    if (animation_tick_ >= next_micro_tick_) {
+        micro_look_x_ = static_cast<int>(NextRandom() % 5) - 2;
+        micro_look_y_ = (NextRandom() % 4 == 0) ? static_cast<int>(NextRandom() % 5) - 2 : 0;
+        micro_until_tick_ = animation_tick_ + 3 + (NextRandom() % 4);
+        next_micro_tick_ = animation_tick_ + 20 + (NextRandom() % 45);
+    }
+    if (animation_tick_ >= micro_until_tick_) {
+        micro_look_x_ = 0;
+        micro_look_y_ = 0;
+    }
+    const bool micro_enabled =
+        !blink && !is_speaking_ && idle_quirk_ == IdleQuirk::kNone &&
+        (face_mode_ == FaceMode::kNeutral || face_mode_ == FaceMode::kListening ||
+         face_mode_ == FaceMode::kSmileGentle || face_mode_ == FaceMode::kSleepy);
+    const int look_x = current_look_x_ + (micro_enabled ? micro_look_x_ : 0);
+    const int look_y = current_look_y_ + (micro_enabled ? micro_look_y_ : 0);
+
+    const int left_x = base_x + (eye_width - current_left_width_) / 2 + look_x + animation_x;
+    const int right_x = base_x + eye_width + eye_gap + (eye_width - current_right_width_) / 2 + look_x + animation_x;
+    const int left_y = base_y + (eye_height - current_left_height_) / 2 + look_y + animation_y + current_left_y_offset_;
+    const int right_y = base_y + (eye_height - current_right_height_) / 2 + look_y + animation_y + current_right_y_offset_;
+
+    if (face_mode_ == FaceMode::kLove || face_mode_ == FaceMode::kHeartbroken) {
+        lv_obj_add_flag(left_eye_, LV_OBJ_FLAG_HIDDEN);
+        lv_obj_add_flag(right_eye_, LV_OBJ_FLAG_HIDDEN);
+    } else {
+        lv_obj_remove_flag(left_eye_, LV_OBJ_FLAG_HIDDEN);
+        lv_obj_remove_flag(right_eye_, LV_OBJ_FLAG_HIDDEN);
+        int left_radius = EyeRadius(current_left_width_, current_left_height_);
+        int right_radius = EyeRadius(current_right_width_, current_right_height_);
+        if (face_mode_ == FaceMode::kSleeping || face_mode_ == FaceMode::kZenMeditation ||
+            face_mode_ == FaceMode::kAngelBlessing) {
+            left_radius = 24;
+            right_radius = 24;
+        }
+        lv_obj_set_pos(left_eye_, left_x, left_y);
+        lv_obj_set_size(left_eye_, current_left_width_, current_left_height_);
+        lv_obj_set_style_radius(left_eye_, left_radius, 0);
+
+        lv_obj_set_pos(right_eye_, right_x, right_y);
+        lv_obj_set_size(right_eye_, current_right_width_, current_right_height_);
+        lv_obj_set_style_radius(right_eye_, right_radius, 0);
+    }
+
+    // 8. Black Pupils (Default W=28, H=32)
+    const bool show_left_pupil = !blink && face_mode_ != FaceMode::kSleeping && face_mode_ != FaceMode::kLove &&
+                                 face_mode_ != FaceMode::kHeartbroken && face_mode_ != FaceMode::kDizzy &&
+                                 face_mode_ != FaceMode::kRebooting &&
+                                 face_mode_ != FaceMode::kGameOver && face_mode_ != FaceMode::kFacepalm &&
+                                 face_mode_ != FaceMode::kZenMeditation && face_mode_ != FaceMode::kAngelBlessing &&
+                                 face_mode_ != FaceMode::kHypnotized &&
+                                 !(face_mode_ == FaceMode::kSneezing && (animation_tick_ % 35) >= 22);
+    const bool show_right_pupil = !blink && face_mode_ != FaceMode::kSleeping && face_mode_ != FaceMode::kPlayfulWink &&
+                                  face_mode_ != FaceMode::kLove && face_mode_ != FaceMode::kHeartbroken &&
+                                  face_mode_ != FaceMode::kDizzy &&
+                                  face_mode_ != FaceMode::kRebooting && face_mode_ != FaceMode::kGameOver &&
+                                  face_mode_ != FaceMode::kZenMeditation && face_mode_ != FaceMode::kAngelBlessing &&
+                                  face_mode_ != FaceMode::kHypnotized &&
+                                  !(face_mode_ == FaceMode::kSneezing && (animation_tick_ % 35) >= 22);
+
+    int left_pupil_w = 28;
+    int left_pupil_h = 32;
+    int right_pupil_w = 28;
+    int right_pupil_h = 32;
+
+    if (face_mode_ == FaceMode::kListening && mic_level > 10) {
+        int boost = (mic_level > 60) ? 4 : 2;
+        left_pupil_w = right_pupil_w = 28 + boost;
+        left_pupil_h = right_pupil_h = 32 + boost;
+    } else if (face_mode_ == FaceMode::kSurprised) {
+        uint32_t elapsed = (animation_tick_ > surprised_start_tick_) ? (animation_tick_ - surprised_start_tick_) : 0;
+        if (elapsed < 15) {
+            left_pupil_w = right_pupil_w = 20;
+            left_pupil_h = right_pupil_h = 24;
+        } else {
+            left_pupil_w = right_pupil_w = 36;
+            left_pupil_h = right_pupil_h = 40;
+        }
+    } else if (face_mode_ == FaceMode::kAngry || face_mode_ == FaceMode::kScheming ||
+               face_mode_ == FaceMode::kSideEye || face_mode_ == FaceMode::kJealous) {
+        left_pupil_w = right_pupil_w = 24;
+        left_pupil_h = right_pupil_h = 28;
+    } else if (face_mode_ == FaceMode::kFurious || face_mode_ == FaceMode::kFireFury) {
+        left_pupil_w = right_pupil_w = 24;
+        left_pupil_h = right_pupil_h = 26;
+    } else if (face_mode_ == FaceMode::kScared || face_mode_ == FaceMode::kThunderShock ||
+               face_mode_ == FaceMode::kShockedJawdrop) {
+        left_pupil_w = right_pupil_w = 20;
+        left_pupil_h = right_pupil_h = 22;
+    } else if (face_mode_ == FaceMode::kTargetLocked) {
+        left_pupil_w = 24;
+        left_pupil_h = 22;
+        right_pupil_w = 18;
+        right_pupil_h = 18;
+    } else if (face_mode_ == FaceMode::kPout || face_mode_ == FaceMode::kInnocent) {
+        left_pupil_w = right_pupil_w = 36;
+        left_pupil_h = right_pupil_h = 40;
+    } else if (face_mode_ == FaceMode::kExcited || face_mode_ == FaceMode::kMoneyEyes ||
+               face_mode_ == FaceMode::kSunnyDazzle) {
+        left_pupil_w = right_pupil_w = 32;
+        left_pupil_h = right_pupil_h = 36;
+    } else if (face_mode_ == FaceMode::kSkeptical || face_mode_ == FaceMode::kDisgusted) {
+        left_pupil_w = 28;
+        left_pupil_h = 32;
+        right_pupil_w = 24;
+        right_pupil_h = 24;
+    } else if (face_mode_ == FaceMode::kParanoid) {
+        left_pupil_w = right_pupil_w = 20;
+        left_pupil_h = right_pupil_h = 22;
+    } else if (face_mode_ == FaceMode::kSleepwalking) {
+        left_pupil_w = right_pupil_w = 16;
+        left_pupil_h = right_pupil_h = 18;
+    }
+
+    smooth_pupil_w_[0] = Ease(smooth_pupil_w_[0], left_pupil_w);
+    smooth_pupil_h_[0] = Ease(smooth_pupil_h_[0], left_pupil_h);
+    smooth_pupil_w_[1] = Ease(smooth_pupil_w_[1], right_pupil_w);
+    smooth_pupil_h_[1] = Ease(smooth_pupil_h_[1], right_pupil_h);
+    left_pupil_w = smooth_pupil_w_[0];
+    left_pupil_h = smooth_pupil_h_[0];
+    right_pupil_w = smooth_pupil_w_[1];
+    right_pupil_h = smooth_pupil_h_[1];
+
+    int left_pupil_pos_x = 0;
+    int left_pupil_pos_y = 0;
+    int right_pupil_pos_x = 0;
+    int right_pupil_pos_y = 0;
+
+    auto place_pupil = [&](int eye_x, int eye_y, int eye_w, int eye_h, int pw, int ph,
+                           int& out_x, int& out_y) {
+        const float cx = eye_x + (eye_w - pw) / 2.0f;
+        const float cy = eye_y + (eye_h - ph) / 2.0f;
+        float dx = look_x * 5 / 4.0f;
+        float dy = look_y * 5 / 4.0f;
+        const float ax = std::max(1.0f, (eye_w - pw) / 2.0f - 4.0f);
+        const float ay = std::max(1.0f, (eye_h - ph) / 2.0f - 4.0f);
+        const float k = (dx / ax) * (dx / ax) + (dy / ay) * (dy / ay);
+        if (k > 1.0f) {
+            const float s = 1.0f / std::sqrt(k);
+            dx *= s;
+            dy *= s;
+        }
+        out_x = static_cast<int>(std::lround(cx + dx));
+        out_y = static_cast<int>(std::lround(cy + dy));
+        out_x = std::clamp(out_x, eye_x + 4, std::max(eye_x + 4, eye_x + eye_w - pw - 4));
+        out_y = std::clamp(out_y, eye_y + 3, std::max(eye_y + 3, eye_y + eye_h - ph - 3));
+    };
+
+    if (show_left_pupil) {
+        lv_obj_remove_flag(left_pupil_, LV_OBJ_FLAG_HIDDEN);
+        place_pupil(left_x, left_y, current_left_width_, current_left_height_, left_pupil_w,
+                    left_pupil_h, left_pupil_pos_x, left_pupil_pos_y);
+        lv_obj_set_pos(left_pupil_, left_pupil_pos_x, left_pupil_pos_y);
+        lv_obj_set_size(left_pupil_, left_pupil_w, left_pupil_h);
+        lv_obj_set_style_radius(left_pupil_, PupilRadius(left_pupil_w, left_pupil_h), 0);
+    } else {
+        lv_obj_add_flag(left_pupil_, LV_OBJ_FLAG_HIDDEN);
+    }
+
+    if (show_right_pupil) {
+        lv_obj_remove_flag(right_pupil_, LV_OBJ_FLAG_HIDDEN);
+        place_pupil(right_x, right_y, current_right_width_, current_right_height_, right_pupil_w,
+                    right_pupil_h, right_pupil_pos_x, right_pupil_pos_y);
+        lv_obj_set_pos(right_pupil_, right_pupil_pos_x, right_pupil_pos_y);
+        lv_obj_set_size(right_pupil_, right_pupil_w, right_pupil_h);
+        lv_obj_set_style_radius(right_pupil_, PupilRadius(right_pupil_w, right_pupil_h), 0);
+    } else {
+        lv_obj_add_flag(right_pupil_, LV_OBJ_FLAG_HIDDEN);
+    }
+
+    // 9. Crescent Masks (Curved sleeping / Zen / Angel / PlayfulWink)
+    lv_obj_add_flag(left_crescent_mask_, LV_OBJ_FLAG_HIDDEN);
+    lv_obj_add_flag(right_crescent_mask_, LV_OBJ_FLAG_HIDDEN);
+
+    if (face_mode_ == FaceMode::kSleeping || face_mode_ == FaceMode::kZenMeditation) {
+        const int breath_offset = ((animation_tick_ / 25) % 2 == 0) ? -8 : -6;
+        lv_obj_remove_flag(left_crescent_mask_, LV_OBJ_FLAG_HIDDEN);
+        lv_obj_remove_flag(right_crescent_mask_, LV_OBJ_FLAG_HIDDEN);
+        lv_obj_set_pos(left_crescent_mask_, left_x, left_y + breath_offset);
+        lv_obj_set_size(left_crescent_mask_, current_left_width_, current_left_height_);
+        lv_obj_set_pos(right_crescent_mask_, right_x, right_y + breath_offset);
+        lv_obj_set_size(right_crescent_mask_, current_right_width_, current_right_height_);
+    } else if (face_mode_ == FaceMode::kAngelBlessing) {
+        lv_obj_remove_flag(left_crescent_mask_, LV_OBJ_FLAG_HIDDEN);
+        lv_obj_remove_flag(right_crescent_mask_, LV_OBJ_FLAG_HIDDEN);
+        lv_obj_set_pos(left_crescent_mask_, left_x, left_y + 8);
+        lv_obj_set_size(left_crescent_mask_, current_left_width_, current_left_height_);
+        lv_obj_set_pos(right_crescent_mask_, right_x, right_y + 8);
+        lv_obj_set_size(right_crescent_mask_, current_right_width_, current_right_height_);
+    } else if (face_mode_ == FaceMode::kPlayfulWink) {
+        lv_obj_remove_flag(right_crescent_mask_, LV_OBJ_FLAG_HIDDEN);
+        lv_obj_set_pos(right_crescent_mask_, right_x, right_y + 8);
+        lv_obj_set_size(right_crescent_mask_, current_right_width_, current_right_height_);
+    }
+
+    // 10. Dual Teardrops for crying
+    lv_obj_add_flag(left_tear_, LV_OBJ_FLAG_HIDDEN);
+    lv_obj_add_flag(right_tear_, LV_OBJ_FLAG_HIDDEN);
+    if (face_mode_ == FaceMode::kSadCrying && !blink) {
+        lv_obj_remove_flag(left_tear_, LV_OBJ_FLAG_HIDDEN);
+        lv_obj_remove_flag(right_tear_, LV_OBJ_FLAG_HIDDEN);
+        int tear_slide_y = (animation_tick_ % 14) * 2;
+        lv_obj_set_pos(left_tear_, left_x + 28, left_y + current_left_height_ + tear_slide_y - 4);
+        lv_obj_set_size(left_tear_, 12, 16);
+        lv_obj_set_pos(right_tear_, right_x + 28, right_y + current_right_height_ + tear_slide_y - 4);
+        lv_obj_set_size(right_tear_, 12, 16);
+    }
+
+    // 11. Blushing marks
+    lv_obj_add_flag(left_blush_, LV_OBJ_FLAG_HIDDEN);
+    lv_obj_add_flag(right_blush_, LV_OBJ_FLAG_HIDDEN);
+    if ((face_mode_ == FaceMode::kShy || face_mode_ == FaceMode::kLove ||
+         face_mode_ == FaceMode::kPout || face_mode_ == FaceMode::kDrunk ||
+         face_mode_ == FaceMode::kInnocent) && !blink) {
+        lv_obj_remove_flag(left_blush_, LV_OBJ_FLAG_HIDDEN);
+        lv_obj_remove_flag(right_blush_, LV_OBJ_FLAG_HIDDEN);
+        int blush_y = (face_mode_ == FaceMode::kLove) ? (base_y + eye_height - 8) : (left_y + current_left_height_ - 8);
+        lv_obj_set_pos(left_blush_, left_x + 12, blush_y);
+        lv_obj_set_pos(right_blush_, right_x + 12, blush_y);
+    }
+
+    // Hide special expression objects by default
+    for (auto* lbl : {fx_label_a_, fx_label_b_}) {
+        if (lbl) {
+            lv_obj_add_flag(lbl, LV_OBJ_FLAG_HIDDEN);
+            lv_obj_set_style_text_color(lbl, lv_color_white(), 0);
+        }
+    }
+    for (auto* h : {left_heart_a_, left_heart_b_, right_heart_a_, right_heart_b_}) {
+        if (h) lv_obj_add_flag(h, LV_OBJ_FLAG_HIDDEN);
+    }
+    for (auto* d : {left_dizzy_a_, left_dizzy_b_, right_dizzy_a_, right_dizzy_b_}) {
+        if (d) lv_obj_add_flag(d, LV_OBJ_FLAG_HIDDEN);
+    }
+    for (auto* s : {left_sparkle_a_, left_sparkle_b_, right_sparkle_a_, right_sparkle_b_}) {
+        if (s) lv_obj_add_flag(s, LV_OBJ_FLAG_HIDDEN);
+    }
+    for (auto& eye_glints : catchlight_) {
+        for (auto* glint : eye_glints) {
+            if (glint) lv_obj_add_flag(glint, LV_OBJ_FLAG_HIDDEN);
+        }
+    }
+
+    // Dynamic Catchlights (Asymmetric round pixel discs)
+    const bool is_special_sparkle_mode = (face_mode_ == FaceMode::kExcited ||
+                                          face_mode_ == FaceMode::kMoneyEyes ||
+                                          face_mode_ == FaceMode::kTargetLocked);
+    if (!is_special_sparkle_mode) {
+        const int total_look_x = current_look_x_ + micro_look_x_;
+        const int total_look_y = current_look_y_ + micro_look_y_;
+        const int gaze_shift_x = std::clamp(-total_look_x / 4, -2, 2);
+        const int gaze_shift_y = std::clamp(-total_look_y / 4, -2, 2);
+
+        const bool is_happy_mode = (face_mode_ == FaceMode::kSmileGentle || face_mode_ == FaceMode::kPlayfulWink ||
+                                    face_mode_ == FaceMode::kEcstaticLaugh || face_mode_ == FaceMode::kPartyCelebrate ||
+                                    face_mode_ == FaceMode::kInnocent || face_mode_ == FaceMode::kPout ||
+                                    face_mode_ == FaceMode::kSunnyDazzle || face_mode_ == FaceMode::kIdeaEureka);
+        const bool is_angry_mode = (face_mode_ == FaceMode::kAngry || face_mode_ == FaceMode::kFurious ||
+                                    face_mode_ == FaceMode::kScheming || face_mode_ == FaceMode::kSideEye ||
+                                    face_mode_ == FaceMode::kJealous);
+        const bool is_gloomy_mode = (face_mode_ == FaceMode::kSadEmpathy || face_mode_ == FaceMode::kSadCrying ||
+                                     face_mode_ == FaceMode::kCryingStream || face_mode_ == FaceMode::kSleepy ||
+                                     face_mode_ == FaceMode::kExhausted || face_mode_ == FaceMode::kRainyGloomy);
+
+        if (face_mode_ == FaceMode::kFireFury) {
+            if (show_left_pupil) {
+                PlaceDisc(catchlight_[0][0], catchlight_[0][1], catchlight_[0][2],
+                          left_pupil_pos_x + (left_pupil_w - 12) / 2,
+                          left_pupil_pos_y + (left_pupil_h - 12) / 2, 12);
+            }
+            if (show_right_pupil) {
+                PlaceDisc(catchlight_[1][0], catchlight_[1][1], catchlight_[1][2],
+                          right_pupil_pos_x + (right_pupil_w - 12) / 2,
+                          right_pupil_pos_y + (right_pupil_h - 12) / 2, 12);
+            }
+        } else {
+            // Left Eye: 6px solid dot
+            if (show_left_pupil && left_pupil_w >= 12 && catchlight_[0][0] != nullptr) {
+                int left_diam = (is_happy_mode && left_pupil_w >= 30) ? 6 : 5;
+                int left_dot_x = left_pupil_pos_x + left_pupil_w - left_diam - 2 + gaze_shift_x;
+                int left_dot_y = left_pupil_pos_y + (left_pupil_h - left_diam) / 2 + gaze_shift_y;
+                left_dot_x = std::clamp(left_dot_x, left_pupil_pos_x + 2, left_pupil_pos_x + left_pupil_w - left_diam - 2);
+                left_dot_y = std::clamp(left_dot_y, left_pupil_pos_y + 2, left_pupil_pos_y + left_pupil_h - left_diam - 2);
+                PlaceDisc(catchlight_[0][0], catchlight_[0][1], catchlight_[0][2], left_dot_x, left_dot_y, left_diam);
+            }
+
+            // Right Eye: 12px 3-tier round pixel circle hugged at top-right corner
+            if (show_right_pupil && right_pupil_w >= 14 && catchlight_[1][0] != nullptr) {
+                int right_diam = 12;
+                if (is_happy_mode && right_pupil_w >= 30) {
+                    right_diam = 14;
+                } else if (right_pupil_w <= 20 || is_angry_mode || is_gloomy_mode) {
+                    right_diam = 10;
+                }
+                int right_dot_x = right_pupil_pos_x + right_pupil_w - right_diam - 2 + gaze_shift_x;
+                int right_dot_y = right_pupil_pos_y + 2 + gaze_shift_y;
+                right_dot_x = std::clamp(right_dot_x, right_pupil_pos_x + 2, right_pupil_pos_x + right_pupil_w - right_diam - 2);
+                right_dot_y = std::clamp(right_dot_y, right_pupil_pos_y + 2, right_pupil_pos_y + right_pupil_h - right_diam - 2);
+                PlaceDisc(catchlight_[1][0], catchlight_[1][1], catchlight_[1][2], right_dot_x, right_dot_y, right_diam);
+
+                // Secondary tiny glint (4x4) at bottom-left corner
+                if (right_pupil_w >= 24 && (is_happy_mode || face_mode_ == FaceMode::kNeutral) && catchlight_[1][3] != nullptr) {
+                    lv_obj_remove_flag(catchlight_[1][3], LV_OBJ_FLAG_HIDDEN);
+                    lv_obj_set_pos(catchlight_[1][3], right_pupil_pos_x + 4, right_pupil_pos_y + right_pupil_h - 8);
+                    lv_obj_set_size(catchlight_[1][3], 4, 4);
+                }
+            }
+        }
+    }
+
+    if (sweat_drop_) lv_obj_add_flag(sweat_drop_, LV_OBJ_FLAG_HIDDEN);
+    if (laser_line_) lv_obj_add_flag(laser_line_, LV_OBJ_FLAG_HIDDEN);
+    for (int i = 0; i < 6; ++i) {
+        if (smoke_puff_[i]) {
+            lv_obj_add_flag(smoke_puff_[i], LV_OBJ_FLAG_HIDDEN);
+            lv_obj_set_style_radius(smoke_puff_[i], 0, 0);
+        }
+    }
+    for (int i = 0; i < 2; ++i) {
+        if (music_note_[i]) lv_obj_add_flag(music_note_[i], LV_OBJ_FLAG_HIDDEN);
+    }
+    for (int i = 0; i < 6; ++i) {
+        if (extra_shape_[i]) {
+            lv_obj_add_flag(extra_shape_[i], LV_OBJ_FLAG_HIDDEN);
+            lv_obj_set_style_bg_color(extra_shape_[i], lv_color_white(), 0);
+            lv_obj_set_style_bg_opa(extra_shape_[i], LV_OPA_COVER, 0);
+            lv_obj_set_style_border_width(extra_shape_[i], 0, 0);
+            lv_obj_set_style_radius(extra_shape_[i], 4, 0);
+            lv_obj_set_style_transform_rotation(extra_shape_[i], 0, 0);
+        }
+    }
+
+    // 12. Mode-Specific Distinct Visual Elements (Full 60 Wall-E Emotions)
+    if (face_mode_ == FaceMode::kNeutral && idle_quirk_ == IdleQuirk::kBugTracking && !blink) {
+        if (extra_shape_[0]) {
+            lv_obj_remove_flag(extra_shape_[0], LV_OBJ_FLAG_HIDDEN);
+            lv_obj_set_size(extra_shape_[0], 6, 6);
+            lv_obj_set_pos(extra_shape_[0], bug_x, bug_y);
+        }
+    } else if (face_mode_ == FaceMode::kSleeping) {
+        uint32_t sleep_ticks = (animation_tick_ > last_active_tick_ + kAutoSleepTimeoutTicks)
+                                   ? (animation_tick_ - (last_active_tick_ + kAutoSleepTimeoutTicks))
+                                   : 0;
+        if (sleep_ticks > 60 || face_mode_ == FaceMode::kSleeping) {
+            int b1_prog = (animation_tick_ / 3) % 25;
+            int b1_x = 110 + b1_prog;
+            int b1_y = 35 - b1_prog;
+            PlaceDisc(smoke_puff_[0], smoke_puff_[1], nullptr, b1_x, b1_y, 10);
+
+            int b2_prog = (animation_tick_ / 3 + 12) % 25;
+            int b2_x = 125 + b2_prog;
+            int b2_y = 35 - b2_prog;
+            PlaceDisc(smoke_puff_[2], smoke_puff_[3], nullptr, b2_x, b2_y, 14);
+        }
+    } else if (face_mode_ == FaceMode::kListening && !blink) {
+        for (int i = 0; i < 4; ++i) {
+            if (extra_shape_[i]) {
+                lv_obj_remove_flag(extra_shape_[i], LV_OBJ_FLAG_HIDDEN);
+                int wave = ((animation_tick_ + i * 2) % 4) * 4;
+                int bar_h = 4 + (mic_level * (i % 2 == 0 ? 28 : 20)) / 100 + (mic_level > 8 ? wave : 0);
+                bar_h = std::min(36, bar_h);
+                lv_obj_set_size(extra_shape_[i], 4, bar_h);
+                lv_obj_set_pos(extra_shape_[i], 112 + i * 6, 90 - bar_h);
+            }
+        }
+    } else if (face_mode_ == FaceMode::kThinking && !blink) {
+        for (int i = 0; i < 3; ++i) {
+            if (extra_shape_[i]) {
+                lv_obj_remove_flag(extra_shape_[i], LV_OBJ_FLAG_HIDDEN);
+                int bounce = (((animation_tick_ / 3) + i) % 3 == 0) ? -6 : 0;
+                lv_obj_set_size(extra_shape_[i], 6, 6);
+                lv_obj_set_pos(extra_shape_[i], 108 + i * 12, 10 + bounce);
+            }
+        }
+    } else if ((face_mode_ == FaceMode::kLove || face_mode_ == FaceMode::kHeartbroken) && !blink) {
+        int pulse = (face_mode_ == FaceMode::kLove) ? ((animation_tick_ % 14 < 7) ? 4 : -2) : 0;
+        int hw = 24 + pulse;
+        int hh = 44 + pulse * 2;
+        int l_cx = left_x + eye_width / 2;
+        int l_cy = base_y + eye_height / 2;
+        int r_cx = right_x + eye_width / 2;
+        int r_cy = base_y + eye_height / 2;
+
+        for (auto* h : {left_heart_a_, left_heart_b_, right_heart_a_, right_heart_b_}) {
+            if (h) {
+                lv_obj_remove_flag(h, LV_OBJ_FLAG_HIDDEN);
+                lv_obj_set_size(h, hw, hh);
+                lv_obj_set_style_radius(h, 12, 0);
+                lv_obj_set_style_transform_pivot_x(h, hw / 2, 0);
+                lv_obj_set_style_transform_pivot_y(h, hh / 2, 0);
+            }
+        }
+        int split = (face_mode_ == FaceMode::kHeartbroken) ? 4 : 0;
+        if (left_heart_a_) {
+            lv_obj_set_pos(left_heart_a_, l_cx - hw / 2 - split, l_cy - hh / 2);
+            lv_obj_set_style_transform_rotation(left_heart_a_, NormalizeAngle(450), 0);
+        }
+        if (left_heart_b_) {
+            lv_obj_set_pos(left_heart_b_, l_cx - hw / 2 + split, l_cy - hh / 2);
+            lv_obj_set_style_transform_rotation(left_heart_b_, NormalizeAngle(-450), 0);
+        }
+        if (right_heart_a_) {
+            lv_obj_set_pos(right_heart_a_, r_cx - hw / 2 - split, r_cy - hh / 2);
+            lv_obj_set_style_transform_rotation(right_heart_a_, NormalizeAngle(450), 0);
+        }
+        if (right_heart_b_) {
+            lv_obj_set_pos(right_heart_b_, r_cx - hw / 2 + split, r_cy - hh / 2);
+            lv_obj_set_style_transform_rotation(right_heart_b_, NormalizeAngle(-450), 0);
+        }
+        if (face_mode_ == FaceMode::kHeartbroken) {
+            for (int i = 0; i < 2; ++i) {
+                if (extra_shape_[i]) {
+                    lv_obj_remove_flag(extra_shape_[i], LV_OBJ_FLAG_HIDDEN);
+                    lv_obj_set_style_bg_color(extra_shape_[i], lv_color_black(), 0);
+                    int cx = (i == 0) ? l_cx : r_cx;
+                    lv_obj_set_size(extra_shape_[i], 6, 54);
+                    lv_obj_set_pos(extra_shape_[i], cx - 3, l_cy - 27);
+                    lv_obj_set_style_transform_pivot_x(extra_shape_[i], 3, 0);
+                    lv_obj_set_style_transform_pivot_y(extra_shape_[i], 27, 0);
+                    lv_obj_set_style_transform_rotation(extra_shape_[i], NormalizeAngle(120), 0);
+                }
+            }
+        }
+    } else if ((face_mode_ == FaceMode::kDizzy || face_mode_ == FaceMode::kHypnotized) && !blink) {
+        int dw = 36;
+        int dh = 8;
+        int speed = (face_mode_ == FaceMode::kHypnotized) ? 180 : 120;
+        int dizzy_angle = (animation_tick_ * speed) % 3600;
+        int l_cx = left_x + current_left_width_ / 2;
+        int l_cy = left_y + current_left_height_ / 2;
+        int r_cx = right_x + current_right_width_ / 2;
+        int r_cy = right_y + current_right_height_ / 2;
+
+        for (auto* d : {left_dizzy_a_, left_dizzy_b_, right_dizzy_a_, right_dizzy_b_}) {
+            if (d) {
+                lv_obj_remove_flag(d, LV_OBJ_FLAG_HIDDEN);
+                lv_obj_set_size(d, dw, dh);
+                lv_obj_set_style_radius(d, 4, 0);
+                lv_obj_set_style_transform_pivot_x(d, dw / 2, 0);
+                lv_obj_set_style_transform_pivot_y(d, dh / 2, 0);
+            }
+        }
+        if (left_dizzy_a_) {
+            lv_obj_set_pos(left_dizzy_a_, l_cx - dw / 2, l_cy - dh / 2);
+            lv_obj_set_style_transform_rotation(left_dizzy_a_, NormalizeAngle(450 + dizzy_angle), 0);
+        }
+        if (left_dizzy_b_) {
+            lv_obj_set_pos(left_dizzy_b_, l_cx - dw / 2, l_cy - dh / 2);
+            lv_obj_set_style_transform_rotation(left_dizzy_b_, NormalizeAngle(1350 + dizzy_angle), 0);
+        }
+        if (right_dizzy_a_) {
+            lv_obj_set_pos(right_dizzy_a_, r_cx - dw / 2, r_cy - dh / 2);
+            lv_obj_set_style_transform_rotation(right_dizzy_a_, NormalizeAngle(450 + dizzy_angle), 0);
+        }
+        if (right_dizzy_b_) {
+            lv_obj_set_pos(right_dizzy_b_, r_cx - dw / 2, r_cy - dh / 2);
+            lv_obj_set_style_transform_rotation(right_dizzy_b_, NormalizeAngle(1350 + dizzy_angle), 0);
+        }
+        if (face_mode_ == FaceMode::kHypnotized) {
+            for (int i = 0; i < 2; ++i) {
+                if (extra_shape_[i]) {
+                    lv_obj_remove_flag(extra_shape_[i], LV_OBJ_FLAG_HIDDEN);
+                    lv_obj_set_style_bg_opa(extra_shape_[i], LV_OPA_TRANSP, 0);
+                    lv_obj_set_style_border_width(extra_shape_[i], 3, 0);
+                    lv_obj_set_style_border_color(extra_shape_[i], lv_color_black(), 0);
+                    int pulse_r = ((animation_tick_ / 3) % 2 == 0) ? 48 : 32;
+                    int cx = (i == 0) ? l_cx : r_cx;
+                    int cy = (i == 0) ? l_cy : r_cy;
+                    lv_obj_set_size(extra_shape_[i], pulse_r, pulse_r);
+                    lv_obj_set_style_radius(extra_shape_[i], 10, 0);
+                    lv_obj_set_pos(extra_shape_[i], cx - pulse_r / 2, cy - pulse_r / 2);
+                }
+            }
+        }
+    } else if (face_mode_ == FaceMode::kLoadingBuffer && !blink) {
+        if (extra_shape_[0] && extra_shape_[1]) {
+            lv_obj_remove_flag(extra_shape_[0], LV_OBJ_FLAG_HIDDEN);
+            lv_obj_set_style_bg_opa(extra_shape_[0], LV_OPA_TRANSP, 0);
+            lv_obj_set_style_border_width(extra_shape_[0], 2, 0);
+            lv_obj_set_style_border_color(extra_shape_[0], lv_color_white(), 0);
+            lv_obj_set_pos(extra_shape_[0], 70, 4);
+            lv_obj_set_size(extra_shape_[0], 100, 12);
+            lv_obj_set_style_radius(extra_shape_[0], 4, 0);
+
+            int fill_w = 10 + ((animation_tick_ * 5) % 80);
+            lv_obj_remove_flag(extra_shape_[1], LV_OBJ_FLAG_HIDDEN);
+            lv_obj_set_pos(extra_shape_[1], 74, 7);
+            lv_obj_set_size(extra_shape_[1], fill_w, 6);
+            lv_obj_set_style_radius(extra_shape_[1], 0, 0);
+        }
+    } else if (face_mode_ == FaceMode::kGameOver && !blink) {
+        int dw = 36, dh = 8;
+        int l_cx = left_x + current_left_width_ / 2;
+        int l_cy = left_y + current_left_height_ / 2;
+        int r_cx = right_x + current_right_width_ / 2;
+        int r_cy = right_y + current_right_height_ / 2;
+        for (auto* d : {left_dizzy_a_, left_dizzy_b_, right_dizzy_a_, right_dizzy_b_}) {
+            if (d) {
+                lv_obj_remove_flag(d, LV_OBJ_FLAG_HIDDEN);
+                lv_obj_set_size(d, dw, dh);
+                lv_obj_set_style_radius(d, 4, 0);
+                lv_obj_set_style_transform_pivot_x(d, dw / 2, 0);
+                lv_obj_set_style_transform_pivot_y(d, dh / 2, 0);
+            }
+        }
+        if (left_dizzy_a_) {
+            lv_obj_set_pos(left_dizzy_a_, l_cx - dw / 2, l_cy - dh / 2);
+            lv_obj_set_style_transform_rotation(left_dizzy_a_, NormalizeAngle(450), 0);
+        }
+        if (left_dizzy_b_) {
+            lv_obj_set_pos(left_dizzy_b_, l_cx - dw / 2, l_cy - dh / 2);
+            lv_obj_set_style_transform_rotation(left_dizzy_b_, NormalizeAngle(-450), 0);
+        }
+        if (right_dizzy_a_) {
+            lv_obj_set_pos(right_dizzy_a_, r_cx - dw / 2, r_cy - dh / 2);
+            lv_obj_set_style_transform_rotation(right_dizzy_a_, NormalizeAngle(450), 0);
+        }
+        if (right_dizzy_b_) {
+            lv_obj_set_pos(right_dizzy_b_, r_cx - dw / 2, r_cy - dh / 2);
+            lv_obj_set_style_transform_rotation(right_dizzy_b_, NormalizeAngle(-450), 0);
+        }
+    } else if ((face_mode_ == FaceMode::kScared || face_mode_ == FaceMode::kExhausted) && !blink) {
+        if (sweat_drop_) {
+            lv_obj_remove_flag(sweat_drop_, LV_OBJ_FLAG_HIDDEN);
+            int sweat_x = right_x + current_right_width_ + 6;
+            int sweat_y = 12 + ((animation_tick_ * 3) % 40);
+            lv_obj_set_pos(sweat_drop_, sweat_x, sweat_y);
+            lv_obj_set_size(sweat_drop_, 10, 16);
+        }
+    } else if ((face_mode_ == FaceMode::kFurious || face_mode_ == FaceMode::kOverheat) && !blink) {
+        for (int i = 0; i < 3; ++i) {
+            int phase = (animation_tick_ + i * 5) % 24;
+            int smoke_y = left_y - 6 - phase;
+            if (smoke_y >= 0) {
+                int smoke_x = (i == 0) ? (left_x + 20) : (i == 1) ? 115 : (right_x + 36);
+                int s_diam = (phase > 12) ? 12 : 10;
+                PlaceDisc(smoke_puff_[i * 2], smoke_puff_[i * 2 + 1], nullptr, smoke_x, smoke_y, s_diam);
+            }
+        }
+        if (face_mode_ == FaceMode::kOverheat && fx_label_a_) {
+            lv_obj_remove_flag(fx_label_a_, LV_OBJ_FLAG_HIDDEN);
+            lv_label_set_text(fx_label_a_, LV_SYMBOL_WARNING);
+            lv_obj_set_pos(fx_label_a_, 112, 4);
+        }
+    } else if (face_mode_ == FaceMode::kFireFury && !blink) {
+        for (int i = 0; i < 6; ++i) {
+            if (extra_shape_[i]) {
+                lv_obj_remove_flag(extra_shape_[i], LV_OBJ_FLAG_HIDDEN);
+                int flame_h = 16 + ((animation_tick_ * 4 + i * 8) % 28);
+                int fx_pos = (i < 3) ? (left_x - 6 + i * 32) : (right_x - 4 + (i - 3) * 32);
+                int fy_pos = std::max(0, left_y + 10 - flame_h);
+                lv_obj_set_size(extra_shape_[i], 8, flame_h);
+                lv_obj_set_pos(extra_shape_[i], fx_pos, fy_pos);
+                lv_obj_set_style_radius(extra_shape_[i], 4, 0);
+            }
+        }
+    } else if (face_mode_ == FaceMode::kPartyCelebrate && !blink) {
+        int p_cycle = (animation_tick_ / 2) % 12;
+        if (p_cycle < 9) {
+            int radius = 4 + p_cycle * 4;
+            int spark_sz = (p_cycle >= 6) ? 4 : 6;
+            const int centers[2][2] = {{30, 30}, {210, 30}};
+
+            for (int cluster = 0; cluster < 2; ++cluster) {
+                int cx = centers[cluster][0];
+                int cy = centers[cluster][1];
+                int base_idx = cluster * 3;
+
+                if (smoke_puff_[base_idx]) {
+                    lv_obj_remove_flag(smoke_puff_[base_idx], LV_OBJ_FLAG_HIDDEN);
+                    lv_obj_set_pos(smoke_puff_[base_idx], cx, cy - radius);
+                    lv_obj_set_size(smoke_puff_[base_idx], spark_sz, spark_sz);
+                }
+                if (smoke_puff_[base_idx + 1]) {
+                    lv_obj_remove_flag(smoke_puff_[base_idx + 1], LV_OBJ_FLAG_HIDDEN);
+                    int offset = (radius * 7) / 10;
+                    lv_obj_set_pos(smoke_puff_[base_idx + 1], cx + (cluster == 0 ? offset : -offset), cy - offset);
+                    lv_obj_set_size(smoke_puff_[base_idx + 1], spark_sz, spark_sz);
+                }
+                if (smoke_puff_[base_idx + 2]) {
+                    lv_obj_remove_flag(smoke_puff_[base_idx + 2], LV_OBJ_FLAG_HIDDEN);
+                    int offset = (radius * 7) / 10;
+                    lv_obj_set_pos(smoke_puff_[base_idx + 2], cx + (cluster == 0 ? offset : -offset), cy + offset);
+                    lv_obj_set_size(smoke_puff_[base_idx + 2], spark_sz, spark_sz);
+                }
+            }
+        }
+    } else if (face_mode_ == FaceMode::kMoneyEyes && !blink) {
+        if (fx_label_a_ && fx_label_b_) {
+            lv_obj_remove_flag(fx_label_a_, LV_OBJ_FLAG_HIDDEN);
+            lv_obj_remove_flag(fx_label_b_, LV_OBJ_FLAG_HIDDEN);
+            lv_label_set_text(fx_label_a_, "$");
+            lv_label_set_text(fx_label_b_, "$");
+            int bounce = ((animation_tick_ / 4) % 2 == 0) ? -2 : 2;
+            lv_obj_set_pos(fx_label_a_, left_pupil_pos_x + 8, left_pupil_pos_y + 4 + bounce);
+            lv_obj_set_pos(fx_label_b_, right_pupil_pos_x + 8, right_pupil_pos_y + 4 + bounce);
+        }
+    } else if (face_mode_ == FaceMode::kExcited && !blink) {
+        int star_len = ((animation_tick_ / 4) % 2 == 0) ? 28 : 20;
+        int star_thick = 4;
+        int l_pcx = left_pupil_pos_x + left_pupil_w / 2;
+        int l_pcy = left_pupil_pos_y + left_pupil_h / 2;
+        int r_pcx = right_pupil_pos_x + right_pupil_w / 2;
+        int r_pcy = right_pupil_pos_y + right_pupil_h / 2;
+
+        if (left_sparkle_a_ && left_sparkle_b_ && right_sparkle_a_ && right_sparkle_b_) {
+            lv_obj_remove_flag(left_sparkle_a_, LV_OBJ_FLAG_HIDDEN);
+            lv_obj_remove_flag(left_sparkle_b_, LV_OBJ_FLAG_HIDDEN);
+            lv_obj_remove_flag(right_sparkle_a_, LV_OBJ_FLAG_HIDDEN);
+            lv_obj_remove_flag(right_sparkle_b_, LV_OBJ_FLAG_HIDDEN);
+
+            lv_obj_set_pos(left_sparkle_a_, l_pcx - star_thick / 2, l_pcy - star_len / 2);
+            lv_obj_set_size(left_sparkle_a_, star_thick, star_len);
+            lv_obj_set_pos(left_sparkle_b_, l_pcx - star_len / 2, l_pcy - star_thick / 2);
+            lv_obj_set_size(left_sparkle_b_, star_len, star_thick);
+
+            lv_obj_set_pos(right_sparkle_a_, r_pcx - star_thick / 2, r_pcy - star_len / 2);
+            lv_obj_set_size(right_sparkle_a_, star_thick, star_len);
+            lv_obj_set_pos(right_sparkle_b_, r_pcx - star_len / 2, r_pcy - star_thick / 2);
+            lv_obj_set_size(right_sparkle_b_, star_len, star_thick);
+        }
+    } else if (face_mode_ == FaceMode::kSunnyDazzle && !blink) {
+        PlaceDisc(smoke_puff_[0], smoke_puff_[1], nullptr, 113, 2, 14);
+        int ray_ext = ((animation_tick_ / 5) % 2 == 0) ? 4 : 0;
+        if (extra_shape_[1]) {
+            lv_obj_remove_flag(extra_shape_[1], LV_OBJ_FLAG_HIDDEN);
+            lv_obj_set_pos(extra_shape_[1], 98 - ray_ext, 8);
+            lv_obj_set_size(extra_shape_[1], 10 + ray_ext, 4);
+        }
+        if (extra_shape_[2]) {
+            lv_obj_remove_flag(extra_shape_[2], LV_OBJ_FLAG_HIDDEN);
+            lv_obj_set_pos(extra_shape_[2], 132, 8);
+            lv_obj_set_size(extra_shape_[2], 10 + ray_ext, 4);
+        }
+        if (extra_shape_[3]) {
+            lv_obj_remove_flag(extra_shape_[3], LV_OBJ_FLAG_HIDDEN);
+            lv_obj_set_pos(extra_shape_[3], 106, 20);
+            lv_obj_set_size(extra_shape_[3], 4, 6 + ray_ext);
+        }
+        if (extra_shape_[4]) {
+            lv_obj_remove_flag(extra_shape_[4], LV_OBJ_FLAG_HIDDEN);
+            lv_obj_set_pos(extra_shape_[4], 130, 20);
+            lv_obj_set_size(extra_shape_[4], 4, 6 + ray_ext);
+        }
+    } else if (face_mode_ == FaceMode::kMusic && !blink) {
+        if (fx_label_a_ && fx_label_b_) {
+            lv_obj_remove_flag(fx_label_a_, LV_OBJ_FLAG_HIDDEN);
+            lv_obj_remove_flag(fx_label_b_, LV_OBJ_FLAG_HIDDEN);
+            lv_label_set_text(fx_label_a_, LV_SYMBOL_AUDIO);
+            lv_label_set_text(fx_label_b_, LV_SYMBOL_AUDIO);
+            int ny0 = 4 + (((animation_tick_ / 6)) % 2 == 0 ? -4 : 4);
+            int ny1 = 4 + (((animation_tick_ / 6) + 1) % 2 == 0 ? -4 : 4);
+            lv_obj_set_pos(fx_label_a_, left_x - 24, ny0);
+            lv_obj_set_pos(fx_label_b_, right_x + current_right_width_ + 4, ny1);
+        }
+    } else if (face_mode_ == FaceMode::kConfusedQuestion && !blink) {
+        if (fx_label_a_ && fx_label_b_) {
+            lv_obj_remove_flag(fx_label_a_, LV_OBJ_FLAG_HIDDEN);
+            lv_obj_remove_flag(fx_label_b_, LV_OBJ_FLAG_HIDDEN);
+            lv_label_set_text(fx_label_a_, "?");
+            lv_label_set_text(fx_label_b_, "?");
+            int ny = 2 + ((animation_tick_ / 6) % 2 == 0 ? -2 : 4);
+            lv_obj_set_pos(fx_label_a_, 112, ny);
+            lv_obj_set_pos(fx_label_b_, right_x + current_right_width_ + 6, ny + 4);
+        }
+    } else if ((face_mode_ == FaceMode::kScanning || face_mode_ == FaceMode::kThunderShock) && !blink) {
+        if (laser_line_) {
+            lv_obj_remove_flag(laser_line_, LV_OBJ_FLAG_HIDDEN);
+            int scan_offset = ((animation_tick_ * 4) % (current_left_height_ + 10));
+            lv_obj_set_pos(laser_line_, base_x - 8, left_y - 4 + scan_offset);
+            lv_obj_set_size(laser_line_, pair_width + 16, 4);
+        }
+        if (face_mode_ == FaceMode::kThunderShock && fx_label_a_) {
+            lv_obj_remove_flag(fx_label_a_, LV_OBJ_FLAG_HIDDEN);
+            lv_label_set_text(fx_label_a_, LV_SYMBOL_CHARGE);
+            lv_obj_set_pos(fx_label_a_, 112, 4);
+        }
+    } else if (face_mode_ == FaceMode::kMatrixGlitch && !blink) {
+        for (int i = 0; i < 5; ++i) {
+            if (extra_shape_[i]) {
+                lv_obj_remove_flag(extra_shape_[i], LV_OBJ_FLAG_HIDDEN);
+                lv_obj_set_style_bg_color(extra_shape_[i], (i % 2 == 0) ? lv_color_black() : lv_color_white(), 0);
+                int gx = 18 + ((animation_tick_ * 29 + i * 41) % 180);
+                int gy = 12 + ((animation_tick_ * 13 + i * 19) % 72);
+                int gw = 28 + ((animation_tick_ * 9 + i * 23) % 48);
+                lv_obj_set_pos(extra_shape_[i], gx, gy);
+                lv_obj_set_size(extra_shape_[i], gw, 5);
+                lv_obj_set_style_radius(extra_shape_[i], 0, 0);
+            }
+        }
+    } else if (face_mode_ == FaceMode::kLowBattery && !blink) {
+        if ((animation_tick_ % 14 < 9) && extra_shape_[0] && extra_shape_[1]) {
+            lv_obj_remove_flag(extra_shape_[0], LV_OBJ_FLAG_HIDDEN);
+            lv_obj_set_style_bg_opa(extra_shape_[0], LV_OPA_TRANSP, 0);
+            lv_obj_set_style_border_width(extra_shape_[0], 3, 0);
+            lv_obj_set_style_border_color(extra_shape_[0], lv_color_white(), 0);
+            lv_obj_set_pos(extra_shape_[0], 100, 4);
+            lv_obj_set_size(extra_shape_[0], 38, 18);
+            lv_obj_set_style_radius(extra_shape_[0], 4, 0);
+
+            lv_obj_remove_flag(extra_shape_[1], LV_OBJ_FLAG_HIDDEN);
+            lv_obj_set_pos(extra_shape_[1], 138, 9);
+            lv_obj_set_size(extra_shape_[1], 4, 8);
+
+            if (extra_shape_[2]) {
+                lv_obj_remove_flag(extra_shape_[2], LV_OBJ_FLAG_HIDDEN);
+                lv_obj_set_pos(extra_shape_[2], 106, 9);
+                lv_obj_set_size(extra_shape_[2], 8, 8);
+            }
+        }
+    } else if (face_mode_ == FaceMode::kAngelBlessing && !blink) {
+        if (extra_shape_[0]) {
+            int float_y = ((animation_tick_ / 8) % 2 == 0) ? 0 : 4;
+            lv_obj_remove_flag(extra_shape_[0], LV_OBJ_FLAG_HIDDEN);
+            lv_obj_set_style_bg_opa(extra_shape_[0], LV_OPA_TRANSP, 0);
+            lv_obj_set_style_border_width(extra_shape_[0], 3, 0);
+            lv_obj_set_style_border_color(extra_shape_[0], lv_color_white(), 0);
+            lv_obj_set_pos(extra_shape_[0], 75, float_y);
+            lv_obj_set_size(extra_shape_[0], 90, 14);
+            lv_obj_set_style_radius(extra_shape_[0], 8, 0);
+        }
+    } else if (face_mode_ == FaceMode::kInnocent && !blink) {
+        for (int i = 0; i < 2; ++i) {
+            int sy = ((animation_tick_ / 5 + i) % 2 == 0) ? 4 : 10;
+            int sx = (i == 0) ? (left_x - 12) : (right_x + current_right_width_ + 4);
+            PlaceDisc(smoke_puff_[i * 2], smoke_puff_[i * 2 + 1], nullptr, sx, sy, 10);
+        }
+    } else if (face_mode_ == FaceMode::kTargetLocked && !blink) {
+        int cx = right_x + current_right_width_ / 2;
+        int cy = right_y + current_right_height_ / 2;
+        if (extra_shape_[0]) {
+            lv_obj_remove_flag(extra_shape_[0], LV_OBJ_FLAG_HIDDEN);
+            lv_obj_set_style_bg_opa(extra_shape_[0], LV_OPA_TRANSP, 0);
+            lv_obj_set_style_border_width(extra_shape_[0], 3, 0);
+            lv_obj_set_style_border_color(extra_shape_[0], lv_color_black(), 0);
+            lv_obj_set_size(extra_shape_[0], 48, 48);
+            lv_obj_set_style_radius(extra_shape_[0], 12, 0);
+            lv_obj_set_pos(extra_shape_[0], cx - 24, cy - 24);
+        }
+        if (extra_shape_[1]) {
+            lv_obj_remove_flag(extra_shape_[1], LV_OBJ_FLAG_HIDDEN);
+            lv_obj_set_style_bg_color(extra_shape_[1], lv_color_black(), 0);
+            lv_obj_set_size(extra_shape_[1], 64, 4);
+            lv_obj_set_pos(extra_shape_[1], cx - 32, cy - 2);
+        }
+        if (extra_shape_[2]) {
+            lv_obj_remove_flag(extra_shape_[2], LV_OBJ_FLAG_HIDDEN);
+            lv_obj_set_style_bg_color(extra_shape_[2], lv_color_black(), 0);
+            lv_obj_set_size(extra_shape_[2], 4, 64);
+            lv_obj_set_pos(extra_shape_[2], cx - 2, cy - 32);
+        }
+    } else if (face_mode_ == FaceMode::kIdeaEureka && !blink) {
+        PlaceDisc(smoke_puff_[0], smoke_puff_[1], nullptr, 113, 2, 14);
+        if (extra_shape_[1]) {
+            lv_obj_remove_flag(extra_shape_[1], LV_OBJ_FLAG_HIDDEN);
+            lv_obj_set_pos(extra_shape_[1], 115, 18);
+            lv_obj_set_size(extra_shape_[1], 10, 6);
+            lv_obj_set_style_radius(extra_shape_[1], 2, 0);
+        }
+        if ((animation_tick_ / 4) % 2 == 0) {
+            for (int i = 2; i < 4; ++i) {
+                if (extra_shape_[i]) {
+                    lv_obj_remove_flag(extra_shape_[i], LV_OBJ_FLAG_HIDDEN);
+                    lv_obj_set_size(extra_shape_[i], 8, 4);
+                    lv_obj_set_pos(extra_shape_[i], (i == 2) ? 100 : 132, 10);
+                }
+            }
+        }
+    } else if (face_mode_ == FaceMode::kWhispering && !blink) {
+        for (int i = 0; i < 3; ++i) {
+            if (extra_shape_[i]) {
+                lv_obj_remove_flag(extra_shape_[i], LV_OBJ_FLAG_HIDDEN);
+                int float_dy = ((animation_tick_ / 5 + i) % 2 == 0) ? -2 : 2;
+                lv_obj_set_size(extra_shape_[i], 4, 4);
+                lv_obj_set_pos(extra_shape_[i], 110 + i * 10, 32 + float_dy);
+            }
+        }
+    } else if (face_mode_ == FaceMode::kSneezing && (animation_tick_ % 35) >= 22) {
+        for (int i = 0; i < 3; ++i) {
+            if (extra_shape_[i]) {
+                lv_obj_remove_flag(extra_shape_[i], LV_OBJ_FLAG_HIDDEN);
+                int dist = ((animation_tick_ % 35) - 22) * 4;
+                lv_obj_set_size(extra_shape_[i], 6, 6);
+                lv_obj_set_pos(extra_shape_[i], 100 + i * 20, 60 + dist);
+            }
+        }
+    } else if (face_mode_ == FaceMode::kHeadache && !blink) {
+        if (extra_shape_[0] && extra_shape_[1] && extra_shape_[2]) {
+            int pulse = ((animation_tick_ / 3) % 2 == 0) ? 4 : 0;
+            lv_obj_remove_flag(extra_shape_[0], LV_OBJ_FLAG_HIDDEN);
+            lv_obj_set_pos(extra_shape_[0], 110, 2);
+            lv_obj_set_size(extra_shape_[0], 8, 18 + pulse);
+            lv_obj_set_style_transform_rotation(extra_shape_[0], NormalizeAngle(250), 0);
+
+            lv_obj_remove_flag(extra_shape_[1], LV_OBJ_FLAG_HIDDEN);
+            lv_obj_set_pos(extra_shape_[1], 122, 2);
+            lv_obj_set_size(extra_shape_[1], 8, 18 + pulse);
+            lv_obj_set_style_transform_rotation(extra_shape_[1], NormalizeAngle(-250), 0);
+
+            lv_obj_remove_flag(extra_shape_[2], LV_OBJ_FLAG_HIDDEN);
+            lv_obj_set_pos(extra_shape_[2], 104, 12);
+            lv_obj_set_size(extra_shape_[2], 32, 6);
+        }
+    } else if (face_mode_ == FaceMode::kFreezing && !blink) {
+        for (int i = 0; i < 4; ++i) {
+            if (extra_shape_[i]) {
+                lv_obj_remove_flag(extra_shape_[i], LV_OBJ_FLAG_HIDDEN);
+                int ix = (i < 2) ? (left_x + 16 + i * 32) : (right_x + 16 + (i - 2) * 32);
+                int ih = (i % 2 == 0) ? 18 : 12;
+                lv_obj_set_pos(extra_shape_[i], ix, left_y + current_left_height_ - 2);
+                lv_obj_set_size(extra_shape_[i], 6, ih);
+            }
+        }
+        if (extra_shape_[4] && extra_shape_[5]) {
+            int chatter = (animation_tick_ % 2 == 0) ? 0 : 2;
+            lv_obj_remove_flag(extra_shape_[4], LV_OBJ_FLAG_HIDDEN);
+            lv_obj_set_pos(extra_shape_[4], 100, 80 - chatter);
+            lv_obj_set_size(extra_shape_[4], 40, 4);
+
+            lv_obj_remove_flag(extra_shape_[5], LV_OBJ_FLAG_HIDDEN);
+            lv_obj_set_pos(extra_shape_[5], 100, 86 + chatter);
+            lv_obj_set_size(extra_shape_[5], 40, 4);
+        }
+    } else if (face_mode_ == FaceMode::kCryingStream && !blink) {
+        for (int i = 0; i < 4; ++i) {
+            if (extra_shape_[i]) {
+                lv_obj_remove_flag(extra_shape_[i], LV_OBJ_FLAG_HIDDEN);
+                lv_obj_set_style_bg_color(extra_shape_[i], lv_color_hex(0x00E5FF), 0);
+                int sx = (i == 0) ? (left_x + 10) : (i == 1) ? (left_x + 44) : (i == 2) ? (right_x + 10) : (right_x + 44);
+                int top_y = left_y + current_left_height_ - 4;
+                lv_obj_set_pos(extra_shape_[i], sx, top_y);
+                lv_obj_set_size(extra_shape_[i], 14, std::max(4, 180 - top_y));
+                lv_obj_set_style_radius(extra_shape_[i], 4, 0);
+            }
+        }
+    } else if (face_mode_ == FaceMode::kShockedJawdrop && !blink) {
+        if (extra_shape_[0]) {
+            lv_obj_remove_flag(extra_shape_[0], LV_OBJ_FLAG_HIDDEN);
+            lv_obj_set_style_bg_opa(extra_shape_[0], LV_OPA_TRANSP, 0);
+            lv_obj_set_style_border_width(extra_shape_[0], 4, 0);
+            lv_obj_set_style_border_color(extra_shape_[0], lv_color_white(), 0);
+            lv_obj_set_pos(extra_shape_[0], 100, 76);
+            lv_obj_set_size(extra_shape_[0], 40, 20);
+            lv_obj_set_style_radius(extra_shape_[0], 8, 0);
+        }
+    } else if (face_mode_ == FaceMode::kTongueOut && !blink) {
+        if (extra_shape_[0] && extra_shape_[1]) {
+            int wiggle = ((animation_tick_ / 4) % 2 == 0) ? -4 : 4;
+            lv_obj_remove_flag(extra_shape_[0], LV_OBJ_FLAG_HIDDEN);
+            lv_obj_set_pos(extra_shape_[0], 88, 72);
+            lv_obj_set_size(extra_shape_[0], 64, 4);
+
+            lv_obj_remove_flag(extra_shape_[1], LV_OBJ_FLAG_HIDDEN);
+            lv_obj_set_style_bg_color(extra_shape_[1], lv_color_hex(0xFF4081), 0);
+            lv_obj_set_pos(extra_shape_[1], 104 + wiggle, 74);
+            lv_obj_set_size(extra_shape_[1], 32, 20);
+            lv_obj_set_style_radius(extra_shape_[1], 10, 0);
+        }
+    } else if (face_mode_ == FaceMode::kRainyGloomy && !blink) {
+        if (extra_shape_[0]) {
+            lv_obj_remove_flag(extra_shape_[0], LV_OBJ_FLAG_HIDDEN);
+            lv_obj_set_style_bg_color(extra_shape_[0], lv_color_hex(0x90A4AE), 0);
+            lv_obj_set_pos(extra_shape_[0], 80, 4);
+            lv_obj_set_size(extra_shape_[0], 80, 14);
+            lv_obj_set_style_radius(extra_shape_[0], 8, 0);
+        }
+        for (int i = 0; i < 4; ++i) {
+            if (smoke_puff_[i]) {
+                lv_obj_remove_flag(smoke_puff_[i], LV_OBJ_FLAG_HIDDEN);
+                lv_obj_set_style_bg_color(smoke_puff_[i], lv_color_hex(0x00E5FF), 0);
+                int ry = 22 + ((animation_tick_ * 6 + i * 14) % 64);
+                lv_obj_set_pos(smoke_puff_[i], 90 + i * 20, ry);
+                lv_obj_set_size(smoke_puff_[i], 4, 10);
+                lv_obj_set_style_radius(smoke_puff_[i], 2, 0);
+            }
+        }
+    } else if (face_mode_ == FaceMode::kFacepalm && !blink) {
+        if (extra_shape_[0] && extra_shape_[1]) {
+            lv_obj_remove_flag(extra_shape_[0], LV_OBJ_FLAG_HIDDEN);
+            lv_obj_set_pos(extra_shape_[0], left_x + 8, 8);
+            lv_obj_set_size(extra_shape_[0], 76, 28);
+            lv_obj_set_style_radius(extra_shape_[0], 8, 0);
+            lv_obj_set_style_transform_rotation(extra_shape_[0], NormalizeAngle(-120), 0);
+
+            lv_obj_remove_flag(extra_shape_[1], LV_OBJ_FLAG_HIDDEN);
+            lv_obj_set_pos(extra_shape_[1], left_x + 24, 32);
+            lv_obj_set_size(extra_shape_[1], 64, 20);
+            lv_obj_set_style_radius(extra_shape_[1], 6, 0);
+            lv_obj_set_style_transform_rotation(extra_shape_[1], NormalizeAngle(-80), 0);
+        }
+        if (sweat_drop_) {
+            lv_obj_remove_flag(sweat_drop_, LV_OBJ_FLAG_HIDDEN);
+            int sy = 12 + ((animation_tick_ * 4) % 40);
+            lv_obj_set_pos(sweat_drop_, right_x + current_right_width_ + 6, sy);
+            lv_obj_set_size(sweat_drop_, 10, 16);
+        }
+    }
+
+    // 13. Eyelids (Dynamic Angled Top & Bottom Lids)
+    for (auto* lid : {left_top_lid_, right_top_lid_, left_bottom_lid_, right_bottom_lid_}) {
+        lv_obj_add_flag(lid, LV_OBJ_FLAG_HIDDEN);
+        lv_obj_set_style_transform_rotation(lid, 0, 0);
+    }
+
+    if (face_mode_ != FaceMode::kSleeping && face_mode_ != FaceMode::kZenMeditation &&
+        face_mode_ != FaceMode::kAngelBlessing && face_mode_ != FaceMode::kLove &&
+        face_mode_ != FaceMode::kHeartbroken && !blink) {
+        if (face_mode_ == FaceMode::kAngry) {
+            constexpr int lid_w = 100;
+            constexpr int lid_h = 54;
+            lv_obj_remove_flag(left_top_lid_, LV_OBJ_FLAG_HIDDEN);
+            lv_obj_remove_flag(right_top_lid_, LV_OBJ_FLAG_HIDDEN);
+
+            lv_obj_set_pos(left_top_lid_, left_x - 12, left_y - 36);
+            lv_obj_set_size(left_top_lid_, lid_w, lid_h);
+            lv_obj_set_style_transform_pivot_x(left_top_lid_, lid_w / 2, 0);
+            lv_obj_set_style_transform_pivot_y(left_top_lid_, lid_h / 2, 0);
+            lv_obj_set_style_transform_rotation(left_top_lid_, NormalizeAngle(140), 0);
+
+            lv_obj_set_pos(right_top_lid_, right_x - 12, right_y - 36);
+            lv_obj_set_size(right_top_lid_, lid_w, lid_h);
+            lv_obj_set_style_transform_pivot_x(right_top_lid_, lid_w / 2, 0);
+            lv_obj_set_style_transform_pivot_y(right_top_lid_, lid_h / 2, 0);
+            lv_obj_set_style_transform_rotation(right_top_lid_, NormalizeAngle(-140), 0);
+
+        } else if (face_mode_ == FaceMode::kFurious || face_mode_ == FaceMode::kFireFury || face_mode_ == FaceMode::kHeadache) {
+            constexpr int lid_w = 108;
+            constexpr int lid_h = 58;
+            lv_obj_remove_flag(left_top_lid_, LV_OBJ_FLAG_HIDDEN);
+            lv_obj_remove_flag(right_top_lid_, LV_OBJ_FLAG_HIDDEN);
+
+            lv_obj_set_pos(left_top_lid_, left_x - 16, left_y - 38);
+            lv_obj_set_size(left_top_lid_, lid_w, lid_h);
+            lv_obj_set_style_transform_pivot_x(left_top_lid_, lid_w / 2, 0);
+            lv_obj_set_style_transform_pivot_y(left_top_lid_, lid_h / 2, 0);
+            lv_obj_set_style_transform_rotation(left_top_lid_, NormalizeAngle(180), 0);
+
+            lv_obj_set_pos(right_top_lid_, right_x - 16, right_y - 38);
+            lv_obj_set_size(right_top_lid_, lid_w, lid_h);
+            lv_obj_set_style_transform_pivot_x(right_top_lid_, lid_w / 2, 0);
+            lv_obj_set_style_transform_pivot_y(right_top_lid_, lid_h / 2, 0);
+            lv_obj_set_style_transform_rotation(right_top_lid_, NormalizeAngle(-180), 0);
+
+            lv_obj_remove_flag(left_bottom_lid_, LV_OBJ_FLAG_HIDDEN);
+            lv_obj_remove_flag(right_bottom_lid_, LV_OBJ_FLAG_HIDDEN);
+            lv_obj_set_pos(left_bottom_lid_, left_x - 4, left_y + current_left_height_ - 12);
+            lv_obj_set_size(left_bottom_lid_, current_left_width_ + 8, 20);
+            lv_obj_set_pos(right_bottom_lid_, right_x - 4, right_y + current_right_height_ - 12);
+            lv_obj_set_size(right_bottom_lid_, current_right_width_ + 8, 20);
+
+        } else if (face_mode_ == FaceMode::kSadEmpathy || face_mode_ == FaceMode::kSadCrying ||
+                   face_mode_ == FaceMode::kCryingStream || face_mode_ == FaceMode::kRainyGloomy) {
+            constexpr int lid_w = 100;
+            constexpr int lid_h = 54;
+            lv_obj_remove_flag(left_top_lid_, LV_OBJ_FLAG_HIDDEN);
+            lv_obj_remove_flag(right_top_lid_, LV_OBJ_FLAG_HIDDEN);
+
+            lv_obj_set_pos(left_top_lid_, left_x - 12, left_y - 36);
+            lv_obj_set_size(left_top_lid_, lid_w, lid_h);
+            lv_obj_set_style_transform_pivot_x(left_top_lid_, lid_w / 2, 0);
+            lv_obj_set_style_transform_pivot_y(left_top_lid_, lid_h / 2, 0);
+            lv_obj_set_style_transform_rotation(left_top_lid_, NormalizeAngle(-140), 0);
+
+            lv_obj_set_pos(right_top_lid_, right_x - 12, right_y - 36);
+            lv_obj_set_size(right_top_lid_, lid_w, lid_h);
+            lv_obj_set_style_transform_pivot_x(right_top_lid_, lid_w / 2, 0);
+            lv_obj_set_style_transform_pivot_y(right_top_lid_, lid_h / 2, 0);
+            lv_obj_set_style_transform_rotation(right_top_lid_, NormalizeAngle(140), 0);
+
+        } else if (face_mode_ == FaceMode::kSleepy) {
+            constexpr int sleepy_cover = 26;
+            lv_obj_remove_flag(left_top_lid_, LV_OBJ_FLAG_HIDDEN);
+            lv_obj_remove_flag(right_top_lid_, LV_OBJ_FLAG_HIDDEN);
+            lv_obj_set_pos(left_top_lid_, left_x - 4, left_y - 4);
+            lv_obj_set_size(left_top_lid_, current_left_width_ + 8, sleepy_cover + 4);
+            lv_obj_set_pos(right_top_lid_, right_x - 4, right_y - 4);
+            lv_obj_set_size(right_top_lid_, current_right_width_ + 8, sleepy_cover + 4);
+
+        } else if (face_mode_ == FaceMode::kBored || face_mode_ == FaceMode::kDisgusted) {
+            constexpr int bored_cover = 34;
+            lv_obj_remove_flag(left_top_lid_, LV_OBJ_FLAG_HIDDEN);
+            lv_obj_remove_flag(right_top_lid_, LV_OBJ_FLAG_HIDDEN);
+            lv_obj_set_pos(left_top_lid_, left_x - 4, left_y - 4);
+            lv_obj_set_size(left_top_lid_, current_left_width_ + 8, bored_cover + 4);
+            lv_obj_set_pos(right_top_lid_, right_x - 4, right_y - 4);
+            lv_obj_set_size(right_top_lid_, current_right_width_ + 8, bored_cover + 4);
+
+            if (face_mode_ == FaceMode::kDisgusted) {
+                lv_obj_remove_flag(left_bottom_lid_, LV_OBJ_FLAG_HIDDEN);
+                lv_obj_set_pos(left_bottom_lid_, left_x - 4, left_y + current_left_height_ - 12);
+                lv_obj_set_size(left_bottom_lid_, current_left_width_ + 8, 16);
+            }
+
+        } else if (face_mode_ == FaceMode::kSideEye) {
+            constexpr int lid_w = 100;
+            constexpr int lid_h = 48;
+            lv_obj_remove_flag(left_top_lid_, LV_OBJ_FLAG_HIDDEN);
+            lv_obj_remove_flag(right_top_lid_, LV_OBJ_FLAG_HIDDEN);
+            lv_obj_set_pos(left_top_lid_, left_x - 12, left_y - 30);
+            lv_obj_set_size(left_top_lid_, lid_w, lid_h);
+            lv_obj_set_style_transform_pivot_x(left_top_lid_, lid_w / 2, 0);
+            lv_obj_set_style_transform_pivot_y(left_top_lid_, lid_h / 2, 0);
+            lv_obj_set_style_transform_rotation(left_top_lid_, NormalizeAngle(100), 0);
+
+            lv_obj_set_pos(right_top_lid_, right_x - 12, right_y - 30);
+            lv_obj_set_size(right_top_lid_, lid_w, lid_h);
+            lv_obj_set_style_transform_pivot_x(right_top_lid_, lid_w / 2, 0);
+            lv_obj_set_style_transform_pivot_y(right_top_lid_, lid_h / 2, 0);
+            lv_obj_set_style_transform_rotation(right_top_lid_, NormalizeAngle(100), 0);
+
+        } else if (face_mode_ == FaceMode::kJealous) {
+            constexpr int lid_w = 100;
+            constexpr int lid_h = 48;
+            lv_obj_remove_flag(left_top_lid_, LV_OBJ_FLAG_HIDDEN);
+            lv_obj_remove_flag(right_top_lid_, LV_OBJ_FLAG_HIDDEN);
+            lv_obj_set_pos(left_top_lid_, left_x - 12, left_y - 30);
+            lv_obj_set_size(left_top_lid_, lid_w, lid_h);
+            lv_obj_set_style_transform_pivot_x(left_top_lid_, lid_w / 2, 0);
+            lv_obj_set_style_transform_pivot_y(left_top_lid_, lid_h / 2, 0);
+            lv_obj_set_style_transform_rotation(left_top_lid_, NormalizeAngle(-120), 0);
+
+            lv_obj_set_pos(right_top_lid_, right_x - 12, right_y - 30);
+            lv_obj_set_size(right_top_lid_, lid_w, lid_h);
+            lv_obj_set_style_transform_pivot_x(right_top_lid_, lid_w / 2, 0);
+            lv_obj_set_style_transform_pivot_y(right_top_lid_, lid_h / 2, 0);
+            lv_obj_set_style_transform_rotation(right_top_lid_, NormalizeAngle(120), 0);
+
+        } else if (face_mode_ == FaceMode::kScheming) {
+            constexpr int lid_w = 100;
+            constexpr int lid_h = 48;
+            lv_obj_remove_flag(left_top_lid_, LV_OBJ_FLAG_HIDDEN);
+            lv_obj_remove_flag(right_top_lid_, LV_OBJ_FLAG_HIDDEN);
+            lv_obj_set_pos(left_top_lid_, left_x - 12, left_y - 28);
+            lv_obj_set_size(left_top_lid_, lid_w, lid_h);
+            lv_obj_set_style_transform_pivot_x(left_top_lid_, lid_w / 2, 0);
+            lv_obj_set_style_transform_pivot_y(left_top_lid_, lid_h / 2, 0);
+            lv_obj_set_style_transform_rotation(left_top_lid_, NormalizeAngle(150), 0);
+
+            lv_obj_set_pos(right_top_lid_, right_x - 12, right_y - 28);
+            lv_obj_set_size(right_top_lid_, lid_w, lid_h);
+            lv_obj_set_style_transform_pivot_x(right_top_lid_, lid_w / 2, 0);
+            lv_obj_set_style_transform_pivot_y(right_top_lid_, lid_h / 2, 0);
+            lv_obj_set_style_transform_rotation(right_top_lid_, NormalizeAngle(-150), 0);
+
+        } else if (face_mode_ == FaceMode::kSkeptical || face_mode_ == FaceMode::kConfusedQuestion) {
+            constexpr int lid_w = 90;
+            constexpr int lid_h = 40;
+            lv_obj_remove_flag(right_top_lid_, LV_OBJ_FLAG_HIDDEN);
+            lv_obj_set_pos(right_top_lid_, right_x - 10, right_y - 24);
+            lv_obj_set_size(right_top_lid_, lid_w, lid_h);
+            lv_obj_set_style_transform_pivot_x(right_top_lid_, lid_w / 2, 0);
+            lv_obj_set_style_transform_pivot_y(right_top_lid_, lid_h / 2, 0);
+            lv_obj_set_style_transform_rotation(right_top_lid_, NormalizeAngle(-60), 0);
+
+        } else if (face_mode_ == FaceMode::kSmug) {
+            lv_obj_remove_flag(left_bottom_lid_, LV_OBJ_FLAG_HIDDEN);
+            lv_obj_set_pos(left_bottom_lid_, left_x - 4, left_y + current_left_height_ - 12);
+            lv_obj_set_size(left_bottom_lid_, current_left_width_ + 8, 20);
+
+            lv_obj_remove_flag(right_bottom_lid_, LV_OBJ_FLAG_HIDDEN);
+            lv_obj_set_pos(right_bottom_lid_, right_x - 4, right_y + current_right_height_ - 28);
+            lv_obj_set_size(right_bottom_lid_, current_right_width_ + 8, 36);
+        }
+
+        // Laugh / Smile / TongueOut / SunnyDazzle / Speaking Cheek Bump
+        if (face_mode_ == FaceMode::kEcstaticLaugh || face_mode_ == FaceMode::kPartyCelebrate ||
+            face_mode_ == FaceMode::kTongueOut || face_mode_ == FaceMode::kSunnyDazzle) {
+            constexpr int cover_height = 18;
+            lv_obj_remove_flag(left_bottom_lid_, LV_OBJ_FLAG_HIDDEN);
+            lv_obj_remove_flag(right_bottom_lid_, LV_OBJ_FLAG_HIDDEN);
+            lv_obj_set_pos(left_bottom_lid_, left_x - 4, left_y + current_left_height_ - cover_height + 8);
+            lv_obj_set_size(left_bottom_lid_, current_left_width_ + 8, cover_height);
+            lv_obj_set_pos(right_bottom_lid_, right_x - 4, right_y + current_right_height_ - cover_height + 8);
+            lv_obj_set_size(right_bottom_lid_, current_right_width_ + 8, cover_height);
+        } else if (face_mode_ == FaceMode::kSmileGentle || face_mode_ == FaceMode::kMusic ||
+                   (is_speaking_ && (face_mode_ == FaceMode::kNeutral || face_mode_ == FaceMode::kListening))) {
+            int dynamic_cheek = 24 + (is_speaking_ ? (spk_level / 10) : 4);
+            lv_obj_remove_flag(left_bottom_lid_, LV_OBJ_FLAG_HIDDEN);
+            lv_obj_remove_flag(right_bottom_lid_, LV_OBJ_FLAG_HIDDEN);
+            lv_obj_set_pos(left_bottom_lid_, left_x - 4, left_y + current_left_height_ - dynamic_cheek / 2);
+            lv_obj_set_size(left_bottom_lid_, current_left_width_ + 8, dynamic_cheek);
+            lv_obj_set_pos(right_bottom_lid_, right_x - 4, right_y + current_right_height_ - dynamic_cheek / 2);
+            lv_obj_set_size(right_bottom_lid_, current_right_width_ + 8, dynamic_cheek);
+        }
+    }
+}
+
 uint32_t PocketLcdDisplay::NextRandom() {
     random_state_ = random_state_ * 1664525U + 1013904223U;
     return random_state_ >> 8;
@@ -1276,7 +2507,6 @@ void PocketLcdDisplay::ShowStandbyClock() {
             lv_obj_set_size(standby_container_, 240, 240);
             lv_obj_set_pos(standby_container_, 0, 0);
         } else {
-            // Màn hình 2.4" 240x320: Đồng hồ đặt ở nửa dưới (y=100..320), nửa trên hở cho mắt robot
             lv_obj_set_size(standby_container_, 240, 220);
             lv_obj_set_pos(standby_container_, 0, 100);
         }
@@ -1284,8 +2514,6 @@ void PocketLcdDisplay::ShowStandbyClock() {
         lv_obj_set_style_bg_opa(standby_container_, LV_OPA_COVER, 0);
 
         if (height_ <= 240) {
-            // ================= LAYOUT MÀN HÌNH VUÔNG 240x240 =================
-            // Viền Bezel vuông bo góc kép Neon
             lv_obj_t* bezel = lv_obj_create(standby_container_);
             lv_obj_remove_style_all(bezel);
             lv_obj_set_size(bezel, 230, 230);
@@ -1295,7 +2523,6 @@ void PocketLcdDisplay::ShowStandbyClock() {
             lv_obj_set_style_border_opa(bezel, LV_OPA_70, 0);
             lv_obj_set_style_radius(bezel, 14, 0);
 
-            // Status bar trên cùng
             clock_wifi_label_ = lv_label_create(standby_container_);
             lv_obj_set_style_text_color(clock_wifi_label_, lv_color_hex(0x80D8FF), 0);
             lv_obj_set_pos(clock_wifi_label_, 14, 12);
@@ -1305,28 +2532,24 @@ void PocketLcdDisplay::ShowStandbyClock() {
             lv_obj_set_pos(clock_mini_robot_, 180, 12);
             lv_label_set_text(clock_mini_robot_, "(•) zZz");
 
-            // Ngày tháng
             clock_date_label_ = lv_label_create(standby_container_);
             lv_obj_set_style_text_color(clock_date_label_, lv_color_hex(0x00E5FF), 0);
             lv_obj_set_style_text_align(clock_date_label_, LV_TEXT_ALIGN_CENTER, 0);
             lv_obj_set_width(clock_date_label_, 220);
             lv_obj_set_pos(clock_date_label_, 10, 42);
 
-            // Giờ : Phút khổng lồ
             clock_time_label_ = lv_label_create(standby_container_);
             lv_obj_set_style_text_color(clock_time_label_, lv_color_white(), 0);
             lv_obj_set_style_text_align(clock_time_label_, LV_TEXT_ALIGN_CENTER, 0);
             lv_obj_set_width(clock_time_label_, 220);
             lv_obj_set_pos(clock_time_label_, 10, 78);
 
-            // Giây
             clock_sec_label_ = lv_label_create(standby_container_);
             lv_obj_set_style_text_color(clock_sec_label_, lv_color_hex(0xFFB300), 0);
             lv_obj_set_style_text_align(clock_sec_label_, LV_TEXT_ALIGN_CENTER, 0);
             lv_obj_set_width(clock_sec_label_, 220);
             lv_obj_set_pos(clock_sec_label_, 10, 142);
 
-            // Footer IP & Tips
             clock_ip_label_ = lv_label_create(standby_container_);
             lv_obj_set_style_text_color(clock_ip_label_, lv_color_hex(0x90CAF9), 0);
             lv_obj_set_style_text_align(clock_ip_label_, LV_TEXT_ALIGN_CENTER, 0);
@@ -1340,30 +2563,24 @@ void PocketLcdDisplay::ShowStandbyClock() {
             lv_obj_set_pos(clock_tips_label_, 10, 208);
             lv_label_set_text(clock_tips_label_, "Noi \"Jarvis\" de danh thuc");
         } else {
-            // ================= LAYOUT MÀN HÌNH 2.4 INCH 240x320 =================
-            // Nửa trên (y=0..100) đã có đôi mắt robot Wall-E sống động đang thở
-            // Nửa dưới (container y=100..320) bố trí đồng hồ và thẻ thông tin
             clock_date_label_ = lv_label_create(standby_container_);
             lv_obj_set_style_text_color(clock_date_label_, lv_color_hex(0x00E5FF), 0);
             lv_obj_set_style_text_align(clock_date_label_, LV_TEXT_ALIGN_CENTER, 0);
             lv_obj_set_width(clock_date_label_, 220);
             lv_obj_set_pos(clock_date_label_, 10, 6);
 
-            // Giờ : Phút cỡ lớn
             clock_time_label_ = lv_label_create(standby_container_);
             lv_obj_set_style_text_color(clock_time_label_, lv_color_white(), 0);
             lv_obj_set_style_text_align(clock_time_label_, LV_TEXT_ALIGN_CENTER, 0);
             lv_obj_set_width(clock_time_label_, 220);
             lv_obj_set_pos(clock_time_label_, 10, 30);
 
-            // Giây
             clock_sec_label_ = lv_label_create(standby_container_);
             lv_obj_set_style_text_color(clock_sec_label_, lv_color_hex(0xFFB300), 0);
             lv_obj_set_style_text_align(clock_sec_label_, LV_TEXT_ALIGN_CENTER, 0);
             lv_obj_set_width(clock_sec_label_, 220);
             lv_obj_set_pos(clock_sec_label_, 10, 78);
 
-            // Hộp thẻ kính mờ (Frosted Glass Card)
             clock_card_ = lv_obj_create(standby_container_);
             lv_obj_remove_style_all(clock_card_);
             lv_obj_set_size(clock_card_, 220, 105);
@@ -1423,7 +2640,6 @@ void PocketLcdDisplay::UpdateStandbyClock() {
         snprintf(date_buf, sizeof(date_buf), "%s  *  %02d/%02d/%04d",
                  days[tm_now.tm_wday % 7], tm_now.tm_mday, tm_now.tm_mon + 1, tm_now.tm_year + 1900);
     } else {
-        // Chưa đồng bộ NTP qua WiFi
         uint32_t uptime_sec = animation_tick_ / 20;
         uint32_t hrs = uptime_sec / 3600;
         uint32_t mins = (uptime_sec % 3600) / 60;
@@ -1437,7 +2653,6 @@ void PocketLcdDisplay::UpdateStandbyClock() {
     if (clock_sec_label_) lv_label_set_text(clock_sec_label_, sec_buf);
     if (clock_date_label_) lv_label_set_text(clock_date_label_, date_buf);
 
-    // Cập nhật thông tin WiFi & IP
     auto& wifi = WifiManager::GetInstance();
     std::string ssid = wifi.GetSsid();
     std::string ip = wifi.GetIpAddress();
@@ -1452,4 +2667,3 @@ void PocketLcdDisplay::UpdateStandbyClock() {
         lv_label_set_text(clock_ip_label_, ip_str.c_str());
     }
 }
-
