@@ -256,6 +256,7 @@ void PocketLcdDisplay::WakeUp() {
     if (standby_active_) {
         HideStandbyClock();
     }
+    HideQrCode();
     if (face_mode_ == FaceMode::kSleeping || face_mode_ == FaceMode::kSleepy) {
         SetFaceMode(FaceMode::kWakingUp);
     }
@@ -431,16 +432,31 @@ void PocketLcdDisplay::UpdateAnimationFrame() {
     if (!lock) return;
     ++animation_tick_;
 
+    auto& app = Application::GetInstance();
+    auto dev_state = app.GetDeviceState();
+
+    // TỰ ĐỘNG THOÁT NGAY LẬP TỨC MÀN HÌNH CHỜ & QR KHI CÓ TƯƠNG TÁC (Listening, Speaking, Connecting...)
+    if (dev_state != kDeviceStateIdle) {
+        if (standby_active_) {
+            HideStandbyClock();
+        }
+        HideQrCode();
+        last_active_tick_ = animation_tick_;
+    } else {
+        // TỰ ĐỘNG VÀO MÀN HÌNH CHỜ NẾU NHÀN RỖI 30 GIÂY (600 ticks * 50ms = 30s) HOẶC ĐANG NGỦ
+        if (!standby_active_ && (animation_tick_ - last_active_tick_ >= 600 || face_mode_ == FaceMode::kSleeping)) {
+            ShowStandbyClock();
+            return;
+        }
+    }
+
     if (standby_active_) {
         if (animation_tick_ - last_clock_tick_ >= 20) {
             last_clock_tick_ = animation_tick_;
             UpdateStandbyClock();
         }
-        return;
-    } else {
-        if (face_mode_ == FaceMode::kSleeping && animation_tick_ - last_active_tick_ > 200) {
-            ShowStandbyClock();
-            return;
+        if (height_ <= 240) {
+            return; // Màn vuông 240x240 return để tối ưu CPU
         }
     }
 
@@ -1257,8 +1273,14 @@ void PocketLcdDisplay::ShowStandbyClock() {
         auto scr = lv_screen_active();
         standby_container_ = lv_obj_create(scr);
         lv_obj_remove_style_all(standby_container_);
-        lv_obj_set_size(standby_container_, width_, height_);
-        lv_obj_set_pos(standby_container_, 0, 0);
+        if (height_ <= 240) {
+            lv_obj_set_size(standby_container_, 240, 240);
+            lv_obj_set_pos(standby_container_, 0, 0);
+        } else {
+            // Màn hình 2.4" 240x320: Đồng hồ đặt ở nửa dưới (y=100..320), nửa trên hở cho mắt robot
+            lv_obj_set_size(standby_container_, 240, 220);
+            lv_obj_set_pos(standby_container_, 0, 100);
+        }
         lv_obj_set_style_bg_color(standby_container_, lv_color_hex(0x070B14), 0);
         lv_obj_set_style_bg_opa(standby_container_, LV_OPA_COVER, 0);
 
@@ -1320,40 +1342,33 @@ void PocketLcdDisplay::ShowStandbyClock() {
             lv_label_set_text(clock_tips_label_, "Noi \"Jarvis\" de danh thuc");
         } else {
             // ================= LAYOUT MÀN HÌNH 2.4 INCH 240x320 =================
-            // Giữ robot icon ở top
-            clock_mini_robot_ = lv_label_create(standby_container_);
-            lv_obj_set_style_text_color(clock_mini_robot_, lv_color_hex(0xFFD700), 0);
-            lv_obj_set_style_text_align(clock_mini_robot_, LV_TEXT_ALIGN_CENTER, 0);
-            lv_obj_set_width(clock_mini_robot_, 220);
-            lv_obj_set_pos(clock_mini_robot_, 10, 25);
-            lv_label_set_text(clock_mini_robot_, "[ - . - ]  ~ z Z z ~");
-
-            // Ngày tháng
+            // Nửa trên (y=0..100) đã có đôi mắt robot Wall-E sống động đang thở
+            // Nửa dưới (container y=100..320) bố trí đồng hồ và thẻ thông tin
             clock_date_label_ = lv_label_create(standby_container_);
             lv_obj_set_style_text_color(clock_date_label_, lv_color_hex(0x00E5FF), 0);
             lv_obj_set_style_text_align(clock_date_label_, LV_TEXT_ALIGN_CENTER, 0);
             lv_obj_set_width(clock_date_label_, 220);
-            lv_obj_set_pos(clock_date_label_, 10, 70);
+            lv_obj_set_pos(clock_date_label_, 10, 6);
 
-            // Giờ : Phút khổng lồ
+            // Giờ : Phút cỡ lớn
             clock_time_label_ = lv_label_create(standby_container_);
             lv_obj_set_style_text_color(clock_time_label_, lv_color_white(), 0);
             lv_obj_set_style_text_align(clock_time_label_, LV_TEXT_ALIGN_CENTER, 0);
             lv_obj_set_width(clock_time_label_, 220);
-            lv_obj_set_pos(clock_time_label_, 10, 105);
+            lv_obj_set_pos(clock_time_label_, 10, 30);
 
             // Giây
             clock_sec_label_ = lv_label_create(standby_container_);
             lv_obj_set_style_text_color(clock_sec_label_, lv_color_hex(0xFFB300), 0);
             lv_obj_set_style_text_align(clock_sec_label_, LV_TEXT_ALIGN_CENTER, 0);
             lv_obj_set_width(clock_sec_label_, 220);
-            lv_obj_set_pos(clock_sec_label_, 10, 165);
+            lv_obj_set_pos(clock_sec_label_, 10, 78);
 
-            // Hộp thẻ kính mờ (Frosted Glass Card) ở tầng dưới
+            // Hộp thẻ kính mờ (Frosted Glass Card)
             clock_card_ = lv_obj_create(standby_container_);
             lv_obj_remove_style_all(clock_card_);
             lv_obj_set_size(clock_card_, 220, 105);
-            lv_obj_set_pos(clock_card_, 10, 200);
+            lv_obj_set_pos(clock_card_, 10, 105);
             lv_obj_set_style_bg_color(clock_card_, lv_color_hex(0x101726), 0);
             lv_obj_set_style_bg_opa(clock_card_, LV_OPA_COVER, 0);
             lv_obj_set_style_border_width(clock_card_, 1, 0);

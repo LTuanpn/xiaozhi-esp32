@@ -378,9 +378,11 @@ void PocketOledDisplay::SetupUI() {
 }
 
 void PocketOledDisplay::WakeUp() {
+    last_active_tick_ = animation_tick_;
     if (standby_active_) {
         HideStandbyClock();
     }
+    HideQrCode();
     if (face_mode_ == FaceMode::kSleeping || face_mode_ == FaceMode::kSleepy) {
         wake_up_until_tick_ = animation_tick_ + 30;  // 1.2s wake up animation
         SetFaceMode(FaceMode::kWakingUp);
@@ -614,17 +616,28 @@ void PocketOledDisplay::UpdateAnimationFrame() {
     }
     ++animation_tick_;
 
+    auto& app = Application::GetInstance();
+    auto dev_state = app.GetDeviceState();
+
+    if (dev_state != kDeviceStateIdle) {
+        if (standby_active_) {
+            HideStandbyClock();
+        }
+        HideQrCode();
+        last_active_tick_ = animation_tick_;
+    } else {
+        if (!standby_active_ && (animation_tick_ - last_active_tick_ >= 600 || face_mode_ == FaceMode::kSleeping)) {
+            ShowStandbyClock();
+            return;
+        }
+    }
+
     if (standby_active_) {
         if (animation_tick_ - last_clock_tick_ >= 20) {
             last_clock_tick_ = animation_tick_;
             UpdateStandbyClock();
         }
         return;
-    } else {
-        if (face_mode_ == FaceMode::kSleeping && animation_tick_ > 200) {
-            ShowStandbyClock();
-            return;
-        }
     }
 
     // Restore chat_line_ after temporary notification expires

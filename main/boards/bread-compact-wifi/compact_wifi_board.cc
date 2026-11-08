@@ -117,6 +117,7 @@ private:
 
     void InitializeButtons() {
         boot_button_.OnClick([this]() {
+            if (display_ != nullptr) { display_->HideStandbyClock(); display_->HideQrCode(); }
             auto& app = Application::GetInstance();
             if (app.GetDeviceState() == kDeviceStateStarting) {
                 EnterWifiConfigMode();
@@ -169,6 +170,7 @@ private:
         });
 
         volume_up_button_.OnClick([this]() {
+            if (display_ != nullptr) { display_->HideStandbyClock(); display_->HideQrCode(); }
             auto codec = GetAudioCodec();
             auto volume = codec->output_volume() + 10;
             if (volume > 100) {
@@ -188,6 +190,7 @@ private:
         });
 
         volume_down_button_.OnClick([this]() {
+            if (display_ != nullptr) { display_->HideStandbyClock(); display_->HideQrCode(); }
             auto codec = GetAudioCodec();
             auto volume = codec->output_volume() - 10;
             if (volume < 0) {
@@ -284,9 +287,13 @@ private:
                 std::transform(lower_text.begin(), lower_text.end(), lower_text.begin(), ::tolower);
 
                 // TRƯỜNG HỢP 0: Yêu cầu chuyển sang Màn hình chờ (Standby Clock)
-                if (lower_text.find("standby") != std::string::npos || lower_text.find("cho") != std::string::npos ||
-                    lower_text.find("chờ") != std::string::npos || lower_text.find("dong_ho") != std::string::npos ||
-                    lower_text.find("đồng hồ") != std::string::npos || lower_text.find("clock") != std::string::npos) {
+                if (lower_text == "standby" || lower_text == "dong_ho" || lower_text == "clock" ||
+                    lower_text.find("man hinh cho") != std::string::npos ||
+                    lower_text.find("màn hình chờ") != std::string::npos ||
+                    lower_text.find("che do cho") != std::string::npos ||
+                    lower_text.find("chế độ chờ") != std::string::npos ||
+                    lower_text.find("dong ho") != std::string::npos ||
+                    lower_text.find("đồng hồ") != std::string::npos) {
                     if (display_ != nullptr) {
                         display_->ShowStandbyClock();
                     }
