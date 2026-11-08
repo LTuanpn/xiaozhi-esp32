@@ -186,6 +186,7 @@ private:
 
                 if (seconds <= 0) {
                     if (display_ != nullptr) {
+                        display_->SetCountdownTimer(0, "IDLE");
                         display_->ShowNotification("Đã hủy hẹn giờ", 3000);
                     }
                     return "Đã hủy bộ đếm ngược";
@@ -194,6 +195,7 @@ private:
                 esp_timer_start_once(countdown_timer_, static_cast<uint64_t>(seconds) * 1000000ULL);
 
                 if (display_ != nullptr) {
+                    display_->SetCountdownTimer(seconds, label);
                     std::string notify_msg = "[HEN GIO] " + std::to_string(seconds) + "s: " + label;
                     display_->ShowNotification(notify_msg.c_str(), 5000);
                     display_->SetEmotion("target");
@@ -283,6 +285,7 @@ private:
 
                 // TRƯỜNG HỢP 3: Ghim ghi chú văn bản thông thường
                 if (display_ != nullptr) {
+                    display_->SetPinnedMemo(text);
                     std::string pinned = "[GHI CHU] " + text;
                     display_->ShowNotification(pinned.c_str(), duration * 1000);
                     display_->SetEmotion("idea");
@@ -317,6 +320,7 @@ private:
 
                 if (!guard_mode_active_) {
                     if (display_ != nullptr) {
+                        display_->SetGuardMode(false);
                         display_->SetEmotion("neutral");
                         display_->ShowNotification("[CANH GAC] Da tat canh phong", 3000);
                     }
@@ -327,6 +331,7 @@ private:
                 Application::GetInstance().SetDeviceState(kDeviceStateIdle);
 
                 if (display_ != nullptr) {
+                    display_->SetGuardMode(true);
                     display_->SetEmotion("scanning");
                     display_->ShowNotification("[CANH GAC] SENTRY MODE: ON", 60000);
                 }

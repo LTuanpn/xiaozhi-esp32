@@ -29,6 +29,11 @@ public:
     void ShowStandbyClock() override;
     void HideStandbyClock() override;
     bool IsStandbyClockActive() const override { return standby_active_; }
+    void SetPinnedMemo(const std::string& memo);
+    void SetCountdownTimer(int seconds, const std::string& label = "FOCUS");
+    void SetGuardMode(bool enable);
+    bool IsGuardModeActive() const { return guard_mode_active_; }
+    int GetCountdownRemaining() const { return countdown_remaining_sec_; }
 
 private:
     enum class FaceMode {
@@ -205,10 +210,10 @@ private:
     int current_look_y_ = 0;
     int target_look_x_ = 0;
     int target_look_y_ = 0;
-    int current_left_width_ = 76;
-    int current_right_width_ = 76;
-    int current_left_height_ = 72;
-    int current_right_height_ = 72;
+    int current_left_width_ = 78;
+    int current_right_width_ = 78;
+    int current_left_height_ = 76;
+    int current_right_height_ = 76;
     int current_left_y_offset_ = 0;
     int current_right_y_offset_ = 0;
     bool has_chat_text_ = false;
@@ -222,19 +227,52 @@ private:
     lv_obj_t* qr_url_label_ = nullptr;
     uint32_t qr_until_tick_ = 0;
 
-    // Standby Clock UI elements
+    // Standby Clock UI elements (Apple Watch Modular Ultra Bento Grid)
     void UpdateStandbyClock();
     bool standby_active_ = false;
     uint32_t last_clock_tick_ = 0;
     lv_obj_t* standby_container_ = nullptr;
-    lv_obj_t* clock_time_label_ = nullptr;
-    lv_obj_t* clock_sec_label_ = nullptr;
-    lv_obj_t* clock_date_label_ = nullptr;
-    lv_obj_t* clock_card_ = nullptr;
-    lv_obj_t* clock_wifi_label_ = nullptr;
-    lv_obj_t* clock_ip_label_ = nullptr;
-    lv_obj_t* clock_tips_label_ = nullptr;
-    lv_obj_t* clock_mini_robot_ = nullptr;
+
+    // Top Status Bar (h: 28)
+    lv_obj_t* status_ready_label_ = nullptr;
+    lv_obj_t* pill_container_ = nullptr;
+    lv_obj_t* pill_label_ = nullptr;
+    lv_obj_t* wifi_rssi_label_ = nullptr;
+
+    // Hero Clock & Memo Card (w: 228, h: 114)
+    lv_obj_t* hero_card_ = nullptr;
+    lv_obj_t* hero_accent_bar_ = nullptr;
+    lv_obj_t* date_label_ = nullptr;
+    lv_obj_t* time_label_ = nullptr;
+    lv_obj_t* sec_label_ = nullptr;
+    lv_obj_t* pinned_memo_label_ = nullptr;
+
+    // Bottom Bento 3 Widgets (h: 78)
+    // Box 1: Timer
+    lv_obj_t* timer_card_ = nullptr;
+    lv_obj_t* timer_title_label_ = nullptr;
+    lv_obj_t* timer_val_label_ = nullptr;
+    lv_obj_t* timer_tag_label_ = nullptr;
+
+    // Box 2: Volume
+    lv_obj_t* vol_card_ = nullptr;
+    lv_obj_t* vol_title_label_ = nullptr;
+    lv_obj_t* vol_arc_ = nullptr;
+    lv_obj_t* vol_val_label_ = nullptr;
+
+    // Box 3: Guard
+    lv_obj_t* guard_card_ = nullptr;
+    lv_obj_t* guard_title_label_ = nullptr;
+    lv_obj_t* guard_icon_ = nullptr;
+    lv_obj_t* guard_status_label_ = nullptr;
+
+    // State Variables (No Fake Sensors)
+    std::string pinned_memo_ = "READY • SAY WAKE WORD";
+    int countdown_remaining_sec_ = 0;
+    std::string countdown_label_ = "FOCUS";
+    bool guard_mode_active_ = false;
+    uint32_t last_countdown_tick_ = 0;
+    uint32_t guard_alarm_cooldown_tick_ = 0;
 };
 
 #endif  // POCKET_LCD_DISPLAY_H

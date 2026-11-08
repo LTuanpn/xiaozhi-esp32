@@ -6,6 +6,8 @@
 #include "qrcodegen.h"
 #include <ctime>
 #include <wifi_manager.h>
+#include <esp_wifi.h>
+#include "board.h"
 
 #include <esp_err.h>
 #include <esp_log.h>
@@ -15,6 +17,13 @@
 #include <cstring>
 
 #define TAG "PocketLcdDisplay"
+
+#if LV_FONT_MONTSERRAT_20
+LV_FONT_DECLARE(lv_font_montserrat_20);
+#endif
+#if LV_FONT_MONTSERRAT_32
+LV_FONT_DECLARE(lv_font_montserrat_32);
+#endif
 
 namespace {
 
@@ -38,7 +47,7 @@ inline int EaseLid(int current, int target) {
 }
 
 inline int EyeRadius(int width, int height) {
-    return std::clamp(static_cast<int>(std::round(std::min(width, height) * 16.0f / 72.0f)), 4, 16);
+    return std::clamp(static_cast<int>(std::round(std::min(width, height) * 17.0f / 76.0f)), 4, 17);
 }
 
 inline int PupilRadius(int width, int height) {
@@ -158,7 +167,7 @@ void PocketLcdDisplay::SetupUI() {
         PrepareShape(eye);
         lv_obj_set_style_bg_color(eye, lv_color_white(), 0);
         lv_obj_set_style_bg_opa(eye, LV_OPA_COVER, 0);
-        lv_obj_set_style_radius(eye, 16, 0);
+        lv_obj_set_style_radius(eye, 17, 0);
     }
 
     // 4. Black Pupils (Default: Natural Black, W=28, H=32, Radius=8)
@@ -851,12 +860,12 @@ void PocketLcdDisplay::UpdateAnimationFrame() {
 
     // 240x240 Geometry: eye_width = 76, eye_height = 72, gap = 24
     constexpr int face_width = 240;
-    constexpr int eye_width = 76;
-    constexpr int eye_height = 72;
-    constexpr int eye_gap = 24;
-    const int pair_width = eye_width * 2 + eye_gap;      // 176px
-    const int base_x = (face_width - pair_width) / 2;      // 32px
-    const int base_y = (180 - eye_height) / 2;              // 54px
+    constexpr int eye_width = 78;
+    constexpr int eye_height = 76;
+    constexpr int eye_gap = 22;
+    const int pair_width = eye_width * 2 + eye_gap;      // 178px
+    const int base_x = (face_width - pair_width) / 2;      // 31px
+    const int base_y = (180 - eye_height) / 2;              // 52px
     constexpr int max_look_x = 12;
     constexpr int max_look_y = 8;
 
@@ -2492,6 +2501,61 @@ void PocketLcdDisplay::HideQrCode() {
     }
 }
 
+void PocketLcdDisplay::SetPinnedMemo(const std::string& memo) {
+    DisplayLockGuard lock(this);
+    if (!lock) return;
+    if (memo.empty()) {
+        pinned_memo_ = "READY • SAY WAKE WORD";
+    } else {
+        pinned_memo_ = "PIN: " + memo;
+    }
+    if (pinned_memo_label_ != nullptr) {
+        lv_label_set_text(pinned_memo_label_, pinned_memo_.c_str());
+    }
+}
+
+void PocketLcdDisplay::SetCountdownTimer(int seconds, const std::string& label) {
+    DisplayLockGuard lock(this);
+    if (!lock) return;
+    countdown_remaining_sec_ = std::max(0, seconds);
+    countdown_label_ = label.empty() ? "FOCUS" : label;
+    if (countdown_remaining_sec_ == 0) {
+        countdown_label_ = "IDLE";
+    }
+    if (timer_val_label_ != nullptr) {
+        char timer_buf[16];
+        snprintf(timer_buf, sizeof(timer_buf), "%02d:%02d",
+                 countdown_remaining_sec_ / 60, countdown_remaining_sec_ % 60);
+        lv_label_set_text(timer_val_label_, timer_buf);
+        lv_obj_set_style_text_color(timer_val_label_,
+            (countdown_remaining_sec_ > 0) ? lv_color_hex(0xFF5500) : lv_color_hex(0x8E8E93), 0);
+    }
+    if (timer_tag_label_ != nullptr) {
+        lv_label_set_text(timer_tag_label_, countdown_label_.c_str());
+    }
+}
+
+void PocketLcdDisplay::SetGuardMode(bool enable) {
+    DisplayLockGuard lock(this);
+    if (!lock) return;
+    guard_mode_active_ = enable;
+    if (guard_icon_ != nullptr) {
+        if (guard_mode_active_) {
+            lv_obj_set_style_bg_color(guard_icon_, lv_color_hex(0x32D74B), 0);
+            lv_obj_set_style_border_width(guard_icon_, 0, 0);
+        } else {
+            lv_obj_set_style_bg_color(guard_icon_, lv_color_hex(0x262629), 0);
+            lv_obj_set_style_border_width(guard_icon_, 1, 0);
+            lv_obj_set_style_border_color(guard_icon_, lv_color_hex(0x8E8E93), 0);
+        }
+    }
+    if (guard_status_label_ != nullptr) {
+        lv_label_set_text(guard_status_label_, guard_mode_active_ ? "ON" : "OFF");
+        lv_obj_set_style_text_color(guard_status_label_,
+            guard_mode_active_ ? lv_color_hex(0x32D74B) : lv_color_hex(0x8E8E93), 0);
+    }
+}
+
 void PocketLcdDisplay::ShowStandbyClock() {
     DisplayLockGuard lock(this);
     if (!lock) return;
@@ -2503,107 +2567,199 @@ void PocketLcdDisplay::ShowStandbyClock() {
         auto scr = lv_screen_active();
         standby_container_ = lv_obj_create(scr);
         lv_obj_remove_style_all(standby_container_);
-        if (height_ <= 240) {
-            lv_obj_set_size(standby_container_, 240, 240);
-            lv_obj_set_pos(standby_container_, 0, 0);
-        } else {
-            lv_obj_set_size(standby_container_, 240, 220);
-            lv_obj_set_pos(standby_container_, 0, 100);
-        }
-        lv_obj_set_style_bg_color(standby_container_, lv_color_hex(0x070B14), 0);
+        lv_obj_set_size(standby_container_, 240, 240);
+        lv_obj_set_pos(standby_container_, 0, 0);
+        lv_obj_set_style_bg_color(standby_container_, lv_color_hex(0x000000), 0);
         lv_obj_set_style_bg_opa(standby_container_, LV_OPA_COVER, 0);
+        lv_obj_clear_flag(standby_container_, LV_OBJ_FLAG_SCROLLABLE);
 
-        if (height_ <= 240) {
-            lv_obj_t* bezel = lv_obj_create(standby_container_);
-            lv_obj_remove_style_all(bezel);
-            lv_obj_set_size(bezel, 230, 230);
-            lv_obj_set_pos(bezel, 5, 5);
-            lv_obj_set_style_border_width(bezel, 2, 0);
-            lv_obj_set_style_border_color(bezel, lv_color_hex(0x00E5FF), 0);
-            lv_obj_set_style_border_opa(bezel, LV_OPA_70, 0);
-            lv_obj_set_style_radius(bezel, 14, 0);
+        // 1. TOP STATUS BAR (x: 6, y: 4, w: 228, h: 28)
+        status_ready_label_ = lv_label_create(standby_container_);
+        lv_obj_set_pos(status_ready_label_, 6, 8);
+        lv_obj_set_style_text_color(status_ready_label_, lv_color_hex(0x32D74B), 0);
+        lv_label_set_text(status_ready_label_, "READY");
 
-            clock_wifi_label_ = lv_label_create(standby_container_);
-            lv_obj_set_style_text_color(clock_wifi_label_, lv_color_hex(0x80D8FF), 0);
-            lv_obj_set_pos(clock_wifi_label_, 14, 12);
+        pill_container_ = lv_obj_create(standby_container_);
+        lv_obj_remove_style_all(pill_container_);
+        lv_obj_set_size(pill_container_, 68, 20);
+        lv_obj_set_pos(pill_container_, 86, 6);
+        lv_obj_set_style_bg_color(pill_container_, lv_color_hex(0xFF5500), 0);
+        lv_obj_set_style_bg_opa(pill_container_, LV_OPA_COVER, 0);
+        lv_obj_set_style_radius(pill_container_, 8, 0);
 
-            clock_mini_robot_ = lv_label_create(standby_container_);
-            lv_obj_set_style_text_color(clock_mini_robot_, lv_color_hex(0xFFD700), 0);
-            lv_obj_set_pos(clock_mini_robot_, 180, 12);
-            lv_label_set_text(clock_mini_robot_, "(•) zZz");
+        pill_label_ = lv_label_create(pill_container_);
+        lv_obj_center(pill_label_);
+        lv_obj_set_style_text_color(pill_label_, lv_color_hex(0x000000), 0);
+        lv_label_set_text(pill_label_, "XIAOZHI");
 
-            clock_date_label_ = lv_label_create(standby_container_);
-            lv_obj_set_style_text_color(clock_date_label_, lv_color_hex(0x00E5FF), 0);
-            lv_obj_set_style_text_align(clock_date_label_, LV_TEXT_ALIGN_CENTER, 0);
-            lv_obj_set_width(clock_date_label_, 220);
-            lv_obj_set_pos(clock_date_label_, 10, 42);
+        wifi_rssi_label_ = lv_label_create(standby_container_);
+        lv_obj_set_pos(wifi_rssi_label_, 140, 8);
+        lv_obj_set_width(wifi_rssi_label_, 94);
+        lv_obj_set_style_text_align(wifi_rssi_label_, LV_TEXT_ALIGN_RIGHT, 0);
+        lv_obj_set_style_text_color(wifi_rssi_label_, lv_color_hex(0x0A84FF), 0);
+        lv_label_set_text(wifi_rssi_label_, "WIFI --dB");
 
-            clock_time_label_ = lv_label_create(standby_container_);
-            lv_obj_set_style_text_color(clock_time_label_, lv_color_white(), 0);
-            lv_obj_set_style_text_align(clock_time_label_, LV_TEXT_ALIGN_CENTER, 0);
-            lv_obj_set_width(clock_time_label_, 220);
-            lv_obj_set_pos(clock_time_label_, 10, 78);
+        // 2. HERO CLOCK & MEMO CARD (x: 6, y: 34, w: 228, h: 114)
+        hero_card_ = lv_obj_create(standby_container_);
+        lv_obj_remove_style_all(hero_card_);
+        lv_obj_set_size(hero_card_, 228, 114);
+        lv_obj_set_pos(hero_card_, 6, 34);
+        lv_obj_set_style_bg_color(hero_card_, lv_color_hex(0x141416), 0);
+        lv_obj_set_style_bg_opa(hero_card_, LV_OPA_COVER, 0);
+        lv_obj_set_style_radius(hero_card_, 12, 0);
+        lv_obj_set_style_border_width(hero_card_, 1, 0);
+        lv_obj_set_style_border_color(hero_card_, lv_color_hex(0x262629), 0);
+        lv_obj_clear_flag(hero_card_, LV_OBJ_FLAG_SCROLLABLE);
 
-            clock_sec_label_ = lv_label_create(standby_container_);
-            lv_obj_set_style_text_color(clock_sec_label_, lv_color_hex(0xFFB300), 0);
-            lv_obj_set_style_text_align(clock_sec_label_, LV_TEXT_ALIGN_CENTER, 0);
-            lv_obj_set_width(clock_sec_label_, 220);
-            lv_obj_set_pos(clock_sec_label_, 10, 142);
+        hero_accent_bar_ = lv_obj_create(hero_card_);
+        lv_obj_remove_style_all(hero_accent_bar_);
+        lv_obj_set_size(hero_accent_bar_, 3, 90);
+        lv_obj_set_pos(hero_accent_bar_, 4, 12);
+        lv_obj_set_style_bg_color(hero_accent_bar_, lv_color_hex(0xFF5500), 0);
+        lv_obj_set_style_bg_opa(hero_accent_bar_, LV_OPA_COVER, 0);
+        lv_obj_set_style_radius(hero_accent_bar_, 2, 0);
 
-            clock_ip_label_ = lv_label_create(standby_container_);
-            lv_obj_set_style_text_color(clock_ip_label_, lv_color_hex(0x90CAF9), 0);
-            lv_obj_set_style_text_align(clock_ip_label_, LV_TEXT_ALIGN_CENTER, 0);
-            lv_obj_set_width(clock_ip_label_, 220);
-            lv_obj_set_pos(clock_ip_label_, 10, 185);
+        date_label_ = lv_label_create(hero_card_);
+        lv_obj_set_pos(date_label_, 16, 8);
+        lv_obj_set_style_text_color(date_label_, lv_color_hex(0xFF5500), 0);
+        lv_label_set_text(date_label_, "MON NOV 9");
 
-            clock_tips_label_ = lv_label_create(standby_container_);
-            lv_obj_set_style_text_color(clock_tips_label_, lv_color_hex(0x64748B), 0);
-            lv_obj_set_style_text_align(clock_tips_label_, LV_TEXT_ALIGN_CENTER, 0);
-            lv_obj_set_width(clock_tips_label_, 220);
-            lv_obj_set_pos(clock_tips_label_, 10, 208);
-            lv_label_set_text(clock_tips_label_, "Noi \"Jarvis\" de danh thuc");
-        } else {
-            clock_date_label_ = lv_label_create(standby_container_);
-            lv_obj_set_style_text_color(clock_date_label_, lv_color_hex(0x00E5FF), 0);
-            lv_obj_set_style_text_align(clock_date_label_, LV_TEXT_ALIGN_CENTER, 0);
-            lv_obj_set_width(clock_date_label_, 220);
-            lv_obj_set_pos(clock_date_label_, 10, 6);
+        time_label_ = lv_label_create(hero_card_);
+        lv_obj_set_pos(time_label_, 14, 26);
+        lv_obj_set_style_text_color(time_label_, lv_color_white(), 0);
+#if LV_FONT_MONTSERRAT_32
+        lv_obj_set_style_text_font(time_label_, &lv_font_montserrat_32, 0);
+#elif defined(BUILTIN_TEXT_FONT)
+        lv_obj_set_style_text_font(time_label_, &BUILTIN_TEXT_FONT, 0);
+#endif
+        lv_label_set_text(time_label_, "10:09");
 
-            clock_time_label_ = lv_label_create(standby_container_);
-            lv_obj_set_style_text_color(clock_time_label_, lv_color_white(), 0);
-            lv_obj_set_style_text_align(clock_time_label_, LV_TEXT_ALIGN_CENTER, 0);
-            lv_obj_set_width(clock_time_label_, 220);
-            lv_obj_set_pos(clock_time_label_, 10, 30);
+        sec_label_ = lv_label_create(hero_card_);
+        lv_obj_set_pos(sec_label_, 152, 42);
+        lv_obj_set_style_text_color(sec_label_, lv_color_hex(0xFF5500), 0);
+#if LV_FONT_MONTSERRAT_20
+        lv_obj_set_style_text_font(sec_label_, &lv_font_montserrat_20, 0);
+#endif
+        lv_label_set_text(sec_label_, ":35");
 
-            clock_sec_label_ = lv_label_create(standby_container_);
-            lv_obj_set_style_text_color(clock_sec_label_, lv_color_hex(0xFFB300), 0);
-            lv_obj_set_style_text_align(clock_sec_label_, LV_TEXT_ALIGN_CENTER, 0);
-            lv_obj_set_width(clock_sec_label_, 220);
-            lv_obj_set_pos(clock_sec_label_, 10, 78);
+        pinned_memo_label_ = lv_label_create(hero_card_);
+        lv_obj_set_pos(pinned_memo_label_, 16, 88);
+        lv_obj_set_width(pinned_memo_label_, 200);
+        lv_label_set_long_mode(pinned_memo_label_, LV_LABEL_LONG_SCROLL_CIRCULAR);
+        lv_obj_set_style_text_color(pinned_memo_label_, lv_color_hex(0xFFD60A), 0);
+        lv_label_set_text(pinned_memo_label_, pinned_memo_.c_str());
 
-            clock_card_ = lv_obj_create(standby_container_);
-            lv_obj_remove_style_all(clock_card_);
-            lv_obj_set_size(clock_card_, 220, 105);
-            lv_obj_set_pos(clock_card_, 10, 105);
-            lv_obj_set_style_bg_color(clock_card_, lv_color_hex(0x101726), 0);
-            lv_obj_set_style_bg_opa(clock_card_, LV_OPA_COVER, 0);
-            lv_obj_set_style_border_width(clock_card_, 1, 0);
-            lv_obj_set_style_border_color(clock_card_, lv_color_hex(0x1E293B), 0);
-            lv_obj_set_style_radius(clock_card_, 10, 0);
+        // 3. BOTTOM 3 BENTO WIDGETS (y: 154, h: 80)
+        // Box 1: TIMER (x: 6, w: 72, h: 80)
+        timer_card_ = lv_obj_create(standby_container_);
+        lv_obj_remove_style_all(timer_card_);
+        lv_obj_set_size(timer_card_, 72, 80);
+        lv_obj_set_pos(timer_card_, 6, 154);
+        lv_obj_set_style_bg_color(timer_card_, lv_color_hex(0x141416), 0);
+        lv_obj_set_style_bg_opa(timer_card_, LV_OPA_COVER, 0);
+        lv_obj_set_style_radius(timer_card_, 12, 0);
+        lv_obj_set_style_border_width(timer_card_, 1, 0);
+        lv_obj_set_style_border_color(timer_card_, lv_color_hex(0x262629), 0);
+        lv_obj_clear_flag(timer_card_, LV_OBJ_FLAG_SCROLLABLE);
 
-            clock_wifi_label_ = lv_label_create(clock_card_);
-            lv_obj_set_style_text_color(clock_wifi_label_, lv_color_hex(0x80D8FF), 0);
-            lv_obj_set_pos(clock_wifi_label_, 10, 10);
+        timer_title_label_ = lv_label_create(timer_card_);
+        lv_obj_set_pos(timer_title_label_, 0, 6);
+        lv_obj_set_width(timer_title_label_, 72);
+        lv_obj_set_style_text_align(timer_title_label_, LV_TEXT_ALIGN_CENTER, 0);
+        lv_obj_set_style_text_color(timer_title_label_, lv_color_hex(0x8E8E93), 0);
+        lv_label_set_text(timer_title_label_, "TIMER");
 
-            clock_ip_label_ = lv_label_create(clock_card_);
-            lv_obj_set_style_text_color(clock_ip_label_, lv_color_hex(0x90CAF9), 0);
-            lv_obj_set_pos(clock_ip_label_, 10, 36);
+        timer_val_label_ = lv_label_create(timer_card_);
+        lv_obj_set_pos(timer_val_label_, 0, 26);
+        lv_obj_set_width(timer_val_label_, 72);
+        lv_obj_set_style_text_align(timer_val_label_, LV_TEXT_ALIGN_CENTER, 0);
+        lv_obj_set_style_text_color(timer_val_label_, lv_color_hex(0x8E8E93), 0);
+#if LV_FONT_MONTSERRAT_20
+        lv_obj_set_style_text_font(timer_val_label_, &lv_font_montserrat_20, 0);
+#endif
+        lv_label_set_text(timer_val_label_, "00:00");
 
-            clock_tips_label_ = lv_label_create(clock_card_);
-            lv_obj_set_style_text_color(clock_tips_label_, lv_color_hex(0xFBBF24), 0);
-            lv_obj_set_pos(clock_tips_label_, 10, 68);
-            lv_label_set_text(clock_tips_label_, "Noi \"Jarvis\" de danh thuc!");
-        }
+        timer_tag_label_ = lv_label_create(timer_card_);
+        lv_obj_set_pos(timer_tag_label_, 0, 56);
+        lv_obj_set_width(timer_tag_label_, 72);
+        lv_obj_set_style_text_align(timer_tag_label_, LV_TEXT_ALIGN_CENTER, 0);
+        lv_obj_set_style_text_color(timer_tag_label_, lv_color_hex(0x8E8E93), 0);
+        lv_label_set_text(timer_tag_label_, "IDLE");
+
+        // Box 2: VOL (x: 84, w: 72, h: 80)
+        vol_card_ = lv_obj_create(standby_container_);
+        lv_obj_remove_style_all(vol_card_);
+        lv_obj_set_size(vol_card_, 72, 80);
+        lv_obj_set_pos(vol_card_, 84, 154);
+        lv_obj_set_style_bg_color(vol_card_, lv_color_hex(0x141416), 0);
+        lv_obj_set_style_bg_opa(vol_card_, LV_OPA_COVER, 0);
+        lv_obj_set_style_radius(vol_card_, 12, 0);
+        lv_obj_set_style_border_width(vol_card_, 1, 0);
+        lv_obj_set_style_border_color(vol_card_, lv_color_hex(0x262629), 0);
+        lv_obj_clear_flag(vol_card_, LV_OBJ_FLAG_SCROLLABLE);
+
+        vol_title_label_ = lv_label_create(vol_card_);
+        lv_obj_set_pos(vol_title_label_, 0, 6);
+        lv_obj_set_width(vol_title_label_, 72);
+        lv_obj_set_style_text_align(vol_title_label_, LV_TEXT_ALIGN_CENTER, 0);
+        lv_obj_set_style_text_color(vol_title_label_, lv_color_hex(0x8E8E93), 0);
+        lv_label_set_text(vol_title_label_, "VOL");
+
+        vol_arc_ = lv_arc_create(vol_card_);
+        lv_obj_set_size(vol_arc_, 48, 48);
+        lv_obj_set_pos(vol_arc_, 12, 24);
+        lv_arc_set_rotation(vol_arc_, 135);
+        lv_arc_set_bg_angles(vol_arc_, 0, 270);
+        lv_arc_set_range(vol_arc_, 0, 100);
+        lv_obj_remove_style(vol_arc_, nullptr, LV_PART_KNOB);
+        lv_obj_clear_flag(vol_arc_, LV_OBJ_FLAG_CLICKABLE);
+        lv_obj_set_style_arc_width(vol_arc_, 4, LV_PART_MAIN);
+        lv_obj_set_style_arc_color(vol_arc_, lv_color_hex(0x262629), 0);
+        lv_obj_set_style_arc_width(vol_arc_, 4, LV_PART_INDICATOR);
+        lv_obj_set_style_arc_color(vol_arc_, lv_color_hex(0x0A84FF), LV_PART_INDICATOR);
+
+        vol_val_label_ = lv_label_create(vol_card_);
+        lv_obj_set_pos(vol_val_label_, 0, 38);
+        lv_obj_set_width(vol_val_label_, 72);
+        lv_obj_set_style_text_align(vol_val_label_, LV_TEXT_ALIGN_CENTER, 0);
+        lv_obj_set_style_text_color(vol_val_label_, lv_color_hex(0x0A84FF), 0);
+        lv_label_set_text(vol_val_label_, "80%");
+
+        // Box 3: GUARD (x: 162, w: 72, h: 80)
+        guard_card_ = lv_obj_create(standby_container_);
+        lv_obj_remove_style_all(guard_card_);
+        lv_obj_set_size(guard_card_, 72, 80);
+        lv_obj_set_pos(guard_card_, 162, 154);
+        lv_obj_set_style_bg_color(guard_card_, lv_color_hex(0x141416), 0);
+        lv_obj_set_style_bg_opa(guard_card_, LV_OPA_COVER, 0);
+        lv_obj_set_style_radius(guard_card_, 12, 0);
+        lv_obj_set_style_border_width(guard_card_, 1, 0);
+        lv_obj_set_style_border_color(guard_card_, lv_color_hex(0x262629), 0);
+        lv_obj_clear_flag(guard_card_, LV_OBJ_FLAG_SCROLLABLE);
+
+        guard_title_label_ = lv_label_create(guard_card_);
+        lv_obj_set_pos(guard_title_label_, 0, 6);
+        lv_obj_set_width(guard_title_label_, 72);
+        lv_obj_set_style_text_align(guard_title_label_, LV_TEXT_ALIGN_CENTER, 0);
+        lv_obj_set_style_text_color(guard_title_label_, lv_color_hex(0x8E8E93), 0);
+        lv_label_set_text(guard_title_label_, "GUARD");
+
+        guard_icon_ = lv_obj_create(guard_card_);
+        lv_obj_remove_style_all(guard_icon_);
+        lv_obj_set_size(guard_icon_, 24, 24);
+        lv_obj_set_pos(guard_icon_, 24, 28);
+        lv_obj_set_style_radius(guard_icon_, 6, 0);
+        lv_obj_set_style_bg_color(guard_icon_, lv_color_hex(0x262629), 0);
+        lv_obj_set_style_bg_opa(guard_icon_, LV_OPA_COVER, 0);
+        lv_obj_set_style_border_width(guard_icon_, 1, 0);
+        lv_obj_set_style_border_color(guard_icon_, lv_color_hex(0x8E8E93), 0);
+
+        guard_status_label_ = lv_label_create(guard_card_);
+        lv_obj_set_pos(guard_status_label_, 0, 56);
+        lv_obj_set_width(guard_status_label_, 72);
+        lv_obj_set_style_text_align(guard_status_label_, LV_TEXT_ALIGN_CENTER, 0);
+        lv_obj_set_style_text_color(guard_status_label_, lv_color_hex(0x8E8E93), 0);
+        lv_label_set_text(guard_status_label_, "OFF");
     }
 
     lv_obj_remove_flag(standby_container_, LV_OBJ_FLAG_HIDDEN);
@@ -2624,6 +2780,7 @@ void PocketLcdDisplay::HideStandbyClock() {
 void PocketLcdDisplay::UpdateStandbyClock() {
     if (!standby_active_ || standby_container_ == nullptr) return;
 
+    // 1. System Time & Date
     time_t now = time(nullptr);
     struct tm tm_now;
     localtime_r(&now, &tm_now);
@@ -2634,36 +2791,112 @@ void PocketLcdDisplay::UpdateStandbyClock() {
 
     if (tm_now.tm_year >= (2025 - 1900)) {
         snprintf(time_buf, sizeof(time_buf), "%02d:%02d", tm_now.tm_hour, tm_now.tm_min);
-        snprintf(sec_buf, sizeof(sec_buf), ": %02ds", tm_now.tm_sec);
-
-        const char* days[] = {"CN", "THU 2", "THU 3", "THU 4", "THU 5", "THU 6", "THU 7"};
-        snprintf(date_buf, sizeof(date_buf), "%s  *  %02d/%02d/%04d",
-                 days[tm_now.tm_wday % 7], tm_now.tm_mday, tm_now.tm_mon + 1, tm_now.tm_year + 1900);
+        snprintf(sec_buf, sizeof(sec_buf), ":%02d", tm_now.tm_sec);
+        const char* days[] = {"SUN", "MON", "TUE", "WED", "THU", "FRI", "SAT"};
+        const char* months[] = {"JAN", "FEB", "MAR", "APR", "MAY", "JUN", "JUL", "AUG", "SEP", "OCT", "NOV", "DEC"};
+        snprintf(date_buf, sizeof(date_buf), "%s %s %d",
+                 days[tm_now.tm_wday % 7], months[tm_now.tm_mon % 12], tm_now.tm_mday);
     } else {
         uint32_t uptime_sec = animation_tick_ / 20;
         uint32_t hrs = uptime_sec / 3600;
         uint32_t mins = (uptime_sec % 3600) / 60;
         uint32_t secs = uptime_sec % 60;
         snprintf(time_buf, sizeof(time_buf), "%02lu:%02lu", (unsigned long)hrs, (unsigned long)mins);
-        snprintf(sec_buf, sizeof(sec_buf), ": %02lus", (unsigned long)secs);
-        snprintf(date_buf, sizeof(date_buf), "DANG KET NOI WIFI...");
+        snprintf(sec_buf, sizeof(sec_buf), ":%02lu", (unsigned long)secs);
+        snprintf(date_buf, sizeof(date_buf), "CONNECTING...");
     }
 
-    if (clock_time_label_) lv_label_set_text(clock_time_label_, time_buf);
-    if (clock_sec_label_) lv_label_set_text(clock_sec_label_, sec_buf);
-    if (clock_date_label_) lv_label_set_text(clock_date_label_, date_buf);
+    if (time_label_) lv_label_set_text(time_label_, time_buf);
+    if (sec_label_) lv_label_set_text(sec_label_, sec_buf);
+    if (date_label_) lv_label_set_text(date_label_, date_buf);
 
-    auto& wifi = WifiManager::GetInstance();
-    std::string ssid = wifi.GetSsid();
-    std::string ip = wifi.GetIpAddress();
-    int rssi = wifi.GetRssi();
-
-    if (clock_wifi_label_) {
-        std::string wf_str = "WF: " + (ssid.empty() ? "Offline" : (ssid + " (" + std::to_string(rssi) + "dB)"));
-        lv_label_set_text(clock_wifi_label_, wf_str.c_str());
+    // 2. Real Wi-Fi RSSI via esp_wifi_sta_get_ap_info
+    wifi_ap_record_t ap_info;
+    int rssi = -99;
+    if (esp_wifi_sta_get_ap_info(&ap_info) == ESP_OK) {
+        rssi = ap_info.rssi;
     }
-    if (clock_ip_label_) {
-        std::string ip_str = "IP: " + (ip.empty() ? "192.168.4.1 (AP)" : ip);
-        lv_label_set_text(clock_ip_label_, ip_str.c_str());
+    char wifi_buf[32];
+    if (rssi > -100 && rssi < 0) {
+        snprintf(wifi_buf, sizeof(wifi_buf), "WIFI %ddB", rssi);
+    } else {
+        snprintf(wifi_buf, sizeof(wifi_buf), "WIFI DISCONN");
+    }
+    if (wifi_rssi_label_) lv_label_set_text(wifi_rssi_label_, wifi_buf);
+
+    // 3. Status label
+    if (status_ready_label_) {
+        auto& app = Application::GetInstance();
+        DeviceState st = app.GetDeviceState();
+        if (st == kDeviceStateListening) {
+            lv_label_set_text(status_ready_label_, "LISTENING");
+            lv_obj_set_style_text_color(status_ready_label_, lv_color_hex(0x0A84FF), 0);
+        } else if (st == kDeviceStateSpeaking) {
+            lv_label_set_text(status_ready_label_, "TALKING");
+            lv_obj_set_style_text_color(status_ready_label_, lv_color_hex(0xFFD60A), 0);
+        } else {
+            lv_label_set_text(status_ready_label_, "READY");
+            lv_obj_set_style_text_color(status_ready_label_, lv_color_hex(0x32D74B), 0);
+        }
+    }
+
+    // 4. Volume Widget (Real volume from AudioCodec)
+    auto codec = Board::GetInstance().GetAudioCodec();
+    int vol = (codec != nullptr) ? codec->output_volume() : 70;
+    if (vol_arc_) lv_arc_set_value(vol_arc_, vol);
+    if (vol_val_label_) {
+        char vol_buf[16];
+        snprintf(vol_buf, sizeof(vol_buf), "%d%%", vol);
+        lv_label_set_text(vol_val_label_, vol_buf);
+    }
+
+    // 5. Countdown / Pomodoro Timer
+    if (animation_tick_ >= last_countdown_tick_ + 20) {
+        last_countdown_tick_ = animation_tick_;
+        if (countdown_remaining_sec_ > 0) {
+            countdown_remaining_sec_--;
+            if (countdown_remaining_sec_ == 0) {
+                Application::GetInstance().PlaySound(Lang::Sounds::OGG_VIBRATION);
+                countdown_label_ = "IDLE";
+            }
+        }
+    }
+    if (timer_val_label_) {
+        char timer_buf[16];
+        snprintf(timer_buf, sizeof(timer_buf), "%02d:%02d",
+                 countdown_remaining_sec_ / 60, countdown_remaining_sec_ % 60);
+        lv_label_set_text(timer_val_label_, timer_buf);
+        lv_obj_set_style_text_color(timer_val_label_,
+            (countdown_remaining_sec_ > 0) ? lv_color_hex(0xFF5500) : lv_color_hex(0x8E8E93), 0);
+    }
+    if (timer_tag_label_) {
+        lv_label_set_text(timer_tag_label_, countdown_label_.c_str());
+    }
+
+    // 6. Guard Mode Widget & Acoustic Monitoring
+    if (guard_icon_) {
+        if (guard_mode_active_) {
+            lv_obj_set_style_bg_color(guard_icon_, lv_color_hex(0x32D74B), 0);
+            lv_obj_set_style_border_width(guard_icon_, 0, 0);
+        } else {
+            lv_obj_set_style_bg_color(guard_icon_, lv_color_hex(0x262629), 0);
+            lv_obj_set_style_border_width(guard_icon_, 1, 0);
+            lv_obj_set_style_border_color(guard_icon_, lv_color_hex(0x8E8E93), 0);
+        }
+    }
+    if (guard_status_label_) {
+        lv_label_set_text(guard_status_label_, guard_mode_active_ ? "ON" : "OFF");
+        lv_obj_set_style_text_color(guard_status_label_,
+            guard_mode_active_ ? lv_color_hex(0x32D74B) : lv_color_hex(0x8E8E93), 0);
+    }
+    if (guard_mode_active_) {
+        auto& app = Application::GetInstance();
+        if (app.GetDeviceState() == kDeviceStateIdle) {
+            uint8_t mic_lvl = app.GetAudioService().GetInputLevel();
+            if (mic_lvl > 35 && animation_tick_ >= guard_alarm_cooldown_tick_) {
+                guard_alarm_cooldown_tick_ = animation_tick_ + 100; // 5s cooldown
+                app.PlaySound(Lang::Sounds::OGG_EXCLAMATION);
+            }
+        }
     }
 }
