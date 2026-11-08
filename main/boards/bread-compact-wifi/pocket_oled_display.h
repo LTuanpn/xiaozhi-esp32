@@ -102,7 +102,11 @@ private:
 
     lv_obj_t* face_layer_ = nullptr;
     lv_obj_t* left_eye_ = nullptr;
+    lv_obj_t* left_eye_tall_ = nullptr;
+    lv_obj_t* left_eye_mid_ = nullptr;
     lv_obj_t* right_eye_ = nullptr;
+    lv_obj_t* right_eye_tall_ = nullptr;
+    lv_obj_t* right_eye_mid_ = nullptr;
     lv_obj_t* left_pupil_ = nullptr;
     lv_obj_t* right_pupil_ = nullptr;
     lv_obj_t* left_top_lid_ = nullptr;

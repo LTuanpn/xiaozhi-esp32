@@ -231,9 +231,9 @@ private:
                                 auto* disp = board->GetDisplay();
                                 if (disp != nullptr) {
                                     disp->SetEmotion("thunder");
-                                    disp->ShowNotification("⏰ HẾT GIỜ RỒI ĐẠI CA!", 15000);
+                                    disp->ShowNotification("[BAO THUC] HET GIO ROI DAI CA!", 15000);
                                 }
-                                Application::GetInstance().PlaySound(Lang::Sounds::OGG_VIBRATION);
+                                Application::GetInstance().PlaySound(Lang::Sounds::OGG_SUCCESS);
                             });
                         },
                         .arg = this,
@@ -257,7 +257,7 @@ private:
                 esp_timer_start_once(countdown_timer_, static_cast<uint64_t>(seconds) * 1000000ULL);
 
                 if (display_ != nullptr) {
-                    std::string notify_msg = "⏳ Hẹn " + std::to_string(seconds) + "s: " + label;
+                    std::string notify_msg = "[HEN GIO] " + std::to_string(seconds) + "s: " + label;
                     display_->ShowNotification(notify_msg.c_str(), 5000);
                     display_->SetEmotion("target");
                 }
@@ -282,7 +282,7 @@ private:
                         display_->ShowNotification("", 100);
                         return "Đã xóa ghi chú trên màn hình";
                     }
-                    std::string pinned = "📌 " + text;
+                    std::string pinned = "[GHI CHU] " + text;
                     display_->ShowNotification(pinned.c_str(), duration * 1000);
                     display_->SetEmotion("idea");
                 }
@@ -317,14 +317,17 @@ private:
                 if (!guard_mode_active_) {
                     if (display_ != nullptr) {
                         display_->SetEmotion("neutral");
-                        display_->ShowNotification("🛡️ Đã tắt canh gác", 3000);
+                        display_->ShowNotification("[CANH GAC] Da tat canh phong", 3000);
                     }
                     return "Đã tắt chế độ canh phòng";
                 }
 
+                // Chuyển bot sang Idle ngay lập tức để không kẹt ở Listening
+                Application::GetInstance().SetDeviceState(kDeviceStateIdle);
+
                 if (display_ != nullptr) {
                     display_->SetEmotion("scanning");
-                    display_->ShowNotification("🛡️ SENTRY MODE: ON", 60000);
+                    display_->ShowNotification("[CANH GAC] SENTRY MODE: ON", 60000);
                 }
 
                 if (guard_timer_ == nullptr) {
@@ -332,18 +335,18 @@ private:
                         .callback = [](void* arg) {
                             auto* board = static_cast<CompactWifiBoard*>(arg);
                             auto& app = Application::GetInstance();
-                            // Chỉ bắt trộm khi bot đang ở trạng thái Idle (đã nói xong)
-                            if (board->guard_mode_active_ && app.GetDeviceState() == kDeviceStateIdle) {
+                            if (board->guard_mode_active_) {
                                 uint8_t mic_lvl = app.GetAudioService().GetInputLevel();
-                                if (mic_lvl > 35) { // Phát hiện tiếng động lớn bất thường!
+                                if (mic_lvl > 25) { // Bắt xung tiếng vỗ tay / bước chân nhạy bén!
                                     board->guard_mode_active_ = false;
                                     esp_timer_stop(board->guard_timer_);
                                     app.Schedule([board, &app]() {
                                         if (board->GetDisplay() != nullptr) {
                                             board->GetDisplay()->SetEmotion("furious");
-                                            board->GetDisplay()->ShowNotification("🚨 PHÁT HIỆN XÂM NHẬP!", 10000);
+                                            board->GetDisplay()->ShowNotification("[CANH BAO] PHAT HIEN XAM NHAP!", 10000);
                                         }
-                                        app.PlaySound(Lang::Sounds::OGG_EXCLAMATION);
+                                        // Còi hú báo động reo to dồn dập
+                                        app.PlaySound(Lang::Sounds::OGG_SUCCESS);
                                     });
                                 }
                             }
@@ -355,7 +358,7 @@ private:
                     };
                     esp_timer_create(&timer_args, &guard_timer_);
                 }
-                esp_timer_start_periodic(guard_timer_, 200 * 1000); // Kiểm tra mỗi 200ms
+                esp_timer_start_periodic(guard_timer_, 50 * 1000); // Kiểm tra mỗi 50ms bắt trúng đỉnh xung vỗ tay!
                 return "Đã kích hoạt chế độ canh gác phòng bằng cảm biến âm thanh";
             }
         );
@@ -384,7 +387,7 @@ private:
                                 app.Schedule([board, &app]() {
                                     if (board->GetDisplay() != nullptr) {
                                         board->GetDisplay()->SetEmotion("party");
-                                        board->GetDisplay()->ShowNotification("🏆 HOÀN THÀNH HIỆP TẬP!", 8000);
+                                        board->GetDisplay()->ShowNotification("[CHIEN THANG] HOAN THANH XUAT SAC!", 10000);
                                     }
                                     app.PlaySound(Lang::Sounds::OGG_SUCCESS);
                                 });
@@ -393,7 +396,7 @@ private:
 
                             app.Schedule([board, &app, rem]() {
                                 if (board->GetDisplay() != nullptr) {
-                                    std::string msg = "💪 Hiệp tập: còn " + std::to_string(rem) + "s";
+                                    std::string msg = "[TAP LUYEN] Con " + std::to_string(rem) + "s";
                                     board->GetDisplay()->ShowNotification(msg.c_str(), 1500);
                                     if (rem <= 5) {
                                         board->GetDisplay()->SetEmotion("fire");
@@ -449,7 +452,7 @@ private:
 
                 if (display_ != nullptr) {
                     display_->SetEmotion("smug");
-                    std::string result_msg = "🎯 Chốt: " + chosen;
+                    std::string result_msg = "[CHOT] " + chosen;
                     display_->ShowNotification(result_msg.c_str(), 10000);
                 }
                 return "Kết quả bốc thăm ngẫu nhiên từ phần cứng là: " + chosen;
@@ -469,23 +472,37 @@ private:
                 int sides = properties["sides"].value<int>();
 
                 if (type == "coin" || sides == 2) {
-                    bool is_heads = (esp_random() % 2) == 1;
-                    std::string outcome = is_heads ? "🪙 NGỬA (Heads)" : "🪙 SẤP (Tails)";
                     if (display_ != nullptr) {
                         display_->SetEmotion("dizzy");
-                        display_->ShowNotification(outcome.c_str(), 8000);
+                        display_->ShowNotification("[DONG XU] Dang quay...", 1500);
                     }
                     Application::GetInstance().PlaySound(Lang::Sounds::OGG_POPUP);
+                    vTaskDelay(pdMS_TO_TICKS(1000));
+
+                    bool is_heads = (esp_random() % 2) == 1;
+                    std::string outcome = is_heads ? "[DONG XU] NGUA (Heads)" : "[DONG XU] SAP (Tails)";
+                    if (display_ != nullptr) {
+                        display_->SetEmotion(is_heads ? "excited" : "smug");
+                        display_->ShowNotification(outcome.c_str(), 8000);
+                    }
+                    Application::GetInstance().PlaySound(Lang::Sounds::OGG_SUCCESS);
                     return "Kết quả tung đồng xu: " + outcome;
                 } else {
+                    if (display_ != nullptr) {
+                        display_->SetEmotion("dizzy");
+                        display_->ShowNotification("[XUC XAC] Dang lac...", 1500);
+                    }
+                    Application::GetInstance().PlaySound(Lang::Sounds::OGG_POPUP);
+                    vTaskDelay(pdMS_TO_TICKS(1200));
+
                     int roll = static_cast<int>((esp_random() % sides) + 1);
-                    std::string outcome = "🎲 [ " + std::to_string(roll) + " / d" + std::to_string(sides) + " ]";
+                    std::string outcome = "[XUC XAC] " + std::to_string(roll) + " / d" + std::to_string(sides);
                     if (display_ != nullptr) {
                         display_->SetEmotion(roll == sides ? "party" : (roll == 1 ? "facepalm" : "smug"));
                         display_->ShowNotification(outcome.c_str(), 8000);
                     }
                     Application::GetInstance().PlaySound(roll == sides ? Lang::Sounds::OGG_SUCCESS : Lang::Sounds::OGG_POPUP);
-                    return "Kết quả đổ xúc xắc " + std::to_string(sides) + " mặt: " + std::to_string(roll);
+                    return "Kết quả đổ xúc xắc " + std::to_string(sides) + " mặt: " + outcome;
                 }
             }
         );

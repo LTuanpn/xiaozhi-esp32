@@ -103,6 +103,49 @@ void PlaceDisc(lv_obj_t* wide, lv_obj_t* tall, lv_obj_t* mid, int x, int y, int 
     lv_obj_set_size(mid, diameter - 2, diameter - 2);
 }
 
+// Ma trận đa tầng bo cong 4 góc mắt chính 44x36: Triệt tiêu 100% răng cưa bậc thang trên OLED monochrome 1-bit
+void PlaceEyeMatrix(lv_obj_t* wide, lv_obj_t* tall, lv_obj_t* mid, int x, int y, int w, int h, int radius) {
+    if (wide == nullptr) return;
+    if (w <= 0 || h <= 0) {
+        lv_obj_add_flag(wide, LV_OBJ_FLAG_HIDDEN);
+        if (tall) lv_obj_add_flag(tall, LV_OBJ_FLAG_HIDDEN);
+        if (mid) lv_obj_add_flag(mid, LV_OBJ_FLAG_HIDDEN);
+        return;
+    }
+    lv_obj_remove_flag(wide, LV_OBJ_FLAG_HIDDEN);
+
+    if (h <= 8 || tall == nullptr || mid == nullptr) {
+        lv_obj_set_pos(wide, x, y);
+        lv_obj_set_size(wide, w, h);
+        lv_obj_set_style_radius(wide, std::min(radius, h / 2), 0);
+        if (tall) lv_obj_add_flag(tall, LV_OBJ_FLAG_HIDDEN);
+        if (mid) lv_obj_add_flag(mid, LV_OBJ_FLAG_HIDDEN);
+        return;
+    }
+
+    lv_obj_set_style_radius(wide, 0, 0);
+    if (tall) lv_obj_set_style_radius(tall, 0, 0);
+    if (mid) lv_obj_set_style_radius(mid, 0, 0);
+
+    // Tính toán góc vát c1 (tầng ngoài) và c2 (tầng trung gian) theo bán kính bo cong
+    int c1 = std::clamp(radius, 3, 5);
+    int c2 = std::max(1, c1 / 2);
+
+    // 1. Tầng ngang (Wide): Chiều rộng đầy đủ w, vát 2 đầu
+    lv_obj_set_pos(wide, x, y + c1);
+    lv_obj_set_size(wide, w, h - 2 * c1);
+
+    // 2. Tầng đứng (Tall): Chiều cao đầy đủ h, thu vào 2 bên
+    lv_obj_remove_flag(tall, LV_OBJ_FLAG_HIDDEN);
+    lv_obj_set_pos(tall, x + c1, y);
+    lv_obj_set_size(tall, w - 2 * c1, h);
+
+    // 3. Tầng góc trung gian (Mid): Bo mượt đường cong chuyển tiếp
+    lv_obj_remove_flag(mid, LV_OBJ_FLAG_HIDDEN);
+    lv_obj_set_pos(mid, x + c2, y + c2);
+    lv_obj_set_size(mid, w - 2 * c2, h - 2 * c2);
+}
+
 int32_t NormalizeAngle(int32_t angle) {
     return ((angle % 3600) + 3600) % 3600;
 }
@@ -142,14 +185,18 @@ void PocketOledDisplay::SetupUI() {
     lv_obj_set_style_radius(face_layer_, 0, 0);
     lv_obj_set_style_pad_all(face_layer_, 0, 0);
 
-    // 1. Base Eyes (Rectangular: W=44, H=36, radius=9)
+    // 1. Base Eyes (Multi-tier Pixel Matrix: Wide + Tall + Mid)
     left_eye_ = lv_obj_create(face_layer_);
+    left_eye_tall_ = lv_obj_create(face_layer_);
+    left_eye_mid_ = lv_obj_create(face_layer_);
     right_eye_ = lv_obj_create(face_layer_);
-    for (auto* eye : {left_eye_, right_eye_}) {
+    right_eye_tall_ = lv_obj_create(face_layer_);
+    right_eye_mid_ = lv_obj_create(face_layer_);
+    for (auto* eye : {left_eye_, left_eye_tall_, left_eye_mid_, right_eye_, right_eye_tall_, right_eye_mid_}) {
         PrepareShape(eye);
         lv_obj_set_style_bg_color(eye, lv_color_white(), 0);
         lv_obj_set_style_bg_opa(eye, LV_OPA_COVER, 0);
-        lv_obj_set_style_radius(eye, 8, 0);
+        lv_obj_set_style_radius(eye, 0, 0);
     }
 
     // 2. Black Pupils (Proportional rounded rectangle: W=14, H=16, radius=4)
@@ -1081,29 +1128,19 @@ void PocketOledDisplay::UpdateAnimationFrame() {
         base_y + (eye_height - current_right_height_) / 2 + look_y + animation_y + current_right_y_offset_;
 
     if (face_mode_ == FaceMode::kLove || face_mode_ == FaceMode::kHeartbroken) {
-        lv_obj_add_flag(left_eye_, LV_OBJ_FLAG_HIDDEN);
-        lv_obj_add_flag(right_eye_, LV_OBJ_FLAG_HIDDEN);
+        PlaceEyeMatrix(left_eye_, left_eye_tall_, left_eye_mid_, 0, 0, 0, 0, 0);
+        PlaceEyeMatrix(right_eye_, right_eye_tall_, right_eye_mid_, 0, 0, 0, 0, 0);
     } else {
-        lv_obj_remove_flag(left_eye_, LV_OBJ_FLAG_HIDDEN);
-        lv_obj_remove_flag(right_eye_, LV_OBJ_FLAG_HIDDEN);
-        lv_obj_set_pos(left_eye_, left_x, left_y);
-        lv_obj_set_size(left_eye_, current_left_width_, current_left_height_);
-        lv_obj_set_pos(right_eye_, right_x, right_y);
-        lv_obj_set_size(right_eye_, current_right_width_, current_right_height_);
+        int left_radius = EyeRadius(current_left_width_, current_left_height_);
+        int right_radius = EyeRadius(current_right_width_, current_right_height_);
+        if (face_mode_ == FaceMode::kSleeping || face_mode_ == FaceMode::kZenMeditation ||
+            face_mode_ == FaceMode::kAngelBlessing) {
+            left_radius = 12;
+            right_radius = 12;
+        }
+        PlaceEyeMatrix(left_eye_, left_eye_tall_, left_eye_mid_, left_x, left_y, current_left_width_, current_left_height_, left_radius);
+        PlaceEyeMatrix(right_eye_, right_eye_tall_, right_eye_mid_, right_x, right_y, current_right_width_, current_right_height_, right_radius);
     }
-
-    int left_radius = EyeRadius(current_left_width_, current_left_height_);
-    int right_radius = EyeRadius(current_right_width_, current_right_height_);
-    if (face_mode_ == FaceMode::kSleeping || face_mode_ == FaceMode::kZenMeditation ||
-        face_mode_ == FaceMode::kAngelBlessing) {
-        left_radius = 12;
-        right_radius = 12;
-    }
-    lv_obj_set_style_radius(left_eye_, left_radius, 0);
-    lv_obj_set_style_radius(right_eye_, right_radius, 0);
-
-    lv_obj_set_style_transform_rotation(left_eye_, 0, 0);
-    lv_obj_set_style_transform_rotation(right_eye_, 0, 0);
 
     // 8. Black Pupils (W=14, H=16 standard: plump oval, room for 2px left dot and 6px round right disc)
     const bool show_left_pupil = !blink && face_mode_ != FaceMode::kSleeping && face_mode_ != FaceMode::kLove &&
@@ -1633,13 +1670,39 @@ void PocketOledDisplay::UpdateAnimationFrame() {
             }
         }
     } else if (face_mode_ == FaceMode::kPartyCelebrate && !blink) {
-        for (int i = 0; i < 4; ++i) {
-            if (smoke_puff_[i]) {
-                lv_obj_remove_flag(smoke_puff_[i], LV_OBJ_FLAG_HIDDEN);
-                int cy = ((animation_tick_ * 2 + i * 10) % 46);
-                int cx = 10 + i * 32;
-                lv_obj_set_pos(smoke_puff_[i], cx, cy);
-                lv_obj_set_size(smoke_puff_[i], 3, 3);
+        // Pháo hoa Starburst nổ bung 8 hướng rực rỡ 2 bên mắt
+        int p_cycle = (animation_tick_ / 2) % 12; // 0..11
+        if (p_cycle < 9) {
+            int radius = 2 + p_cycle * 2; // Nở từ 2px -> 18px
+            int spark_sz = (p_cycle >= 6) ? 2 : 3;
+
+            // Chùm pháo hoa 1: Bên trái (cx=16, cy=15)
+            // Chùm pháo hoa 2: Bên phải (cx=112, cy=15)
+            const int centers[2][2] = {{16, 15}, {112, 15}};
+
+            for (int cluster = 0; cluster < 2; ++cluster) {
+                int cx = centers[cluster][0];
+                int cy = centers[cluster][1];
+                int base_idx = cluster * 3;
+
+                // 3 tia chính mỗi bên
+                if (smoke_puff_[base_idx]) {
+                    lv_obj_remove_flag(smoke_puff_[base_idx], LV_OBJ_FLAG_HIDDEN);
+                    lv_obj_set_pos(smoke_puff_[base_idx], cx, cy - radius);
+                    lv_obj_set_size(smoke_puff_[base_idx], spark_sz, spark_sz);
+                }
+                if (smoke_puff_[base_idx + 1]) {
+                    lv_obj_remove_flag(smoke_puff_[base_idx + 1], LV_OBJ_FLAG_HIDDEN);
+                    int offset = (radius * 7) / 10;
+                    lv_obj_set_pos(smoke_puff_[base_idx + 1], cx + (cluster == 0 ? offset : -offset), cy - offset);
+                    lv_obj_set_size(smoke_puff_[base_idx + 1], spark_sz, spark_sz);
+                }
+                if (smoke_puff_[base_idx + 2]) {
+                    lv_obj_remove_flag(smoke_puff_[base_idx + 2], LV_OBJ_FLAG_HIDDEN);
+                    int offset = (radius * 7) / 10;
+                    lv_obj_set_pos(smoke_puff_[base_idx + 2], cx + (cluster == 0 ? offset : -offset), cy + offset);
+                    lv_obj_set_size(smoke_puff_[base_idx + 2], spark_sz, spark_sz);
+                }
             }
         }
     } else if (face_mode_ == FaceMode::kMoneyEyes && !blink) {

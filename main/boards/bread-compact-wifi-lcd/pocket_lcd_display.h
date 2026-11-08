@@ -95,6 +95,9 @@ private:
         kFireFury,
         kCryingStream,
         kHeartbroken,
+        // Group 7: Anime Special FX (GIF-like Animations)
+        kAnimeStarlight,
+        kSharingan,
     };
 
     enum class IdleQuirk {

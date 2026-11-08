@@ -494,29 +494,35 @@ void PocketLcdDisplay::UpdateAnimationFrame() {
     lv_color_t pupil_color = lv_color_black();
     lv_color_t catchlight_color = lv_color_white();
 
-    // 1. Dynamic Emotion Colors
+    // 1. Dynamic Emotion Colors (Giải Pháp 2: Chuẩn màu Anime GIF rực rỡ)
     if (face_mode_ == FaceMode::kFireFury || face_mode_ == FaceMode::kFurious) {
-        eye_color = lv_color_hex(0xFF3300);       // Fiery crimson
+        eye_color = lv_color_hex(0xFF3D00);       // Lửa Siêu Saiyan đỏ cam bốc cháy
     } else if (face_mode_ == FaceMode::kAngry) {
-        eye_color = lv_color_hex(0xFF5722);       // Angry flame amber
+        eye_color = lv_color_hex(0xFF5722);       // Hổ phách giận dữ
     } else if (face_mode_ == FaceMode::kLove) {
-        eye_color = lv_color_hex(0xFF2D55);       // Passionate rose pink
+        eye_color = lv_color_hex(0xFF1493);       // Hồng Ruby Doki-Doki Waifu
+    } else if (face_mode_ == FaceMode::kSharingan) {
+        eye_color = lv_color_hex(0xD50000);       // Đỏ máu Sharingan Uchiha
+    } else if (face_mode_ == FaceMode::kAnimeStarlight) {
+        eye_color = lv_color_hex(0x2A0845);       // Tím ngân hà Oshi no Ko
     } else if (face_mode_ == FaceMode::kHeartbroken) {
-        eye_color = lv_color_hex(0xAB47BC);       // Wounded purple
+        eye_color = lv_color_hex(0xAB47BC);       // Tím thương đau
     } else if (face_mode_ == FaceMode::kFreezing) {
-        eye_color = lv_color_hex(0x00E5FF);       // Icy cyber cyan
+        eye_color = lv_color_hex(0x00E5FF);       // Băng tuyết Cyan
     } else if (face_mode_ == FaceMode::kMoneyEyes) {
-        eye_color = lv_color_hex(0xFFD700);       // Pure gold
+        eye_color = lv_color_hex(0xFFD700);       // Vàng kim hoàng gia
     } else if (face_mode_ == FaceMode::kIdeaEureka) {
-        eye_color = lv_color_hex(0xFFEB3B);       // Warm bright yellow
+        eye_color = lv_color_hex(0xFFEB3B);       // Vàng sáng kiến
     } else if (face_mode_ == FaceMode::kMatrixGlitch) {
-        eye_color = lv_color_hex(0x00E676);       // Hacker cyber green
+        eye_color = lv_color_hex(0x00E676);       // Xanh hacker Matrix
     } else if (face_mode_ == FaceMode::kThunderShock) {
-        eye_color = lv_color_hex(0xFFFF00);       // Electric yellow
-    } else if (face_mode_ == FaceMode::kSadCrying || face_mode_ == FaceMode::kCryingStream || face_mode_ == FaceMode::kRainyGloomy) {
-        eye_color = lv_color_hex(0xE1F5FE);       // Pale tear tint
+        eye_color = lv_color_hex(0x00E5FF);       // Xanh điện quang Zenitsu
+    } else if (face_mode_ == FaceMode::kSadCrying || face_mode_ == FaceMode::kCryingStream) {
+        eye_color = lv_color_hex(0x01579B);       // Xanh thẫm nhắm mắt Chibi Waterfall
+    } else if (face_mode_ == FaceMode::kRainyGloomy) {
+        eye_color = lv_color_hex(0xB0BEC5);       // Xám mưa ảm đạm
     } else if (face_mode_ == FaceMode::kZenMeditation || face_mode_ == FaceMode::kAngelBlessing) {
-        eye_color = lv_color_hex(0xFFF9C4);       // Divine celestial gold
+        eye_color = lv_color_hex(0xFFF9C4);       // Vàng thiên thần
     }
 
     // Target Emotion Shapes
@@ -536,12 +542,24 @@ void PocketLcdDisplay::UpdateAnimationFrame() {
         target_left_width = target_right_width = 72;
         target_left_y_offset = target_right_y_offset = 6;
     } else if (face_mode_ == FaceMode::kAngry || face_mode_ == FaceMode::kFurious || face_mode_ == FaceMode::kFireFury) {
-        target_left_height = target_right_height = 44;
-        target_left_y_offset = target_right_y_offset = 12;
+        // Siêu Saiyan bùng cháy: Nheo mắt sắc bén dốc chéo
+        target_left_height = target_right_height = 40;
+        target_left_y_offset = target_right_y_offset = 14;
+    } else if (face_mode_ == FaceMode::kThunderShock) {
+        // Lôi Độn sấm chớp: Nheo mỏng như lưỡi kiếm
+        target_left_height = target_right_height = 14;
+        target_left_y_offset = target_right_y_offset = 18;
+    } else if (face_mode_ == FaceMode::kSadCrying || face_mode_ == FaceMode::kCryingStream) {
+        // Thác lệ Chibi: Mắt nhắm tịt run rẩy
+        target_left_height = target_right_height = 10;
+        target_left_y_offset = target_right_y_offset = 20;
+    } else if (face_mode_ == FaceMode::kAnimeStarlight || face_mode_ == FaceMode::kSharingan) {
+        target_left_height = target_right_height = 72;
+        target_left_width = target_right_width = 76;
     } else if (face_mode_ == FaceMode::kSurprised || face_mode_ == FaceMode::kShockedJawdrop) {
         target_left_height = target_right_height = 78;
         target_left_width = target_right_width = 80;
-    } else if (face_mode_ == FaceMode::kSadEmpathy || face_mode_ == FaceMode::kSadCrying) {
+    } else if (face_mode_ == FaceMode::kSadEmpathy) {
         target_left_height = target_right_height = 42;
         target_left_y_offset = target_right_y_offset = 14;
     } else if (face_mode_ == FaceMode::kSideEye) {
@@ -583,11 +601,14 @@ void PocketLcdDisplay::UpdateAnimationFrame() {
     const bool show_left_pupil = !blink && face_mode_ != FaceMode::kSleeping && face_mode_ != FaceMode::kLove &&
                                  face_mode_ != FaceMode::kHeartbroken && face_mode_ != FaceMode::kDizzy &&
                                  face_mode_ != FaceMode::kRebooting && face_mode_ != FaceMode::kGameOver &&
-                                 face_mode_ != FaceMode::kZenMeditation;
+                                 face_mode_ != FaceMode::kZenMeditation && face_mode_ != FaceMode::kSadCrying &&
+                                 face_mode_ != FaceMode::kCryingStream && face_mode_ != FaceMode::kThunderShock;
     const bool show_right_pupil = !blink && face_mode_ != FaceMode::kSleeping && face_mode_ != FaceMode::kPlayfulWink &&
                                   face_mode_ != FaceMode::kLove && face_mode_ != FaceMode::kHeartbroken &&
                                   face_mode_ != FaceMode::kDizzy && face_mode_ != FaceMode::kRebooting &&
-                                  face_mode_ != FaceMode::kGameOver && face_mode_ != FaceMode::kZenMeditation;
+                                  face_mode_ != FaceMode::kGameOver && face_mode_ != FaceMode::kZenMeditation &&
+                                  face_mode_ != FaceMode::kSadCrying && face_mode_ != FaceMode::kCryingStream &&
+                                  face_mode_ != FaceMode::kThunderShock;
 
     // Pupil Geometry: Proportional 28x32
     int left_pupil_w = 28;
@@ -767,15 +788,155 @@ void PocketLcdDisplay::UpdateAnimationFrame() {
             }
         }
     } else if (face_mode_ == FaceMode::kLove) {
-        // Heart eyes
-        lv_obj_set_style_bg_color(left_eye_, lv_color_hex(0xFF2D55), 0);
-        lv_obj_set_style_bg_color(right_eye_, lv_color_hex(0xFF2D55), 0);
+        // Doki-Doki Waifu Heartbeat (Nhịp đập 75 BPM + bong bóng bay + má hồng)
+        int pulse = (animation_tick_ % 14 < 7) ? 4 : -2;
+        lv_obj_set_style_bg_color(left_eye_, lv_color_hex(0xFF1493), 0);
+        lv_obj_set_style_bg_color(right_eye_, lv_color_hex(0xFF1493), 0);
+        lv_obj_set_size(left_eye_, current_left_width_ + pulse, current_left_height_ + pulse);
+        lv_obj_set_size(right_eye_, current_right_width_ + pulse, current_right_height_ + pulse);
+
+        // Má hồng đào
+        for (int i = 0; i < 2; ++i) {
+            if (extra_shape_[i]) {
+                lv_obj_remove_flag(extra_shape_[i], LV_OBJ_FLAG_HIDDEN);
+                lv_obj_set_style_bg_color(extra_shape_[i], lv_color_hex(0xFF80AB), 0);
+                lv_obj_set_size(extra_shape_[i], 20, 8);
+                lv_obj_set_style_radius(extra_shape_[i], 4, 0);
+                int cx = (i == 0) ? (left_x + 6) : (right_x + current_right_width_ - 26);
+                lv_obj_set_pos(extra_shape_[i], cx, left_y + current_left_height_ + 6);
+            }
+        }
+        // Bong bóng trái tim bay lên
+        for (int i = 2; i < 4; ++i) {
+            if (extra_shape_[i]) {
+                lv_obj_remove_flag(extra_shape_[i], LV_OBJ_FLAG_HIDDEN);
+                lv_obj_set_style_bg_color(extra_shape_[i], lv_color_hex(0xFF4081), 0);
+                int prog = ((animation_tick_ * 2 + i * 16) % 60);
+                int bx = (i == 2 ? 65 : 155) + ((prog % 8 < 4) ? -2 : 2);
+                int by = 130 - prog;
+                lv_obj_set_pos(extra_shape_[i], bx, by);
+                lv_obj_set_size(extra_shape_[i], 8, 8);
+                lv_obj_set_style_radius(extra_shape_[i], 4, 0);
+            }
+        }
+    } else if (face_mode_ == FaceMode::kSadCrying || face_mode_ == FaceMode::kCryingStream) {
+        // Thác Lệ Chibi Xanh Pha Lê (Waterfall Tears) tuôn trào cuồn cuộn
+        for (int i = 0; i < 2; ++i) {
+            // Má hồng ngượng ngùng nấc nở
+            if (extra_shape_[i]) {
+                lv_obj_remove_flag(extra_shape_[i], LV_OBJ_FLAG_HIDDEN);
+                lv_obj_set_style_bg_color(extra_shape_[i], lv_color_hex(0xFF80AB), 0);
+                lv_obj_set_size(extra_shape_[i], 18, 6);
+                lv_obj_set_style_radius(extra_shape_[i], 3, 0);
+                int cx = (i == 0) ? (left_x + 6) : (right_x + current_right_width_ - 24);
+                lv_obj_set_pos(extra_shape_[i], cx, left_y + 14);
+            }
+        }
+        // Dòng thác nước 2 bên mắt
+        for (int i = 0; i < 2; ++i) {
+            if (smoke_puff_[i * 3]) {
+                lv_obj_remove_flag(smoke_puff_[i * 3], LV_OBJ_FLAG_HIDDEN);
+                lv_obj_set_style_bg_color(smoke_puff_[i * 3], lv_color_hex(0x00E5FF), 0); // Thác xanh cyan
+                int wx = (i == 0) ? (left_x + 18) : (right_x + 36);
+                lv_obj_set_pos(smoke_puff_[i * 3], wx, left_y + 12);
+                lv_obj_set_size(smoke_puff_[i * 3], 14, 110);
+                lv_obj_set_style_radius(smoke_puff_[i * 3], 6, 0);
+            }
+            // Bọt tuyết trượt xuống
+            if (smoke_puff_[i * 3 + 1]) {
+                lv_obj_remove_flag(smoke_puff_[i * 3 + 1], LV_OBJ_FLAG_HIDDEN);
+                lv_obj_set_style_bg_color(smoke_puff_[i * 3 + 1], lv_color_hex(0xE0F7FA), 0);
+                int wx = (i == 0) ? (left_x + 20) : (right_x + 38);
+                int wy = left_y + 15 + ((animation_tick_ * 6 + i * 20) % 95);
+                lv_obj_set_pos(smoke_puff_[i * 3 + 1], wx, wy);
+                lv_obj_set_size(smoke_puff_[i * 3 + 1], 10, 8);
+                lv_obj_set_style_radius(smoke_puff_[i * 3 + 1], 3, 0);
+            }
+        }
+    } else if (face_mode_ == FaceMode::kFireFury || face_mode_ == FaceMode::kFurious) {
+        // Hào quang Siêu Saiyan 3 tầng lửa bốc lên cuồn cuộn
+        const lv_color_t flame_colors[3] = {lv_color_hex(0xFFEA00), lv_color_hex(0xFF6D00), lv_color_hex(0xD50000)};
+        for (int i = 0; i < 6; ++i) {
+            if (smoke_puff_[i]) {
+                lv_obj_remove_flag(smoke_puff_[i], LV_OBJ_FLAG_HIDDEN);
+                lv_obj_set_style_bg_color(smoke_puff_[i], flame_colors[i % 3], 0);
+                int fx = 30 + i * 32 + ((animation_tick_ + i * 4) % 6 - 3);
+                int fy = base_y - 6 - ((animation_tick_ * 4 + i * 12) % 36);
+                lv_obj_set_pos(smoke_puff_[i], fx, fy);
+                lv_obj_set_size(smoke_puff_[i], 12, 18);
+                lv_obj_set_style_radius(smoke_puff_[i], 6, 0);
+            }
+        }
+    } else if (face_mode_ == FaceMode::kThunderShock) {
+        // Zenitsu Thunder Flash (Lôi Độn sấm sét neon zic-zac)
+        if (laser_line_) {
+            lv_obj_remove_flag(laser_line_, LV_OBJ_FLAG_HIDDEN);
+            lv_obj_set_style_bg_color(laser_line_, lv_color_hex(0xFFFF00), 0); // Vàng điện
+            int flash_w = (animation_tick_ % 3 == 0) ? 220 : 160;
+            lv_obj_set_pos(laser_line_, (240 - flash_w) / 2, base_y + 30);
+            lv_obj_set_size(laser_line_, flash_w, 4);
+            lv_obj_set_style_radius(laser_line_, 2, 0);
+        }
+    } else if (face_mode_ == FaceMode::kAnimeStarlight) {
+        // Oshi no Ko Starlight (Ngôi sao vàng kim xoay trong đồng tử tím)
+        for (int e = 0; e < 2; ++e) {
+            if (catchlight_[e][0]) {
+                lv_obj_remove_flag(catchlight_[e][0], LV_OBJ_FLAG_HIDDEN);
+                lv_obj_set_style_bg_color(catchlight_[e][0], lv_color_hex(0xFFD700), 0);
+                int star_sz = 18 + ((animation_tick_ % 16 < 8) ? 4 : 0);
+                int ex = (e == 0 ? left_x : right_x) + (current_left_width_ - star_sz) / 2;
+                int ey = left_y + (current_left_height_ - star_sz) / 2;
+                lv_obj_set_pos(catchlight_[e][0], ex, ey);
+                lv_obj_set_size(catchlight_[e][0], star_sz, star_sz);
+                lv_obj_set_style_radius(catchlight_[e][0], 3, 0);
+            }
+        }
+        // Bụi sao lấp lánh khóe mắt
+        for (int i = 0; i < 4; ++i) {
+            if (extra_shape_[i]) {
+                lv_obj_remove_flag(extra_shape_[i], LV_OBJ_FLAG_HIDDEN);
+                lv_obj_set_style_bg_color(extra_shape_[i], lv_color_white(), 0);
+                int sx = (i < 2 ? left_x - 12 : right_x + current_right_width_ + 4) + (i % 2) * 8;
+                int sy = base_y + 10 + (i % 2) * 35;
+                lv_obj_set_pos(extra_shape_[i], sx, sy);
+                lv_obj_set_size(extra_shape_[i], 4, 4);
+                lv_obj_set_style_radius(extra_shape_[i], 2, 0);
+            }
+        }
+    } else if (face_mode_ == FaceMode::kSharingan) {
+        // Sharingan Uchiha (3 câu ngọc Tomoe đen xoay 120 độ quanh đồng tử)
+        for (int e = 0; e < 2; ++e) {
+            int cx = (e == 0 ? left_x : right_x) + current_left_width_ / 2;
+            int cy = left_y + current_left_height_ / 2;
+            float angle_base = (animation_tick_ * 12.0f) * 3.14159f / 180.0f;
+            for (int t = 0; t < 3; ++t) {
+                if (catchlight_[e][t]) {
+                    lv_obj_remove_flag(catchlight_[e][t], LV_OBJ_FLAG_HIDDEN);
+                    lv_obj_set_style_bg_color(catchlight_[e][t], lv_color_black(), 0);
+                    float a = angle_base + t * (2.0f * 3.14159f / 3.0f);
+                    int tx = static_cast<int>(cx + 18.0f * cos(a) - 4);
+                    int ty = static_cast<int>(cy + 18.0f * sin(a) - 4);
+                    lv_obj_set_pos(catchlight_[e][t], tx, ty);
+                    lv_obj_set_size(catchlight_[e][t], 8, 8);
+                    lv_obj_set_style_radius(catchlight_[e][t], 4, 0);
+                }
+            }
+        }
     }
 }
 
 PocketLcdDisplay::FaceMode PocketLcdDisplay::FaceModeFromEmotion(const char* emotion) const {
     if (emotion == nullptr) {
         return FaceMode::kNeutral;
+    }
+    // Group 7: Anime Special FX (GIF-like Animations)
+    if (Contains(emotion, "starlight") || Contains(emotion, "idol") || Contains(emotion, "ngoi_sao") ||
+        Contains(emotion, "oshi_no_ko") || Contains(emotion, "toa_sang") || Contains(emotion, "sieu_sao")) {
+        return FaceMode::kAnimeStarlight;
+    }
+    if (Contains(emotion, "sharingan") || Contains(emotion, "uchiha") || Contains(emotion, "nhan_thuat") ||
+        Contains(emotion, "cau_ngoc") || Contains(emotion, "nhin_thau")) {
+        return FaceMode::kSharingan;
     }
     if (Contains(emotion, "cry_stream") || Contains(emotion, "waterfall") || Contains(emotion, "thac_nuoc")) {
         return FaceMode::kCryingStream;
