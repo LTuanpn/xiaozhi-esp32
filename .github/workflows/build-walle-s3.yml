@@ -8,10 +8,20 @@ on:
 
 jobs:
   build-s3:
-    name: Build bread-compact-wifi-128x64
+    name: Build ${{ matrix.name }}
     runs-on: ubuntu-latest
     container:
       image: espressif/idf:release-v6.1
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - board: bread-compact-wifi
+            name: bread-compact-wifi-128x64
+            artifact: bread-compact-wifi-128x64-walle
+          - board: bread-compact-wifi-lcd
+            name: bread-compact-wifi-lcd-240x240
+            artifact: bread-compact-wifi-lcd-240x240-walle
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -20,11 +30,11 @@ jobs:
         shell: bash
         run: |
           source "$IDF_PATH/export.sh"
-          python3 scripts/build.py bread-compact-wifi --name bread-compact-wifi-128x64 --wake-word wn9_jarvis_tts
+          python3 scripts/build.py ${{ matrix.board }} --name ${{ matrix.name }} --wake-word wn9_jarvis_tts
 
       - name: Upload merged-binary.bin
         uses: actions/upload-artifact@v4
         with:
-          name: bread-compact-wifi-128x64-walle
+          name: ${{ matrix.artifact }}
           path: build/merged-binary.bin
           if-no-files-found: error
