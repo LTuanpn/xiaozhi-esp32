@@ -531,7 +531,6 @@ void PocketLcdDisplay::UpdateAnimationFrame() {
     // Colors: Default is pure natural White Sclera, Black Pupil, White Catchlight
     lv_color_t eye_color = lv_color_white();
     lv_color_t pupil_color = lv_color_black();
-    lv_color_t catchlight_color = lv_color_white();
 
     // 1. Dynamic Emotion Colors (Giải Pháp 2: Chuẩn màu Anime GIF rực rỡ)
     if (face_mode_ == FaceMode::kFireFury || face_mode_ == FaceMode::kFurious) {

@@ -657,7 +657,6 @@ void PocketOledDisplay::UpdateAnimationFrame() {
         }
     }
 
-    auto& app = Application::GetInstance();
     const uint8_t mic_level = app.GetAudioService().GetInputLevel();
     const uint8_t spk_level = app.GetAudioService().GetOutputLevel();
 
