@@ -332,8 +332,8 @@ private:
 
                 if (display_ != nullptr) {
                     display_->SetGuardMode(true);
-                    display_->SetEmotion("scanning");
-                    display_->ShowNotification("[CANH GAC] SENTRY MODE: ON", 60000);
+                    display_->ShowStandbyClock();
+                    display_->ShowNotification("[CANH GAC] SENTRY MODE: ON", 5000);
                 }
 
                 if (guard_timer_ == nullptr) {

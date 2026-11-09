@@ -128,6 +128,8 @@ private:
     // Eye elements
     lv_obj_t* left_eye_ = nullptr;
     lv_obj_t* right_eye_ = nullptr;
+    lv_obj_t* left_iris_ = nullptr;
+    lv_obj_t* right_iris_ = nullptr;
     lv_obj_t* left_pupil_ = nullptr;
     lv_obj_t* right_pupil_ = nullptr;
 
@@ -264,6 +266,8 @@ private:
     lv_obj_t* guard_card_ = nullptr;
     lv_obj_t* guard_title_label_ = nullptr;
     lv_obj_t* guard_icon_ = nullptr;
+    lv_obj_t* guard_shield_top_ = nullptr;
+    lv_obj_t* guard_shield_bottom_ = nullptr;
     lv_obj_t* guard_status_label_ = nullptr;
 
     // State Variables (No Fake Sensors)

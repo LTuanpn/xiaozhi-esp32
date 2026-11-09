@@ -168,6 +168,19 @@ void PocketLcdDisplay::SetupUI() {
         lv_obj_set_style_bg_color(eye, lv_color_white(), 0);
         lv_obj_set_style_bg_opa(eye, LV_OPA_COVER, 0);
         lv_obj_set_style_radius(eye, 17, 0);
+        lv_obj_set_style_border_width(eye, 2, 0);
+        lv_obj_set_style_border_color(eye, lv_color_hex(0x00E5FF), 0);
+    }
+
+    // 3b. Color Irises (created before pupils so pupils render on top)
+    left_iris_ = lv_obj_create(face_layer_);
+    right_iris_ = lv_obj_create(face_layer_);
+    for (auto* iris : {left_iris_, right_iris_}) {
+        PrepareShape(iris);
+        lv_obj_set_style_bg_color(iris, lv_color_hex(0x0088FF), 0);
+        lv_obj_set_style_bg_opa(iris, LV_OPA_COVER, 0);
+        lv_obj_set_style_radius(iris, 10, 0);
+        lv_obj_add_flag(iris, LV_OBJ_FLAG_HIDDEN);
     }
 
     // 4. Black Pupils (Default: Natural Black, W=28, H=32, Radius=8)
@@ -394,7 +407,11 @@ void PocketLcdDisplay::SetStatus(const char* status) {
         is_speaking_ = true;
         last_active_tick_ = animation_tick_;
         if (face_mode_ == FaceMode::kNeutral || face_mode_ == FaceMode::kListening) {
-            SetFaceMode(emotion_mode_ != FaceMode::kNeutral ? emotion_mode_ : FaceMode::kSmileGentle);
+            if (emotion_mode_ != FaceMode::kNeutral) {
+                SetFaceMode(emotion_mode_);
+            } else {
+                SetFaceMode(FaceMode::kNeutral);
+            }
         }
     } else if (std::strcmp(status, Lang::Strings::CONNECTING) == 0 || Contains(status, "Đang") ||
                Contains(status, "dang")) {
@@ -484,10 +501,26 @@ void PocketLcdDisplay::SetChatMessage(const char* role, const char* content) {
         clean_text = clean_text.substr(first_char);
     }
 
+    if (role != nullptr && std::strcmp(role, "assistant") == 0) {
+        is_speaking_ = true;
+        last_active_tick_ = animation_tick_;
+    }
+
     if (!target_emotion.empty()) {
-        FaceMode emo = FaceModeFromEmotion(target_emotion.c_str());
-        SetFaceMode(emo);
-        temporary_emotion_until_tick_ = animation_tick_ + (6000 / kAnimationPeriodMs);
+        emotion_mode_ = FaceModeFromEmotion(target_emotion.c_str());
+        SetFaceMode(emotion_mode_);
+        temporary_emotion_until_tick_ = animation_tick_ + (10000 / kAnimationPeriodMs); // Giữ 10s
+    } else {
+        FaceMode inferred = InferEmotionFromText(clean_text.c_str());
+        if (inferred != FaceMode::kNeutral) {
+            emotion_mode_ = inferred;
+            SetFaceMode(inferred);
+            temporary_emotion_until_tick_ = animation_tick_ + (10000 / kAnimationPeriodMs);
+        } else if (emotion_mode_ != FaceMode::kNeutral) {
+            SetFaceMode(emotion_mode_);
+        } else {
+            SetFaceMode(FaceMode::kNeutral);
+        }
     }
 
     has_chat_text_ = !clean_text.empty();
@@ -543,7 +576,6 @@ void PocketLcdDisplay::UpdateStatusBar(bool update_all) {
 void PocketLcdDisplay::SetFaceMode(FaceMode mode) {
     if (face_mode_ == mode) return;
     face_mode_ = mode;
-    last_active_tick_ = animation_tick_;
     if (mode == FaceMode::kSurprised) {
         surprised_start_tick_ = animation_tick_;
     }
@@ -817,6 +849,10 @@ void PocketLcdDisplay::UpdateAnimationFrame() {
     auto& app = Application::GetInstance();
     auto dev_state = app.GetDeviceState();
 
+    constexpr uint32_t kSleepyTimeoutTicks = 700;    // 35s -> Sleepy
+    constexpr uint32_t kSleepingTimeoutTicks = 1200; // 60s -> Sleeping (ngủ 60s)
+    constexpr uint32_t kStandbyTimeoutTicks = 2400;  // 120s -> Standby Clock
+
     if (dev_state != kDeviceStateIdle) {
         if (standby_active_) {
             HideStandbyClock();
@@ -824,9 +860,24 @@ void PocketLcdDisplay::UpdateAnimationFrame() {
         HideQrCode();
         last_active_tick_ = animation_tick_;
     } else {
-        if (!standby_active_ && (animation_tick_ - last_active_tick_ >= 600 || face_mode_ == FaceMode::kSleeping)) {
+        if (!standby_active_ && (animation_tick_ - last_active_tick_ >= kStandbyTimeoutTicks)) {
             ShowStandbyClock();
             return;
+        }
+    }
+
+    // Continuous Pomodoro / Countdown timer update (1 tick per second)
+    if (animation_tick_ >= last_countdown_tick_ + 20) {
+        last_countdown_tick_ = animation_tick_;
+        if (countdown_remaining_sec_ > 0) {
+            countdown_remaining_sec_--;
+            if (countdown_remaining_sec_ == 0) {
+                WakeUp();
+                SetEmotion("thunder");
+                ShowNotification("[BAO THUC] HET GIO ROI!", 15000);
+                Application::GetInstance().PlaySound(Lang::Sounds::OGG_VIBRATION);
+                countdown_label_ = "IDLE";
+            }
         }
     }
 
@@ -869,20 +920,25 @@ void PocketLcdDisplay::UpdateAnimationFrame() {
     constexpr int max_look_x = 12;
     constexpr int max_look_y = 8;
 
-    // 1. Temporary Emotion Timeout
-    if (temporary_emotion_until_tick_ > 0 && animation_tick_ >= temporary_emotion_until_tick_ && !is_speaking_) {
-        temporary_emotion_until_tick_ = 0;
-        emotion_mode_ = FaceMode::kNeutral;
-        SetFaceMode(FaceMode::kNeutral);
+    // 1. Temporary Emotion Timeout (do not reset if speaking)
+    if (temporary_emotion_until_tick_ > 0 && animation_tick_ >= temporary_emotion_until_tick_) {
+        if (!is_speaking_ && dev_state != kDeviceStateSpeaking) {
+            temporary_emotion_until_tick_ = 0;
+            emotion_mode_ = FaceMode::kNeutral;
+            SetFaceMode(FaceMode::kNeutral);
+        }
     }
 
-    // 2. Autonomous Sleep & Mini Idle Quirks
+    // 2. Autonomous Sleep (35s Sleepy, 60s Sleeping) & Mini Idle Quirks
     if (face_mode_ != FaceMode::kSleeping && face_mode_ != FaceMode::kWakingUp && temporary_emotion_until_tick_ == 0) {
-        if (animation_tick_ >= last_active_tick_ + kAutoSleepTimeoutTicks) {
+        if (animation_tick_ >= last_active_tick_ + kSleepingTimeoutTicks) {
             idle_quirk_ = IdleQuirk::kNone;
             SetFaceMode(FaceMode::kSleeping);
+            if (chat_line_ != nullptr && !has_chat_text_ && !hide_subtitle_) {
+                lv_label_set_text(chat_line_, "zZz...");
+            }
             is_speaking_ = false;
-        } else if (animation_tick_ >= last_active_tick_ + (kAutoSleepTimeoutTicks / 2) && face_mode_ == FaceMode::kNeutral) {
+        } else if (animation_tick_ >= last_active_tick_ + kSleepyTimeoutTicks && face_mode_ == FaceMode::kNeutral) {
             idle_quirk_ = IdleQuirk::kNone;
             SetFaceMode(FaceMode::kSleepy);
         } else if (face_mode_ == FaceMode::kNeutral && !is_speaking_) {
@@ -1270,9 +1326,14 @@ void PocketLcdDisplay::UpdateAnimationFrame() {
     int animation_x = 0;
     int animation_y = 0;
     if (is_speaking_) {
-        int amp_bounce = 2 + (spk_level / 16);
-        animation_y = ((animation_tick_ / 2) % 2 == 0) ? -amp_bounce : (amp_bounce / 2);
-    } else if (face_mode_ == FaceMode::kSleeping) {
+        // Subtle bounce only for Neutral or SmileGentle (1..2px)
+        if (face_mode_ == FaceMode::kNeutral || face_mode_ == FaceMode::kSmileGentle) {
+            int amp_bounce = 1 + (spk_level / 45);
+            if (amp_bounce > 2) amp_bounce = 2;
+            animation_y = ((animation_tick_ / 2) % 2 == 0) ? -amp_bounce : (amp_bounce / 2);
+        }
+    }
+    if (animation_y == 0 && face_mode_ == FaceMode::kSleeping) {
         uint32_t sleep_ticks = (animation_tick_ > last_active_tick_ + kAutoSleepTimeoutTicks)
                                    ? (animation_tick_ - (last_active_tick_ + kAutoSleepTimeoutTicks))
                                    : 0;
@@ -1480,25 +1541,98 @@ void PocketLcdDisplay::UpdateAnimationFrame() {
         out_y = std::clamp(out_y, eye_y + 3, std::max(eye_y + 3, eye_y + eye_h - ph - 3));
     };
 
+    // Dynamic Emotion Color Palette
+    uint32_t border_color_hex = 0x00E5FF; // Default Cyan
+    uint32_t iris_color_hex = 0x0088FF;   // Default Jarvis Blue
+
+    if (face_mode_ == FaceMode::kSmileGentle || face_mode_ == FaceMode::kPlayfulWink ||
+        face_mode_ == FaceMode::kEcstaticLaugh || face_mode_ == FaceMode::kPartyCelebrate ||
+        face_mode_ == FaceMode::kExcited) {
+        border_color_hex = 0x00E5FF;
+        iris_color_hex = 0x00C853; // Xanh Ngọc
+    } else if (face_mode_ == FaceMode::kAngry || face_mode_ == FaceMode::kFurious ||
+               face_mode_ == FaceMode::kFireFury) {
+        border_color_hex = 0xFF1744; // Đỏ Neon
+        iris_color_hex = 0xFF3D00;   // Lửa Neon
+    } else if (face_mode_ == FaceMode::kSadEmpathy || face_mode_ == FaceMode::kSadCrying ||
+               face_mode_ == FaceMode::kCryingStream || face_mode_ == FaceMode::kHeartbroken) {
+        border_color_hex = 0x2979FF; // Lam
+        iris_color_hex = 0x304FFE;   // Tím Thẫm
+    } else if (face_mode_ == FaceMode::kLove || face_mode_ == FaceMode::kShy) {
+        border_color_hex = 0xFF1493; // Hồng Neon
+        iris_color_hex = 0xD500F9;   // Hồng Tím
+    } else if (face_mode_ == FaceMode::kMatrixGlitch) {
+        border_color_hex = 0x00FF41; // Xanh Hacker
+        iris_color_hex = 0x00FF41;
+    } else if (face_mode_ == FaceMode::kFreezing) {
+        border_color_hex = 0x00E5FF; // Viền Băng
+        iris_color_hex = 0x80D8FF;   // Băng Sáng
+    } else if (face_mode_ == FaceMode::kSunnyDazzle || face_mode_ == FaceMode::kIdeaEureka ||
+               face_mode_ == FaceMode::kMoneyEyes) {
+        border_color_hex = 0xFFD600; // Vàng Rực
+        iris_color_hex = 0x00E676;   // Lục Đô La
+    }
+
+    lv_obj_set_style_border_color(left_eye_, lv_color_hex(border_color_hex), 0);
+    lv_obj_set_style_border_color(right_eye_, lv_color_hex(border_color_hex), 0);
+
     if (show_left_pupil) {
-        lv_obj_remove_flag(left_pupil_, LV_OBJ_FLAG_HIDDEN);
         place_pupil(left_x, left_y, current_left_width_, current_left_height_, left_pupil_w,
                     left_pupil_h, left_pupil_pos_x, left_pupil_pos_y);
+
+        // Place Left Iris
+        if (left_iris_ != nullptr) {
+            int left_iris_w = left_pupil_w + 14;
+            int left_iris_h = left_pupil_h + 14;
+            int left_iris_x = left_pupil_pos_x - 7;
+            int left_iris_y = left_pupil_pos_y - 7;
+            left_iris_x = std::clamp(left_iris_x, left_x + 2, std::max(left_x + 2, left_x + current_left_width_ - left_iris_w - 2));
+            left_iris_y = std::clamp(left_iris_y, left_y + 2, std::max(left_y + 2, left_y + current_left_height_ - left_iris_h - 2));
+
+            lv_obj_remove_flag(left_iris_, LV_OBJ_FLAG_HIDDEN);
+            lv_obj_set_pos(left_iris_, left_iris_x, left_iris_y);
+            lv_obj_set_size(left_iris_, left_iris_w, left_iris_h);
+            lv_obj_set_style_radius(left_iris_, PupilRadius(left_iris_w, left_iris_h) + 4, 0);
+            lv_obj_set_style_bg_color(left_iris_, lv_color_hex(iris_color_hex), 0);
+        }
+
+        // Place Left Pupil
+        lv_obj_remove_flag(left_pupil_, LV_OBJ_FLAG_HIDDEN);
         lv_obj_set_pos(left_pupil_, left_pupil_pos_x, left_pupil_pos_y);
         lv_obj_set_size(left_pupil_, left_pupil_w, left_pupil_h);
         lv_obj_set_style_radius(left_pupil_, PupilRadius(left_pupil_w, left_pupil_h), 0);
     } else {
+        if (left_iris_) lv_obj_add_flag(left_iris_, LV_OBJ_FLAG_HIDDEN);
         lv_obj_add_flag(left_pupil_, LV_OBJ_FLAG_HIDDEN);
     }
 
     if (show_right_pupil) {
-        lv_obj_remove_flag(right_pupil_, LV_OBJ_FLAG_HIDDEN);
         place_pupil(right_x, right_y, current_right_width_, current_right_height_, right_pupil_w,
                     right_pupil_h, right_pupil_pos_x, right_pupil_pos_y);
+
+        // Place Right Iris
+        if (right_iris_ != nullptr) {
+            int right_iris_w = right_pupil_w + 14;
+            int right_iris_h = right_pupil_h + 14;
+            int right_iris_x = right_pupil_pos_x - 7;
+            int right_iris_y = right_pupil_pos_y - 7;
+            right_iris_x = std::clamp(right_iris_x, right_x + 2, std::max(right_x + 2, right_x + current_right_width_ - right_iris_w - 2));
+            right_iris_y = std::clamp(right_iris_y, right_y + 2, std::max(right_y + 2, right_y + current_right_height_ - right_iris_h - 2));
+
+            lv_obj_remove_flag(right_iris_, LV_OBJ_FLAG_HIDDEN);
+            lv_obj_set_pos(right_iris_, right_iris_x, right_iris_y);
+            lv_obj_set_size(right_iris_, right_iris_w, right_iris_h);
+            lv_obj_set_style_radius(right_iris_, PupilRadius(right_iris_w, right_iris_h) + 4, 0);
+            lv_obj_set_style_bg_color(right_iris_, lv_color_hex(iris_color_hex), 0);
+        }
+
+        // Place Right Pupil
+        lv_obj_remove_flag(right_pupil_, LV_OBJ_FLAG_HIDDEN);
         lv_obj_set_pos(right_pupil_, right_pupil_pos_x, right_pupil_pos_y);
         lv_obj_set_size(right_pupil_, right_pupil_w, right_pupil_h);
         lv_obj_set_style_radius(right_pupil_, PupilRadius(right_pupil_w, right_pupil_h), 0);
     } else {
+        if (right_iris_) lv_obj_add_flag(right_iris_, LV_OBJ_FLAG_HIDDEN);
         lv_obj_add_flag(right_pupil_, LV_OBJ_FLAG_HIDDEN);
     }
 
@@ -2406,9 +2540,8 @@ void PocketLcdDisplay::UpdateAnimationFrame() {
             lv_obj_set_size(left_bottom_lid_, current_left_width_ + 8, cover_height);
             lv_obj_set_pos(right_bottom_lid_, right_x - 4, right_y + current_right_height_ - cover_height + 8);
             lv_obj_set_size(right_bottom_lid_, current_right_width_ + 8, cover_height);
-        } else if (face_mode_ == FaceMode::kSmileGentle || face_mode_ == FaceMode::kMusic ||
-                   (is_speaking_ && (face_mode_ == FaceMode::kNeutral || face_mode_ == FaceMode::kListening))) {
-            int dynamic_cheek = 24 + (is_speaking_ ? (spk_level / 10) : 4);
+        } else if (face_mode_ == FaceMode::kSmileGentle || face_mode_ == FaceMode::kMusic) {
+            int dynamic_cheek = 24 + 4;
             lv_obj_remove_flag(left_bottom_lid_, LV_OBJ_FLAG_HIDDEN);
             lv_obj_remove_flag(right_bottom_lid_, LV_OBJ_FLAG_HIDDEN);
             lv_obj_set_pos(left_bottom_lid_, left_x - 4, left_y + current_left_height_ - dynamic_cheek / 2);
@@ -2581,23 +2714,23 @@ void PocketLcdDisplay::ShowStandbyClock() {
 
         pill_container_ = lv_obj_create(standby_container_);
         lv_obj_remove_style_all(pill_container_);
-        lv_obj_set_size(pill_container_, 68, 20);
-        lv_obj_set_pos(pill_container_, 86, 6);
+        lv_obj_set_size(pill_container_, 86, 20);
+        lv_obj_set_pos(pill_container_, 77, 6);
         lv_obj_set_style_bg_color(pill_container_, lv_color_hex(0xFF5500), 0);
         lv_obj_set_style_bg_opa(pill_container_, LV_OPA_COVER, 0);
         lv_obj_set_style_radius(pill_container_, 8, 0);
 
         pill_label_ = lv_label_create(pill_container_);
         lv_obj_center(pill_label_);
-        lv_obj_set_style_text_color(pill_label_, lv_color_hex(0x000000), 0);
-        lv_label_set_text(pill_label_, "XIAOZHI");
+        lv_obj_set_style_text_color(pill_label_, lv_color_white(), 0);
+        lv_label_set_text(pill_label_, "JARVIS OS");
 
         wifi_rssi_label_ = lv_label_create(standby_container_);
-        lv_obj_set_pos(wifi_rssi_label_, 140, 8);
-        lv_obj_set_width(wifi_rssi_label_, 94);
+        lv_obj_set_pos(wifi_rssi_label_, 156, 8);
+        lv_obj_set_width(wifi_rssi_label_, 78);
         lv_obj_set_style_text_align(wifi_rssi_label_, LV_TEXT_ALIGN_RIGHT, 0);
         lv_obj_set_style_text_color(wifi_rssi_label_, lv_color_hex(0x0A84FF), 0);
-        lv_label_set_text(wifi_rssi_label_, "WIFI --dB");
+        lv_label_set_text(wifi_rssi_label_, LV_SYMBOL_WIFI " --");
 
         // 2. HERO CLOCK & MEMO CARD (x: 6, y: 34, w: 228, h: 114)
         hero_card_ = lv_obj_create(standby_container_);
@@ -2744,15 +2877,25 @@ void PocketLcdDisplay::ShowStandbyClock() {
         lv_obj_set_style_text_color(guard_title_label_, lv_color_hex(0x8E8E93), 0);
         lv_label_set_text(guard_title_label_, "GUARD");
 
-        guard_icon_ = lv_obj_create(guard_card_);
-        lv_obj_remove_style_all(guard_icon_);
-        lv_obj_set_size(guard_icon_, 24, 24);
-        lv_obj_set_pos(guard_icon_, 24, 28);
-        lv_obj_set_style_radius(guard_icon_, 6, 0);
-        lv_obj_set_style_bg_color(guard_icon_, lv_color_hex(0x262629), 0);
-        lv_obj_set_style_bg_opa(guard_icon_, LV_OPA_COVER, 0);
-        lv_obj_set_style_border_width(guard_icon_, 1, 0);
-        lv_obj_set_style_border_color(guard_icon_, lv_color_hex(0x8E8E93), 0);
+        guard_shield_top_ = lv_obj_create(guard_card_);
+        lv_obj_remove_style_all(guard_shield_top_);
+        lv_obj_set_size(guard_shield_top_, 26, 16);
+        lv_obj_set_pos(guard_shield_top_, 23, 26);
+        lv_obj_set_style_radius(guard_shield_top_, 6, 0);
+        lv_obj_set_style_bg_color(guard_shield_top_, lv_color_hex(0x262629), 0);
+        lv_obj_set_style_bg_opa(guard_shield_top_, LV_OPA_COVER, 0);
+        lv_obj_set_style_border_width(guard_shield_top_, 1, 0);
+        lv_obj_set_style_border_color(guard_shield_top_, lv_color_hex(0x8E8E93), 0);
+
+        guard_shield_bottom_ = lv_obj_create(guard_card_);
+        lv_obj_remove_style_all(guard_shield_bottom_);
+        lv_obj_set_size(guard_shield_bottom_, 18, 14);
+        lv_obj_set_pos(guard_shield_bottom_, 27, 36);
+        lv_obj_set_style_radius(guard_shield_bottom_, 4, 0);
+        lv_obj_set_style_bg_color(guard_shield_bottom_, lv_color_hex(0x262629), 0);
+        lv_obj_set_style_bg_opa(guard_shield_bottom_, LV_OPA_COVER, 0);
+        lv_obj_set_style_border_width(guard_shield_bottom_, 1, 0);
+        lv_obj_set_style_border_color(guard_shield_bottom_, lv_color_hex(0x8E8E93), 0);
 
         guard_status_label_ = lv_label_create(guard_card_);
         lv_obj_set_pos(guard_status_label_, 0, 56);
@@ -2818,9 +2961,9 @@ void PocketLcdDisplay::UpdateStandbyClock() {
     }
     char wifi_buf[32];
     if (rssi > -100 && rssi < 0) {
-        snprintf(wifi_buf, sizeof(wifi_buf), "WIFI %ddB", rssi);
+        snprintf(wifi_buf, sizeof(wifi_buf), LV_SYMBOL_WIFI " %ddB", rssi);
     } else {
-        snprintf(wifi_buf, sizeof(wifi_buf), "WIFI DISCONN");
+        snprintf(wifi_buf, sizeof(wifi_buf), LV_SYMBOL_WIFI " --");
     }
     if (wifi_rssi_label_) lv_label_set_text(wifi_rssi_label_, wifi_buf);
 
@@ -2874,14 +3017,19 @@ void PocketLcdDisplay::UpdateStandbyClock() {
     }
 
     // 6. Guard Mode Widget & Acoustic Monitoring
-    if (guard_icon_) {
+    if (guard_shield_top_ && guard_shield_bottom_) {
         if (guard_mode_active_) {
-            lv_obj_set_style_bg_color(guard_icon_, lv_color_hex(0x32D74B), 0);
-            lv_obj_set_style_border_width(guard_icon_, 0, 0);
+            lv_obj_set_style_bg_color(guard_shield_top_, lv_color_hex(0x32D74B), 0);
+            lv_obj_set_style_border_width(guard_shield_top_, 0, 0);
+            lv_obj_set_style_bg_color(guard_shield_bottom_, lv_color_hex(0x32D74B), 0);
+            lv_obj_set_style_border_width(guard_shield_bottom_, 0, 0);
         } else {
-            lv_obj_set_style_bg_color(guard_icon_, lv_color_hex(0x262629), 0);
-            lv_obj_set_style_border_width(guard_icon_, 1, 0);
-            lv_obj_set_style_border_color(guard_icon_, lv_color_hex(0x8E8E93), 0);
+            lv_obj_set_style_bg_color(guard_shield_top_, lv_color_hex(0x262629), 0);
+            lv_obj_set_style_border_width(guard_shield_top_, 1, 0);
+            lv_obj_set_style_border_color(guard_shield_top_, lv_color_hex(0x8E8E93), 0);
+            lv_obj_set_style_bg_color(guard_shield_bottom_, lv_color_hex(0x262629), 0);
+            lv_obj_set_style_border_width(guard_shield_bottom_, 1, 0);
+            lv_obj_set_style_border_color(guard_shield_bottom_, lv_color_hex(0x8E8E93), 0);
         }
     }
     if (guard_status_label_) {
@@ -2893,8 +3041,11 @@ void PocketLcdDisplay::UpdateStandbyClock() {
         auto& app = Application::GetInstance();
         if (app.GetDeviceState() == kDeviceStateIdle) {
             uint8_t mic_lvl = app.GetAudioService().GetInputLevel();
-            if (mic_lvl > 35 && animation_tick_ >= guard_alarm_cooldown_tick_) {
+            if (mic_lvl > 30 && animation_tick_ >= guard_alarm_cooldown_tick_) {
                 guard_alarm_cooldown_tick_ = animation_tick_ + 100; // 5s cooldown
+                WakeUp();
+                SetEmotion("furious");
+                ShowNotification("[CANH BAO] PHAT HIEN XAM NHAP!", 10000);
                 app.PlaySound(Lang::Sounds::OGG_EXCLAMATION);
             }
         }
