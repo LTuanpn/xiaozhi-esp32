@@ -2898,15 +2898,8 @@ void PocketLcdDisplay::SetGuardMode(bool enable) {
     DisplayLockGuard lock(this);
     if (!lock) return;
     guard_mode_active_ = enable;
-    if (guard_icon_ != nullptr) {
-        if (guard_mode_active_) {
-            lv_obj_set_style_bg_color(guard_icon_, lv_color_hex(0x32D74B), 0);
-            lv_obj_set_style_border_width(guard_icon_, 0, 0);
-        } else {
-            lv_obj_set_style_bg_color(guard_icon_, lv_color_hex(0x262629), 0);
-            lv_obj_set_style_border_width(guard_icon_, 1, 0);
-            lv_obj_set_style_border_color(guard_icon_, lv_color_hex(0x8E8E93), 0);
-        }
+    if (guard_canvas_ != nullptr) {
+        DrawShield(guard_mode_active_);
     }
     if (guard_status_label_ != nullptr) {
         lv_label_set_text(guard_status_label_, guard_mode_active_ ? "ON" : "OFF");

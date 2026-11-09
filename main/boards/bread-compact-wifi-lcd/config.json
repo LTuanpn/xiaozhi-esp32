@@ -9,7 +9,8 @@
                 "CONFIG_SR_WN_WN9_JARVIS_TTS=y",
                 "CONFIG_LV_FONT_MONTSERRAT_20=y",
                 "CONFIG_LV_FONT_MONTSERRAT_24=y",
-                "CONFIG_LV_FONT_MONTSERRAT_32=y"
+                "CONFIG_LV_FONT_MONTSERRAT_32=y",
+                "CONFIG_LV_FONT_MONTSERRAT_48=y"
             ]
         },
         {
@@ -19,7 +20,8 @@
                 "CONFIG_SR_WN_WN9_JARVIS_TTS=y",
                 "CONFIG_LV_FONT_MONTSERRAT_20=y",
                 "CONFIG_LV_FONT_MONTSERRAT_24=y",
-                "CONFIG_LV_FONT_MONTSERRAT_32=y"
+                "CONFIG_LV_FONT_MONTSERRAT_32=y",
+                "CONFIG_LV_FONT_MONTSERRAT_48=y"
             ]
         }
     ]
