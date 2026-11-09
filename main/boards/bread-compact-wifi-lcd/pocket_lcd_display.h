@@ -200,8 +200,8 @@ private:
     uint32_t next_idle_tick_ = 30;
 
     // Smoothed pupil size (left=0, right=1)
-    int smooth_pupil_w_[2] = {28, 28};
-    int smooth_pupil_h_[2] = {32, 32};
+    int smooth_pupil_w_[2] = {30, 30};
+    int smooth_pupil_h_[2] = {34, 34};
     // Micro-saccades
     int micro_look_x_ = 0;
     int micro_look_y_ = 0;
@@ -212,10 +212,10 @@ private:
     int current_look_y_ = 0;
     int target_look_x_ = 0;
     int target_look_y_ = 0;
-    int current_left_width_ = 78;
-    int current_right_width_ = 78;
-    int current_left_height_ = 76;
-    int current_right_height_ = 76;
+    int current_left_width_ = 82;
+    int current_right_width_ = 82;
+    int current_left_height_ = 80;
+    int current_right_height_ = 80;
     int current_left_y_offset_ = 0;
     int current_right_y_offset_ = 0;
     bool has_chat_text_ = false;
@@ -262,12 +262,21 @@ private:
     lv_obj_t* vol_arc_ = nullptr;
     lv_obj_t* vol_val_label_ = nullptr;
 
-    // Box 3: Guard
+    // Dynamic Emotion Timeline Queue (Multi-emotion per sentence)
+    struct EmotionSegment {
+        FaceMode mode;
+        uint32_t duration_ticks;
+    };
+    std::vector<EmotionSegment> emotion_timeline_;
+    size_t current_emotion_idx_ = 0;
+    uint32_t next_emotion_tick_ = 0;
+
+    // Box 3: Guard (Knight Crest Shield Canvas 28x32)
+    void DrawShield(bool is_active);
     lv_obj_t* guard_card_ = nullptr;
     lv_obj_t* guard_title_label_ = nullptr;
-    lv_obj_t* guard_icon_ = nullptr;
-    lv_obj_t* guard_shield_top_ = nullptr;
-    lv_obj_t* guard_shield_bottom_ = nullptr;
+    lv_obj_t* guard_canvas_ = nullptr;
+    uint8_t guard_cbuf_[28 * 32 * 2];
     lv_obj_t* guard_status_label_ = nullptr;
 
     // State Variables (No Fake Sensors)

@@ -504,22 +504,60 @@ void PocketLcdDisplay::SetChatMessage(const char* role, const char* content) {
     if (role != nullptr && std::strcmp(role, "assistant") == 0) {
         is_speaking_ = true;
         last_active_tick_ = animation_tick_;
-    }
 
-    if (!target_emotion.empty()) {
-        emotion_mode_ = FaceModeFromEmotion(target_emotion.c_str());
-        SetFaceMode(emotion_mode_);
-        temporary_emotion_until_tick_ = animation_tick_ + (10000 / kAnimationPeriodMs); // Giữ 10s
-    } else {
-        FaceMode inferred = InferEmotionFromText(clean_text.c_str());
-        if (inferred != FaceMode::kNeutral) {
-            emotion_mode_ = inferred;
-            SetFaceMode(inferred);
-            temporary_emotion_until_tick_ = animation_tick_ + (10000 / kAnimationPeriodMs);
-        } else if (emotion_mode_ != FaceMode::kNeutral) {
-            SetFaceMode(emotion_mode_);
+        // Build Dynamic Emotion Timeline Queue across clauses
+        emotion_timeline_.clear();
+        current_emotion_idx_ = 0;
+
+        if (!target_emotion.empty()) {
+            emotion_mode_ = FaceModeFromEmotion(target_emotion.c_str());
+            emotion_timeline_.push_back({emotion_mode_, 120}); // 6 seconds for explicit tag
         } else {
-            SetFaceMode(FaceMode::kNeutral);
+            // Split into clauses by punctuation: '.', ',', '!', '?', ';', '\n'
+            size_t seg_start = 0;
+            const std::string delims = ".,!?;:\n-";
+            while (seg_start < clean_text.size()) {
+                size_t seg_end = clean_text.find_first_of(delims, seg_start);
+                std::string clause;
+                if (seg_end == std::string::npos) {
+                    clause = clean_text.substr(seg_start);
+                    seg_start = clean_text.size();
+                } else {
+                    clause = clean_text.substr(seg_start, seg_end - seg_start);
+                    seg_start = seg_end + 1;
+                }
+                // Trim clause
+                size_t c_first = clause.find_first_not_of(" \t\r\n");
+                if (c_first == std::string::npos) continue;
+                clause = clause.substr(c_first);
+                if (clause.length() < 3) continue;
+
+                FaceMode seg_mode = InferEmotionFromText(clause.c_str());
+                if (seg_mode == FaceMode::kNeutral) {
+                    seg_mode = FaceMode::kSmileGentle; // Default friendly conversational face
+                }
+                uint32_t duration = static_cast<uint32_t>(std::clamp((int)clause.length() * 2, 25, 60));
+                emotion_timeline_.push_back({seg_mode, duration});
+            }
+        }
+
+        if (emotion_timeline_.empty()) {
+            FaceMode fallback = InferEmotionFromText(clean_text.c_str());
+            if (fallback == FaceMode::kNeutral) fallback = FaceMode::kSmileGentle;
+            emotion_timeline_.push_back({fallback, 80});
+        }
+
+        // Activate the first emotion segment immediately
+        emotion_mode_ = emotion_timeline_[0].mode;
+        SetFaceMode(emotion_mode_);
+        next_emotion_tick_ = animation_tick_ + emotion_timeline_[0].duration_ticks;
+        current_emotion_idx_ = 1;
+        temporary_emotion_until_tick_ = animation_tick_ + (15000 / kAnimationPeriodMs);
+    } else {
+        if (!target_emotion.empty()) {
+            emotion_mode_ = FaceModeFromEmotion(target_emotion.c_str());
+            SetFaceMode(emotion_mode_);
+            temporary_emotion_until_tick_ = animation_tick_ + (8000 / kAnimationPeriodMs);
         }
     }
 
@@ -589,10 +627,10 @@ void PocketLcdDisplay::ApplyLayout() {
     if (face_layer_ == nullptr) return;
     lv_obj_set_pos(face_layer_, 0, 0);
     lv_obj_set_size(face_layer_, 240, 190);
-    current_left_width_ = std::min(current_left_width_, 76);
-    current_right_width_ = std::min(current_right_width_, 76);
-    current_left_height_ = std::min(current_left_height_, 72);
-    current_right_height_ = std::min(current_right_height_, 72);
+    current_left_width_ = std::min(current_left_width_, 82);
+    current_right_width_ = std::min(current_right_width_, 82);
+    current_left_height_ = std::min(current_left_height_, 80);
+    current_right_height_ = std::min(current_right_height_, 80);
     lv_obj_set_style_radius(left_eye_, EyeRadius(current_left_width_, current_left_height_), 0);
     lv_obj_set_style_radius(right_eye_, EyeRadius(current_right_width_, current_right_height_), 0);
     lv_obj_move_foreground(face_layer_);
@@ -606,31 +644,209 @@ PocketLcdDisplay::FaceMode PocketLcdDisplay::InferEmotionFromText(const char* te
     if (text == nullptr) {
         return FaceMode::kNeutral;
     }
-    if (Contains(text, "haha") || Contains(text, "hihi") || Contains(text, "hehe") ||
-        Contains(text, "buồn cười") || Contains(text, " mắc cười")) {
+    // 1. Joy & Celebration
+    if (Contains(text, "haha") || Contains(text, "hihi") || Contains(text, "hehe") || Contains(text, "kakaka") ||
+        Contains(text, "buồn cười") || Contains(text, "mắc cười") || Contains(text, "cười vỡ bụng") ||
+        Contains(text, "hài hước") || Contains(text, "vui nhộn") || Contains(text, "tấu hài")) {
         return FaceMode::kEcstaticLaugh;
     }
-    if (Contains(text, "yêu ") || Contains(text, "thả tim") || Contains(text, "đáng yêu") ||
-        Contains(text, "cưng quá") || Contains(text, "<3")) {
-        return FaceMode::kLove;
+    if (Contains(text, "chúc mừng") || Contains(text, "ăn mừng") || Contains(text, "tiệc tùng") ||
+        Contains(text, "sinh nhật") || Contains(text, "năm mới") || Contains(text, "nâng ly") || Contains(text, "pháo hoa")) {
+        return FaceMode::kPartyCelebrate;
     }
-    if (Contains(text, "xin lỗi") || Contains(text, "tiếc quá") || Contains(text, "buồn") ||
-        Contains(text, "chia buồn")) {
-        return FaceMode::kSadEmpathy;
+    if (Contains(text, "nháy mắt") || Contains(text, "tinh nghịch") || Contains(text, "đùa đấy") || Contains(text, "trêu")) {
+        return FaceMode::kPlayfulWink;
     }
-    if (Contains(text, "tuyệt vời") || Contains(text, "xuất sắc") || Contains(text, "wow") ||
-        Contains(text, "chúc mừng")) {
+    if (Contains(text, "lè lưỡi") || Contains(text, "lêu lêu") || Contains(text, "bêu")) {
+        return FaceMode::kTongueOut;
+    }
+    if (Contains(text, "tuyệt vời") || Contains(text, "xuất sắc") || Contains(text, "đỉnh cao") ||
+        Contains(text, "hào hứng") || Contains(text, "phấn khích") || Contains(text, "quá đã") ||
+        Contains(text, "kịch trần") || Contains(text, "vô địch") || Contains(text, "wow")) {
         return FaceMode::kExcited;
     }
-    if (Contains(text, "bí mật") || Contains(text, "suỵt") || Contains(text, "thì thầm")) {
-        return FaceMode::kWhispering;
+    if (Contains(text, "rạng rỡ") || Contains(text, "nắng ấm") || Contains(text, "bình minh") ||
+        Contains(text, "tươi sáng") || Contains(text, "tỏa sáng") || Contains(text, "đẹp trời")) {
+        return FaceMode::kSunnyDazzle;
     }
-    if (Contains(text, "bất ngờ") || Contains(text, "ngạc nhiên") || Contains(text, "thật sao")) {
-        return FaceMode::kSurprised;
+
+    // 2. Affection & Relationships
+    if (Contains(text, "yêu") || Contains(text, "thương") || Contains(text, "cưng") ||
+        Contains(text, "thả tim") || Contains(text, "trái tim") || Contains(text, "đáng yêu") ||
+        Contains(text, "dễ thương") || Contains(text, "crush") || Contains(text, "<3")) {
+        return FaceMode::kLove;
     }
-    if (Contains(text, "ý tưởng") || Contains(text, "nghĩ ra rồi") || Contains(text, "mẹo")) {
+    if (Contains(text, "thất tình") || Contains(text, "tan nát") || Contains(text, "đau lòng") ||
+        Contains(text, "chia tay") || Contains(text, "tuyệt vọng") || Contains(text, "vỡ mộng")) {
+        return FaceMode::kHeartbroken;
+    }
+    if (Contains(text, "ngại") || Contains(text, "ngượng") || Contains(text, "xấu hổ") ||
+        Contains(text, "đỏ mặt") || Contains(text, "e thẹn") || Contains(text, "bẽn lẽn")) {
+        return FaceMode::kShy;
+    }
+    if (Contains(text, "ngây thơ") || Contains(text, "trong sáng") || Contains(text, "ngoan ngoãn") ||
+        Contains(text, "thiên thần") || Contains(text, "không biết gì đâu")) {
+        return FaceMode::kInnocent;
+    }
+    if (Contains(text, "đắc ý") || Contains(text, "vênh váo") || Contains(text, "biết ngay mà") ||
+        Contains(text, "tôi mà lị") || Contains(text, "quá dễ") || Contains(text, "tự mãn")) {
+        return FaceMode::kSmug;
+    }
+
+    // 3. Sorrow & Negative
+    if (Contains(text, "khóc như mưa") || Contains(text, "nước mắt đầm đìa") || Contains(text, "òa khóc")) {
+        return FaceMode::kCryingStream;
+    }
+    if (Contains(text, "khóc") || Contains(text, "hu hu") || Contains(text, "hic hic") ||
+        Contains(text, "rớt nước mắt") || Contains(text, "nghẹn ngào") || Contains(text, "đau xót")) {
+        return FaceMode::kSadCrying;
+    }
+    if (Contains(text, "xin lỗi") || Contains(text, "tiếc quá") || Contains(text, "rất tiếc") ||
+        Contains(text, "chia buồn") || Contains(text, "đừng buồn") || Contains(text, "an ủi") ||
+        Contains(text, "tội nghiệp") || Contains(text, "thông cảm") || Contains(text, "buồn")) {
+        return FaceMode::kSadEmpathy;
+    }
+    if (Contains(text, "rực lửa") || Contains(text, "siêu saiyan") || Contains(text, "bùng nổ") || Contains(text, "thiêu rụi")) {
+        return FaceMode::kFireFury;
+    }
+    if (Contains(text, "thịnh nộ") || Contains(text, "lôi đình") || Contains(text, "bốc hỏa") ||
+        Contains(text, "sôi máu") || Contains(text, "phát điên")) {
+        return FaceMode::kFurious;
+    }
+    if (Contains(text, "bực mình") || Contains(text, "tức giận") || Contains(text, "khó chịu") ||
+        Contains(text, "cau có") || Contains(text, "điên tiết") || Contains(text, "cáu bẩn") || Contains(text, "giận")) {
+        return FaceMode::kAngry;
+    }
+    if (Contains(text, "hờn dỗi") || Contains(text, "giận rồi") || Contains(text, "bĩu môi") ||
+        Contains(text, "phụng phịu") || Contains(text, "giận lẫy")) {
+        return FaceMode::kPout;
+    }
+    if (Contains(text, "ghen") || Contains(text, "tị nạnh") || Contains(text, "đố kỵ")) {
+        return FaceMode::kJealous;
+    }
+    if (Contains(text, "kinh tởm") || Contains(text, "buồn nôn") || Contains(text, "gớm ghiếc") || Contains(text, "ọe")) {
+        return FaceMode::kDisgusted;
+    }
+
+    // 4. Intellect & Cognition
+    if (Contains(text, "ý tưởng") || Contains(text, "nghĩ ra rồi") || Contains(text, "eureka") ||
+        Contains(text, "giải pháp") || Contains(text, "sáng kiến") || Contains(text, "bí quyết") || Contains(text, "mẹo")) {
         return FaceMode::kIdeaEureka;
     }
+    if (Contains(text, "suy nghĩ") || Contains(text, "phân tích") || Contains(text, "tính toán") ||
+        Contains(text, "nghiên cứu") || Contains(text, "đang xem") || Contains(text, "để tôi tra") || Contains(text, "nghĩ")) {
+        return FaceMode::kThinking;
+    }
+    if (Contains(text, "khó hiểu") || Contains(text, "ngơ ngác") || Contains(text, "là sao") ||
+        Contains(text, "thắc mắc") || Contains(text, "băn khoăn") || Contains(text, "mông lung") || Contains(text, "sao ta")) {
+        return FaceMode::kConfusedQuestion;
+    }
+    if (Contains(text, "nghi ngờ") || Contains(text, "thật không đấy") || Contains(text, "có chắc không") || Contains(text, "khả nghi")) {
+        return FaceMode::kSkeptical;
+    }
+    if (Contains(text, "liếc xéo") || Contains(text, "cà khịa") || Contains(text, "phán xét") || Contains(text, "nhìn đểu")) {
+        return FaceMode::kSideEye;
+    }
+    if (Contains(text, "mưu mô") || Contains(text, "toan tính") || Contains(text, "thâm sâu") || Contains(text, "âm mưu")) {
+        return FaceMode::kScheming;
+    }
+    if (Contains(text, "hoang tưởng") || Contains(text, "theo dõi") || Contains(text, "sợ hãi") || Contains(text, "rình rập")) {
+        return FaceMode::kParanoid;
+    }
+    if (Contains(text, "rớt hàm") || Contains(text, "kinh hoàng") || Contains(text, "sốc") ||
+        Contains(text, "choáng váng") || Contains(text, "đứng hình") || Contains(text, "trời đất ơi")) {
+        return FaceMode::kShockedJawdrop;
+    }
+    if (Contains(text, "bất ngờ") || Contains(text, "ngạc nhiên") || Contains(text, "thật ư") ||
+        Contains(text, "kinh ngạc") || Contains(text, "lạ thật") || Contains(text, "thật sao")) {
+        return FaceMode::kSurprised;
+    }
+    if (Contains(text, "suỵt") || Contains(text, "thì thầm") || Contains(text, "nói nhỏ") ||
+        Contains(text, "giữ bí mật") || Contains(text, "bí mật")) {
+        return FaceMode::kWhispering;
+    }
+    if (Contains(text, "bó tay") || Contains(text, "bất lực") || Contains(text, "cạn lời") || Contains(text, "hết cứu") || Contains(text, "ngán ngẩm")) {
+        return FaceMode::kFacepalm;
+    }
+
+    // 5. Physical & Bodily
+    if (Contains(text, "buồn ngủ") || Contains(text, "ngáp") || Contains(text, "mệt mỏi") || Contains(text, "ríu mắt")) {
+        return FaceMode::kSleepy;
+    }
+    if (Contains(text, "ngủ say") || Contains(text, "khò khò") || Contains(text, "ngon giấc") || Contains(text, "zzz") || Contains(text, "đi ngủ")) {
+        return FaceMode::kSleeping;
+    }
+    if (Contains(text, "lạnh buốt") || Contains(text, "rét run") || Contains(text, "đóng băng") ||
+        Contains(text, "mùa đông") || Contains(text, "tuyết rơi") || Contains(text, "lạnh")) {
+        return FaceMode::kFreezing;
+    }
+    if (Contains(text, "hắt xì") || Contains(text, "cúm") || Contains(text, "sổ mũi") || Contains(text, "cảm lạnh") || Contains(text, "atasi")) {
+        return FaceMode::kSneezing;
+    }
+    if (Contains(text, "đau đầu") || Contains(text, "nhức óc") || Contains(text, "căng thẳng") || Contains(text, "đau như búa bổ")) {
+        return FaceMode::kHeadache;
+    }
+    if (Contains(text, "say xỉn") || Contains(text, "chuếnh choáng") || Contains(text, "rượu bia") || Contains(text, "nhậu") || Contains(text, "phê pha")) {
+        return FaceMode::kDrunk;
+    }
+    if (Contains(text, "kiệt sức") || Contains(text, "gục ngã") || Contains(text, "cạn năng lượng") || Contains(text, "sập nguồn")) {
+        return FaceMode::kExhausted;
+    }
+    if (Contains(text, "pin yếu") || Contains(text, "cạn pin") || Contains(text, "sạc pin") || Contains(text, "sụt nguồn")) {
+        return FaceMode::kLowBattery;
+    }
+    if (Contains(text, "nóng máy") || Contains(text, "quá nhiệt") || Contains(text, "tản nhiệt") || Contains(text, "bốc khói")) {
+        return FaceMode::kOverheat;
+    }
+    if (Contains(text, "khởi động lại") || Contains(text, "reboot") || Contains(text, "restart")) {
+        return FaceMode::kRebooting;
+    }
+
+    // 6. Technology & Playful
+    if (Contains(text, "hacker") || Contains(text, "mã độc") || Contains(text, "virus") ||
+        Contains(text, "ma trận") || Contains(text, "glitch") || Contains(text, "lỗi hệ thống")) {
+        return FaceMode::kMatrixGlitch;
+    }
+    if (Contains(text, "giật điện") || Contains(text, "sét đánh") || Contains(text, "tê liệt") || Contains(text, "điện giật")) {
+        return FaceMode::kThunderShock;
+    }
+    if (Contains(text, "tiền") || Contains(text, "đô la") || Contains(text, "giàu có") ||
+        Contains(text, "triệu phú") || Contains(text, "trúng số") || Contains(text, "mua sắm") ||
+        Contains(text, "chi phí") || Contains(text, "đắt đỏ") || Contains(text, "đồng")) {
+        return FaceMode::kMoneyEyes;
+    }
+    if (Contains(text, "khóa mục tiêu") || Contains(text, "bắn tỉa") || Contains(text, "chuẩn xác")) {
+        return FaceMode::kTargetLocked;
+    }
+    if (Contains(text, "thiền định") || Contains(text, "an yên") || Contains(text, "tĩnh tâm") ||
+        Contains(text, "thư thái") || Contains(text, "bình an") || Contains(text, "thanh thản")) {
+        return FaceMode::kZenMeditation;
+    }
+    if (Contains(text, "ban phước") || Contains(text, "may mắn") || Contains(text, "phù hộ") || Contains(text, "cát tường")) {
+        return FaceMode::kAngelBlessing;
+    }
+    if (Contains(text, "thôi miên") || Contains(text, "chóng mặt") || Contains(text, "xoay vần") || Contains(text, "lú lẫn")) {
+        return FaceMode::kHypnotized;
+    }
+    if (Contains(text, "thua cuộc") || Contains(text, "thất bại") || Contains(text, "game over") || Contains(text, "kết thúc rồi")) {
+        return FaceMode::kGameOver;
+    }
+    if (Contains(text, "ẩn thân") || Contains(text, "ninja") || Contains(text, "tàng hình") || Contains(text, "bóng tối")) {
+        return FaceMode::kStealthNinja;
+    }
+    if (Contains(text, "trời mưa") || Contains(text, "u ám") || Contains(text, "âm u") || Contains(text, "mưa rào") || Contains(text, "ảm đạm")) {
+        return FaceMode::kRainyGloomy;
+    }
+
+    // 7. General Friendly / Welcoming Conversation (Default for Speaking)
+    if (Contains(text, "chào") || Contains(text, "hello") || Contains(text, "hi") ||
+        Contains(text, "cảm ơn") || Contains(text, "vâng") || Contains(text, "dạ") ||
+        Contains(text, "được chứ") || Contains(text, "sẵn sàng") || Contains(text, "tất nhiên") ||
+        Contains(text, "hoan nghênh") || Contains(text, "nhé") || Contains(text, "nha") ||
+        Contains(text, "đây ạ") || Contains(text, "giúp gì") || Contains(text, "hôm nay")) {
+        return FaceMode::kSmileGentle;
+    }
+
     return FaceMode::kNeutral;
 }
 
@@ -909,14 +1125,14 @@ void PocketLcdDisplay::UpdateAnimationFrame() {
     const uint8_t mic_level = app.GetAudioService().GetInputLevel();
     const uint8_t spk_level = app.GetAudioService().GetOutputLevel();
 
-    // 240x240 Geometry: eye_width = 76, eye_height = 72, gap = 24
+    // 240x240 Geometry: eye_width = 82, eye_height = 80, gap = 22
     constexpr int face_width = 240;
-    constexpr int eye_width = 78;
-    constexpr int eye_height = 76;
+    constexpr int eye_width = 82;
+    constexpr int eye_height = 80;
     constexpr int eye_gap = 22;
-    const int pair_width = eye_width * 2 + eye_gap;      // 178px
-    const int base_x = (face_width - pair_width) / 2;      // 31px
-    const int base_y = (180 - eye_height) / 2;              // 52px
+    const int pair_width = eye_width * 2 + eye_gap;      // 186px
+    const int base_x = (face_width - pair_width) / 2;      // 27px
+    const int base_y = (180 - eye_height) / 2;              // 50px
     constexpr int max_look_x = 12;
     constexpr int max_look_y = 8;
 
@@ -1326,6 +1542,16 @@ void PocketLcdDisplay::UpdateAnimationFrame() {
     int animation_x = 0;
     int animation_y = 0;
     if (is_speaking_) {
+        // Advance to next emotion segment in timeline
+        if (!emotion_timeline_.empty() && current_emotion_idx_ < emotion_timeline_.size()) {
+            if (animation_tick_ >= next_emotion_tick_) {
+                emotion_mode_ = emotion_timeline_[current_emotion_idx_].mode;
+                SetFaceMode(emotion_mode_);
+                next_emotion_tick_ = animation_tick_ + emotion_timeline_[current_emotion_idx_].duration_ticks;
+                current_emotion_idx_++;
+            }
+        }
+
         // Subtle bounce only for Neutral or SmileGentle (1..2px)
         if (face_mode_ == FaceMode::kNeutral || face_mode_ == FaceMode::kSmileGentle) {
             int amp_bounce = 1 + (spk_level / 45);
@@ -1453,10 +1679,10 @@ void PocketLcdDisplay::UpdateAnimationFrame() {
                                   face_mode_ != FaceMode::kHypnotized &&
                                   !(face_mode_ == FaceMode::kSneezing && (animation_tick_ % 35) >= 22);
 
-    int left_pupil_w = 28;
-    int left_pupil_h = 32;
-    int right_pupil_w = 28;
-    int right_pupil_h = 32;
+    int left_pupil_w = 30;
+    int left_pupil_h = 34;
+    int right_pupil_w = 30;
+    int right_pupil_h = 34;
 
     if (face_mode_ == FaceMode::kListening && mic_level > 10) {
         int boost = (mic_level > 60) ? 4 : 2;
@@ -2689,6 +2915,44 @@ void PocketLcdDisplay::SetGuardMode(bool enable) {
     }
 }
 
+void PocketLcdDisplay::DrawShield(bool is_active) {
+    if (guard_canvas_ == nullptr) return;
+    // Scanline half-width for Knight Crest / Heater Shield (width 28, height 32, center x=14)
+    static const uint8_t kHalfWidth[32] = {
+        1, 3, 6, 9, 12,                  // y=0..4 (Crest & shoulders)
+        13, 13, 13, 13, 13, 13, 13, 13,  // y=5..12 (Upper body straight/wide)
+        13, 12, 12, 11, 11, 10, 10,       // y=13..19 (Parabolic curve)
+        9, 9, 8, 7, 6, 5, 4, 3, 2, 2,     // y=20..29 (Tapering to bottom)
+        1, 0                             // y=30..31 (Bottom tip)
+    };
+
+    lv_color_t c_bg = lv_color_hex(0x141416); // Card background
+    lv_color_t c_border = is_active ? lv_color_hex(0x32D74B) : lv_color_hex(0x8E8E93);
+    lv_color_t c_fill = is_active ? lv_color_hex(0x32D74B) : lv_color_hex(0x262629);
+    lv_color_t c_inner_border = is_active ? lv_color_hex(0xA8F5B8) : lv_color_hex(0x3A3A3C);
+
+    lv_canvas_fill_bg(guard_canvas_, c_bg, LV_OPA_COVER);
+
+    for (int y = 0; y < 32; ++y) {
+        int hw = kHalfWidth[y];
+        int left = 14 - hw;
+        int right = 13 + hw;
+        for (int x = left; x <= right; ++x) {
+            bool is_outer_edge = (x == left || x == right || y == 0 || y == 31 ||
+                                  (y <= 4 && (x == left + 1 || x == right - 1)));
+            bool is_inner_edge = (x == left + 2 || x == right - 2 || y == 2 || y == 29);
+
+            if (is_outer_edge) {
+                lv_canvas_set_px(guard_canvas_, x, y, c_border, LV_OPA_COVER);
+            } else if (is_inner_edge) {
+                lv_canvas_set_px(guard_canvas_, x, y, c_inner_border, LV_OPA_COVER);
+            } else {
+                lv_canvas_set_px(guard_canvas_, x, y, c_fill, LV_OPA_COVER);
+            }
+        }
+    }
+}
+
 void PocketLcdDisplay::ShowStandbyClock() {
     DisplayLockGuard lock(this);
     if (!lock) return;
@@ -2732,11 +2996,11 @@ void PocketLcdDisplay::ShowStandbyClock() {
         lv_obj_set_style_text_color(wifi_rssi_label_, lv_color_hex(0x0A84FF), 0);
         lv_label_set_text(wifi_rssi_label_, LV_SYMBOL_WIFI " --");
 
-        // 2. HERO CLOCK & MEMO CARD (x: 6, y: 34, w: 228, h: 114)
+        // 2. HERO CLOCK & MEMO CARD (x: 6, y: 32, w: 228, h: 118) - Apple Watch Modular Ultra
         hero_card_ = lv_obj_create(standby_container_);
         lv_obj_remove_style_all(hero_card_);
-        lv_obj_set_size(hero_card_, 228, 114);
-        lv_obj_set_pos(hero_card_, 6, 34);
+        lv_obj_set_size(hero_card_, 228, 118);
+        lv_obj_set_pos(hero_card_, 6, 32);
         lv_obj_set_style_bg_color(hero_card_, lv_color_hex(0x141416), 0);
         lv_obj_set_style_bg_opa(hero_card_, LV_OPA_COVER, 0);
         lv_obj_set_style_radius(hero_card_, 12, 0);
@@ -2746,21 +3010,23 @@ void PocketLcdDisplay::ShowStandbyClock() {
 
         hero_accent_bar_ = lv_obj_create(hero_card_);
         lv_obj_remove_style_all(hero_accent_bar_);
-        lv_obj_set_size(hero_accent_bar_, 3, 90);
-        lv_obj_set_pos(hero_accent_bar_, 4, 12);
+        lv_obj_set_size(hero_accent_bar_, 4, 98);
+        lv_obj_set_pos(hero_accent_bar_, 6, 10);
         lv_obj_set_style_bg_color(hero_accent_bar_, lv_color_hex(0xFF5500), 0);
         lv_obj_set_style_bg_opa(hero_accent_bar_, LV_OPA_COVER, 0);
         lv_obj_set_style_radius(hero_accent_bar_, 2, 0);
 
         date_label_ = lv_label_create(hero_card_);
-        lv_obj_set_pos(date_label_, 16, 8);
+        lv_obj_set_pos(date_label_, 18, 6);
         lv_obj_set_style_text_color(date_label_, lv_color_hex(0xFF5500), 0);
         lv_label_set_text(date_label_, "MON NOV 9");
 
         time_label_ = lv_label_create(hero_card_);
-        lv_obj_set_pos(time_label_, 14, 26);
+        lv_obj_set_pos(time_label_, 14, 20);
         lv_obj_set_style_text_color(time_label_, lv_color_white(), 0);
-#if LV_FONT_MONTSERRAT_32
+#if LV_FONT_MONTSERRAT_48
+        lv_obj_set_style_text_font(time_label_, &lv_font_montserrat_48, 0);
+#elif LV_FONT_MONTSERRAT_32
         lv_obj_set_style_text_font(time_label_, &lv_font_montserrat_32, 0);
 #elif defined(BUILTIN_TEXT_FONT)
         lv_obj_set_style_text_font(time_label_, &BUILTIN_TEXT_FONT, 0);
@@ -2768,15 +3034,17 @@ void PocketLcdDisplay::ShowStandbyClock() {
         lv_label_set_text(time_label_, "10:09");
 
         sec_label_ = lv_label_create(hero_card_);
-        lv_obj_set_pos(sec_label_, 152, 42);
+        lv_obj_set_pos(sec_label_, 168, 44);
         lv_obj_set_style_text_color(sec_label_, lv_color_hex(0xFF5500), 0);
-#if LV_FONT_MONTSERRAT_20
+#if LV_FONT_MONTSERRAT_24
+        lv_obj_set_style_text_font(sec_label_, &lv_font_montserrat_24, 0);
+#elif LV_FONT_MONTSERRAT_20
         lv_obj_set_style_text_font(sec_label_, &lv_font_montserrat_20, 0);
 #endif
         lv_label_set_text(sec_label_, ":35");
 
         pinned_memo_label_ = lv_label_create(hero_card_);
-        lv_obj_set_pos(pinned_memo_label_, 16, 88);
+        lv_obj_set_pos(pinned_memo_label_, 18, 86);
         lv_obj_set_width(pinned_memo_label_, 200);
         lv_label_set_long_mode(pinned_memo_label_, LV_LABEL_LONG_SCROLL_CIRCULAR);
         lv_obj_set_style_text_color(pinned_memo_label_, lv_color_hex(0xFFD60A), 0);
@@ -2877,25 +3145,12 @@ void PocketLcdDisplay::ShowStandbyClock() {
         lv_obj_set_style_text_color(guard_title_label_, lv_color_hex(0x8E8E93), 0);
         lv_label_set_text(guard_title_label_, "GUARD");
 
-        guard_shield_top_ = lv_obj_create(guard_card_);
-        lv_obj_remove_style_all(guard_shield_top_);
-        lv_obj_set_size(guard_shield_top_, 26, 16);
-        lv_obj_set_pos(guard_shield_top_, 23, 26);
-        lv_obj_set_style_radius(guard_shield_top_, 6, 0);
-        lv_obj_set_style_bg_color(guard_shield_top_, lv_color_hex(0x262629), 0);
-        lv_obj_set_style_bg_opa(guard_shield_top_, LV_OPA_COVER, 0);
-        lv_obj_set_style_border_width(guard_shield_top_, 1, 0);
-        lv_obj_set_style_border_color(guard_shield_top_, lv_color_hex(0x8E8E93), 0);
-
-        guard_shield_bottom_ = lv_obj_create(guard_card_);
-        lv_obj_remove_style_all(guard_shield_bottom_);
-        lv_obj_set_size(guard_shield_bottom_, 18, 14);
-        lv_obj_set_pos(guard_shield_bottom_, 27, 36);
-        lv_obj_set_style_radius(guard_shield_bottom_, 4, 0);
-        lv_obj_set_style_bg_color(guard_shield_bottom_, lv_color_hex(0x262629), 0);
-        lv_obj_set_style_bg_opa(guard_shield_bottom_, LV_OPA_COVER, 0);
-        lv_obj_set_style_border_width(guard_shield_bottom_, 1, 0);
-        lv_obj_set_style_border_color(guard_shield_bottom_, lv_color_hex(0x8E8E93), 0);
+        // Knight Crest Shield Canvas (28x32 px)
+        guard_canvas_ = lv_canvas_create(guard_card_);
+        lv_canvas_set_buffer(guard_canvas_, guard_cbuf_, 28, 32, LV_COLOR_FORMAT_RGB565);
+        lv_obj_set_pos(guard_canvas_, 22, 22);
+        lv_obj_set_size(guard_canvas_, 28, 32);
+        DrawShield(guard_mode_active_);
 
         guard_status_label_ = lv_label_create(guard_card_);
         lv_obj_set_pos(guard_status_label_, 0, 56);
@@ -3017,20 +3272,8 @@ void PocketLcdDisplay::UpdateStandbyClock() {
     }
 
     // 6. Guard Mode Widget & Acoustic Monitoring
-    if (guard_shield_top_ && guard_shield_bottom_) {
-        if (guard_mode_active_) {
-            lv_obj_set_style_bg_color(guard_shield_top_, lv_color_hex(0x32D74B), 0);
-            lv_obj_set_style_border_width(guard_shield_top_, 0, 0);
-            lv_obj_set_style_bg_color(guard_shield_bottom_, lv_color_hex(0x32D74B), 0);
-            lv_obj_set_style_border_width(guard_shield_bottom_, 0, 0);
-        } else {
-            lv_obj_set_style_bg_color(guard_shield_top_, lv_color_hex(0x262629), 0);
-            lv_obj_set_style_border_width(guard_shield_top_, 1, 0);
-            lv_obj_set_style_border_color(guard_shield_top_, lv_color_hex(0x8E8E93), 0);
-            lv_obj_set_style_bg_color(guard_shield_bottom_, lv_color_hex(0x262629), 0);
-            lv_obj_set_style_border_width(guard_shield_bottom_, 1, 0);
-            lv_obj_set_style_border_color(guard_shield_bottom_, lv_color_hex(0x8E8E93), 0);
-        }
+    if (guard_canvas_) {
+        DrawShield(guard_mode_active_);
     }
     if (guard_status_label_) {
         lv_label_set_text(guard_status_label_, guard_mode_active_ ? "ON" : "OFF");
