@@ -31,6 +31,8 @@ public:
     void ShowStandbyClock() override;
     void HideStandbyClock() override;
     bool IsStandbyClockActive() const override { return standby_active_; }
+    void UnlockBootStandby() { boot_standby_locked_ = false; }
+    bool IsBootStandbyLocked() const { return boot_standby_locked_; }
     void SetPinnedMemo(const std::string& memo);
     void SetCountdownTimer(int seconds, const std::string& label = "FOCUS");
     void SetGuardMode(bool enable);
@@ -234,6 +236,7 @@ private:
     // Standby Clock UI elements (Apple Watch Modular Ultra Bento Grid)
     void UpdateStandbyClock();
     bool standby_active_ = false;
+    bool boot_standby_locked_ = true;
     uint32_t last_clock_tick_ = 0;
     lv_obj_t* standby_container_ = nullptr;
 

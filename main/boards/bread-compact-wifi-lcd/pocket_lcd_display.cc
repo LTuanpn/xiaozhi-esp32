@@ -369,10 +369,14 @@ void PocketLcdDisplay::SetupUI() {
     ESP_ERROR_CHECK(esp_timer_start_periodic(frame_timer_, kAnimationPeriodMs * 1000));
 
     // Instant Boot: Display Apple Watch Standby Dashboard immediately on startup
+    boot_standby_locked_ = true;
     ShowStandbyClock();
 }
 
 void PocketLcdDisplay::WakeUp() {
+    if (boot_standby_locked_) {
+        return; // Ignore internal system wakeups while locked in boot standby
+    }
     last_active_tick_ = animation_tick_;
     if (standby_active_) {
         HideStandbyClock();
@@ -400,6 +404,7 @@ void PocketLcdDisplay::SetStatus(const char* status) {
         std::strcmp(status, Lang::Strings::SPEAKING) == 0 ||
         std::strcmp(status, Lang::Strings::WIFI_CONFIG_MODE) == 0 ||
         Contains(status, "Wi-Fi") || Contains(status, "Config")) {
+        boot_standby_locked_ = false; // User initiated interaction or Wi-Fi config needed
         WakeUp();
     }
 
@@ -450,6 +455,17 @@ void PocketLcdDisplay::ShowNotification(const std::string& notification, int dur
 bool PocketLcdDisplay::SetEmotion(const char* emotion) {
     DisplayLockGuard lock(this);
     if (!lock) return false;
+    if (emotion != nullptr && std::strcmp(emotion, "standby") == 0) {
+        ShowStandbyClock();
+        return true;
+    }
+    if (boot_standby_locked_) {
+        // Ignore background neutral / robot_2 calls during initial boot
+        if (std::strcmp(emotion, "neutral") == 0 || std::strcmp(emotion, "robot_2") == 0) {
+            return true;
+        }
+        boot_standby_locked_ = false;
+    }
     WakeUp();
     emotion_mode_ = FaceModeFromEmotion(emotion);
     SetFaceMode(emotion_mode_);
@@ -460,6 +476,12 @@ bool PocketLcdDisplay::SetEmotion(const char* emotion) {
 void PocketLcdDisplay::SetChatMessage(const char* role, const char* content) {
     DisplayLockGuard lock(this);
     if (!lock) return;
+    if (boot_standby_locked_) {
+        if (role != nullptr && std::strcmp(role, "system") == 0) {
+            return;
+        }
+        boot_standby_locked_ = false;
+    }
     WakeUp();
 
     if (content == nullptr || content[0] == '\0') {
@@ -1072,16 +1094,24 @@ void PocketLcdDisplay::UpdateAnimationFrame() {
     constexpr uint32_t kSleepingTimeoutTicks = 1200; // 60s -> Sleeping (ngủ 60s)
     constexpr uint32_t kStandbyTimeoutTicks = 2400;  // 120s -> Standby Clock
 
-    if (dev_state != kDeviceStateIdle) {
-        if (standby_active_) {
+    if (boot_standby_locked_) {
+        if (dev_state == kDeviceStateListening || dev_state == kDeviceStateSpeaking ||
+            dev_state == kDeviceStateWifiConfiguring) {
+            boot_standby_locked_ = false;
             HideStandbyClock();
         }
-        HideQrCode();
-        last_active_tick_ = animation_tick_;
     } else {
-        if (!standby_active_ && (animation_tick_ - last_active_tick_ >= kStandbyTimeoutTicks)) {
-            ShowStandbyClock();
-            return;
+        if (dev_state != kDeviceStateIdle) {
+            if (standby_active_) {
+                HideStandbyClock();
+            }
+            HideQrCode();
+            last_active_tick_ = animation_tick_;
+        } else {
+            if (!standby_active_ && (animation_tick_ - last_active_tick_ >= kStandbyTimeoutTicks)) {
+                ShowStandbyClock();
+                return;
+            }
         }
     }
 
@@ -3023,12 +3053,12 @@ void PocketLcdDisplay::ShowStandbyClock() {
         lv_obj_set_style_radius(hero_accent_bar_, 2, 0);
 
         date_label_ = lv_label_create(hero_card_);
-        lv_obj_set_pos(date_label_, 14, 4);
+        lv_obj_set_pos(date_label_, 14, 6);
         lv_obj_set_style_text_color(date_label_, lv_color_hex(0xFF5500), 0);
         lv_label_set_text(date_label_, "MON NOV 9");
 
         time_label_ = lv_label_create(hero_card_);
-        lv_obj_set_pos(time_label_, 10, 18);
+        lv_obj_set_pos(time_label_, 10, 22);
         lv_obj_set_style_text_color(time_label_, lv_color_white(), 0);
         lv_obj_set_style_text_font(time_label_, &lv_font_ultra_digits_64, 0);
         lv_label_set_text(time_label_, "10:09");
@@ -3046,7 +3076,7 @@ void PocketLcdDisplay::ShowStandbyClock() {
         lv_obj_align_to(sec_label_, time_label_, LV_ALIGN_OUT_RIGHT_BOTTOM, 3, -3);
 
         pinned_memo_label_ = lv_label_create(hero_card_);
-        lv_obj_set_pos(pinned_memo_label_, 14, 82);
+        lv_obj_set_pos(pinned_memo_label_, 14, 92);
         lv_obj_set_width(pinned_memo_label_, 208);
         lv_label_set_long_mode(pinned_memo_label_, LV_LABEL_LONG_SCROLL_CIRCULAR);
         lv_obj_set_style_text_color(pinned_memo_label_, lv_color_hex(0xFFD60A), 0);
@@ -3171,6 +3201,7 @@ void PocketLcdDisplay::HideStandbyClock() {
     DisplayLockGuard lock(this);
     if (!lock) return;
 
+    boot_standby_locked_ = false;
     standby_active_ = false;
     if (standby_container_ != nullptr) {
         lv_obj_add_flag(standby_container_, LV_OBJ_FLAG_HIDDEN);
