@@ -627,10 +627,10 @@ void PocketLcdDisplay::ApplyLayout() {
     if (face_layer_ == nullptr) return;
     lv_obj_set_pos(face_layer_, 0, 0);
     lv_obj_set_size(face_layer_, 240, 190);
-    current_left_width_ = std::min(current_left_width_, 82);
-    current_right_width_ = std::min(current_right_width_, 82);
-    current_left_height_ = std::min(current_left_height_, 80);
-    current_right_height_ = std::min(current_right_height_, 80);
+    current_left_width_ = std::min(current_left_width_, 88);
+    current_right_width_ = std::min(current_right_width_, 88);
+    current_left_height_ = std::min(current_left_height_, 86);
+    current_right_height_ = std::min(current_right_height_, 86);
     lv_obj_set_style_radius(left_eye_, EyeRadius(current_left_width_, current_left_height_), 0);
     lv_obj_set_style_radius(right_eye_, EyeRadius(current_right_width_, current_right_height_), 0);
     lv_obj_move_foreground(face_layer_);
@@ -1125,14 +1125,14 @@ void PocketLcdDisplay::UpdateAnimationFrame() {
     const uint8_t mic_level = app.GetAudioService().GetInputLevel();
     const uint8_t spk_level = app.GetAudioService().GetOutputLevel();
 
-    // 240x240 Geometry: eye_width = 82, eye_height = 80, gap = 22
+    // 240x240 Geometry: eye_width = 88, eye_height = 86, gap = 22
     constexpr int face_width = 240;
-    constexpr int eye_width = 82;
-    constexpr int eye_height = 80;
+    constexpr int eye_width = 88;
+    constexpr int eye_height = 86;
     constexpr int eye_gap = 22;
-    const int pair_width = eye_width * 2 + eye_gap;      // 186px
-    const int base_x = (face_width - pair_width) / 2;      // 27px
-    const int base_y = (180 - eye_height) / 2;              // 50px
+    const int pair_width = eye_width * 2 + eye_gap;      // 198px
+    const int base_x = (face_width - pair_width) / 2;      // 21px (symmetric margins: 21px left, 21px right)
+    const int base_y = 46;                                 // 46px (leaves 108px below for clear chat bubble & audio wave)
     constexpr int max_look_x = 12;
     constexpr int max_look_y = 8;
 
@@ -1679,15 +1679,15 @@ void PocketLcdDisplay::UpdateAnimationFrame() {
                                   face_mode_ != FaceMode::kHypnotized &&
                                   !(face_mode_ == FaceMode::kSneezing && (animation_tick_ % 35) >= 22);
 
-    int left_pupil_w = 30;
-    int left_pupil_h = 34;
-    int right_pupil_w = 30;
-    int right_pupil_h = 34;
+    int left_pupil_w = 34;
+    int left_pupil_h = 38;
+    int right_pupil_w = 34;
+    int right_pupil_h = 38;
 
     if (face_mode_ == FaceMode::kListening && mic_level > 10) {
         int boost = (mic_level > 60) ? 4 : 2;
-        left_pupil_w = right_pupil_w = 28 + boost;
-        left_pupil_h = right_pupil_h = 32 + boost;
+        left_pupil_w = right_pupil_w = 32 + boost;
+        left_pupil_h = right_pupil_h = 36 + boost;
     } else if (face_mode_ == FaceMode::kSurprised) {
         uint32_t elapsed = (animation_tick_ > surprised_start_tick_) ? (animation_tick_ - surprised_start_tick_) : 0;
         if (elapsed < 15) {
@@ -3015,7 +3015,7 @@ void PocketLcdDisplay::ShowStandbyClock() {
         lv_label_set_text(date_label_, "MON NOV 9");
 
         time_label_ = lv_label_create(hero_card_);
-        lv_obj_set_pos(time_label_, 14, 20);
+        lv_obj_set_pos(time_label_, 16, 22);
         lv_obj_set_style_text_color(time_label_, lv_color_white(), 0);
 #if LV_FONT_MONTSERRAT_48
         lv_obj_set_style_text_font(time_label_, &lv_font_montserrat_48, 0);
@@ -3027,14 +3027,16 @@ void PocketLcdDisplay::ShowStandbyClock() {
         lv_label_set_text(time_label_, "10:09");
 
         sec_label_ = lv_label_create(hero_card_);
-        lv_obj_set_pos(sec_label_, 168, 44);
         lv_obj_set_style_text_color(sec_label_, lv_color_hex(0xFF5500), 0);
-#if LV_FONT_MONTSERRAT_24
+#if LV_FONT_MONTSERRAT_32
+        lv_obj_set_style_text_font(sec_label_, &lv_font_montserrat_32, 0);
+#elif LV_FONT_MONTSERRAT_24
         lv_obj_set_style_text_font(sec_label_, &lv_font_montserrat_24, 0);
 #elif LV_FONT_MONTSERRAT_20
         lv_obj_set_style_text_font(sec_label_, &lv_font_montserrat_20, 0);
 #endif
         lv_label_set_text(sec_label_, ":35");
+        lv_obj_align_to(sec_label_, time_label_, LV_ALIGN_OUT_RIGHT_BOTTOM, 3, -3);
 
         pinned_memo_label_ = lv_label_create(hero_card_);
         lv_obj_set_pos(pinned_memo_label_, 18, 86);
@@ -3198,7 +3200,12 @@ void PocketLcdDisplay::UpdateStandbyClock() {
     }
 
     if (time_label_) lv_label_set_text(time_label_, time_buf);
-    if (sec_label_) lv_label_set_text(sec_label_, sec_buf);
+    if (sec_label_) {
+        lv_label_set_text(sec_label_, sec_buf);
+        if (time_label_) {
+            lv_obj_align_to(sec_label_, time_label_, LV_ALIGN_OUT_RIGHT_BOTTOM, 3, -3);
+        }
+    }
     if (date_label_) lv_label_set_text(date_label_, date_buf);
 
     // 2. Real Wi-Fi RSSI via esp_wifi_sta_get_ap_info
