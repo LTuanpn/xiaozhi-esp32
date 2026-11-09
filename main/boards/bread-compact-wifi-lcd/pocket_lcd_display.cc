@@ -15,6 +15,9 @@
 #include <algorithm>
 #include <cmath>
 #include <cstring>
+#include <nvs.h>
+#include <esp_sntp.h>
+#include <sys/time.h>
 
 #define TAG "PocketLcdDisplay"
 
@@ -367,6 +370,20 @@ void PocketLcdDisplay::SetupUI() {
     };
     ESP_ERROR_CHECK(esp_timer_create(&timer_args, &frame_timer_));
     ESP_ERROR_CHECK(esp_timer_start_periodic(frame_timer_, kAnimationPeriodMs * 1000));
+
+    // Restore persistent timestamp from NVS if clock is uninitialized
+    time_t cur_now = time(nullptr);
+    if (cur_now < 1704067200) { // Before 2024
+        nvs_handle_t nvs_h;
+        if (nvs_open("sys_clock", NVS_READONLY, &nvs_h) == ESP_OK) {
+            int64_t saved_sec = 0;
+            if (nvs_get_i64(nvs_h, "last_sec", &saved_sec) == ESP_OK && saved_sec > 1704067200) {
+                struct timeval tv = {.tv_sec = static_cast<time_t>(saved_sec), .tv_usec = 0};
+                settimeofday(&tv, nullptr);
+            }
+            nvs_close(nvs_h);
+        }
+    }
 
     // Instant Boot: Display Apple Watch Standby Dashboard immediately on startup
     boot_standby_locked_ = true;
@@ -3053,12 +3070,12 @@ void PocketLcdDisplay::ShowStandbyClock() {
         lv_obj_set_style_radius(hero_accent_bar_, 2, 0);
 
         date_label_ = lv_label_create(hero_card_);
-        lv_obj_set_pos(date_label_, 14, 6);
+        lv_obj_set_pos(date_label_, 14, 8);
         lv_obj_set_style_text_color(date_label_, lv_color_hex(0xFF5500), 0);
         lv_label_set_text(date_label_, "MON NOV 9");
 
         time_label_ = lv_label_create(hero_card_);
-        lv_obj_set_pos(time_label_, 10, 22);
+        lv_obj_set_pos(time_label_, 10, 28);
         lv_obj_set_style_text_color(time_label_, lv_color_white(), 0);
         lv_obj_set_style_text_font(time_label_, &lv_font_ultra_digits_64, 0);
         lv_label_set_text(time_label_, "10:09");
@@ -3073,7 +3090,8 @@ void PocketLcdDisplay::ShowStandbyClock() {
         lv_obj_set_style_text_font(sec_label_, &lv_font_montserrat_20, 0);
 #endif
         lv_label_set_text(sec_label_, ":35");
-        lv_obj_align_to(sec_label_, time_label_, LV_ALIGN_OUT_RIGHT_BOTTOM, 3, -3);
+        // Optical baseline alignment: aligns :sec on the exact same baseline (Y=75) as HH:MM
+        lv_obj_align_to(sec_label_, time_label_, LV_ALIGN_OUT_RIGHT_BOTTOM, 3, 5);
 
         pinned_memo_label_ = lv_label_create(hero_card_);
         lv_obj_set_pos(pinned_memo_label_, 14, 92);
@@ -3227,21 +3245,31 @@ void PocketLcdDisplay::UpdateStandbyClock() {
         const char* months[] = {"JAN", "FEB", "MAR", "APR", "MAY", "JUN", "JUL", "AUG", "SEP", "OCT", "NOV", "DEC"};
         snprintf(date_buf, sizeof(date_buf), "%s %s %d",
                  days[tm_now.tm_wday % 7], months[tm_now.tm_mon % 12], tm_now.tm_mday);
+
+        // Periodically persist valid timestamp to NVS every 60s
+        static time_t last_nvs_save = 0;
+        if (now - last_nvs_save >= 60) {
+            last_nvs_save = now;
+            nvs_handle_t nvs_h;
+            if (nvs_open("sys_clock", NVS_READWRITE, &nvs_h) == ESP_OK) {
+                nvs_set_i64(nvs_h, "last_sec", now);
+                nvs_commit(nvs_h);
+                nvs_close(nvs_h);
+            }
+        }
     } else {
-        uint32_t uptime_sec = animation_tick_ / 20;
-        uint32_t hrs = uptime_sec / 3600;
-        uint32_t mins = (uptime_sec % 3600) / 60;
-        uint32_t secs = uptime_sec % 60;
-        snprintf(time_buf, sizeof(time_buf), "%02lu:%02lu", (unsigned long)hrs, (unsigned long)mins);
-        snprintf(sec_buf, sizeof(sec_buf), ":%02lu", (unsigned long)secs);
-        snprintf(date_buf, sizeof(date_buf), "CONNECTING...");
+        // While waiting for network time sync, display professional pending state, never fake 00:00:01
+        snprintf(time_buf, sizeof(time_buf), "--:--");
+        snprintf(sec_buf, sizeof(sec_buf), ":--");
+        snprintf(date_buf, sizeof(date_buf), "SYNC TIME...");
     }
 
     if (time_label_) lv_label_set_text(time_label_, time_buf);
     if (sec_label_) {
         lv_label_set_text(sec_label_, sec_buf);
         if (time_label_) {
-            lv_obj_align_to(sec_label_, time_label_, LV_ALIGN_OUT_RIGHT_BOTTOM, 3, -3);
+            // Optical baseline alignment: aligns :sec on the exact same baseline (Y=75) as HH:MM
+            lv_obj_align_to(sec_label_, time_label_, LV_ALIGN_OUT_RIGHT_BOTTOM, 3, 5);
         }
     }
     if (date_label_) lv_label_set_text(date_label_, date_buf);
@@ -3251,6 +3279,15 @@ void PocketLcdDisplay::UpdateStandbyClock() {
     int rssi = -99;
     if (esp_wifi_sta_get_ap_info(&ap_info) == ESP_OK) {
         rssi = ap_info.rssi;
+        // Fast SNTP trigger as soon as Wi-Fi is connected (syncs in 50-100ms)
+        static bool sntp_init_done = false;
+        if (!sntp_init_done && rssi > -100 && rssi < 0) {
+            sntp_init_done = true;
+            esp_sntp_setoperatingmode(SNTP_OPMODE_POLL);
+            esp_sntp_setservername(0, "pool.ntp.org");
+            esp_sntp_setservername(1, "time.google.com");
+            esp_sntp_init();
+        }
     }
     char wifi_buf[32];
     if (rssi > -100 && rssi < 0) {
