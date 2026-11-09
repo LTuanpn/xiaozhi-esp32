@@ -6,6 +6,8 @@
 #include <lvgl.h>
 #include <string>
 
+extern const lv_font_t lv_font_ultra_digits_64;
+
 class PocketLcdDisplay : public SpiLcdDisplay {
 public:
     PocketLcdDisplay(esp_lcd_panel_io_handle_t panel_io, esp_lcd_panel_handle_t panel, int width,

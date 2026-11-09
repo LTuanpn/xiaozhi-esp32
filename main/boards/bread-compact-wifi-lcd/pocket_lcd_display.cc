@@ -367,6 +367,9 @@ void PocketLcdDisplay::SetupUI() {
     };
     ESP_ERROR_CHECK(esp_timer_create(&timer_args, &frame_timer_));
     ESP_ERROR_CHECK(esp_timer_start_periodic(frame_timer_, kAnimationPeriodMs * 1000));
+
+    // Instant Boot: Display Apple Watch Standby Dashboard immediately on startup
+    ShowStandbyClock();
 }
 
 void PocketLcdDisplay::WakeUp() {
@@ -2032,19 +2035,29 @@ void PocketLcdDisplay::UpdateAnimationFrame() {
             lv_obj_set_pos(extra_shape_[0], bug_x, bug_y);
         }
     } else if (face_mode_ == FaceMode::kSleeping) {
-        uint32_t sleep_ticks = (animation_tick_ > last_active_tick_ + kAutoSleepTimeoutTicks)
-                                   ? (animation_tick_ - (last_active_tick_ + kAutoSleepTimeoutTicks))
-                                   : 0;
-        if (sleep_ticks > 60 || face_mode_ == FaceMode::kSleeping) {
-            int b1_prog = (animation_tick_ / 3) % 25;
-            int b1_x = 110 + b1_prog;
-            int b1_y = 35 - b1_prog;
-            PlaceDisc(smoke_puff_[0], smoke_puff_[1], nullptr, b1_x, b1_y, 10);
+        // Natural Floating Sine-Wave Sleep Bubbles (Auto Round 100% via LV_RADIUS_CIRCLE)
+        for (int i = 0; i < 5; ++i) {
+            if (smoke_puff_[i]) {
+                int t = (animation_tick_ * 2 + i * 13) % 65; // 65 ticks (~3.25s) flight cycle
+                float ratio = t / 65.0f;                      // 0.0 -> 1.0
+                int by = 46 - static_cast<int>(ratio * 58.0f); // Float up from y=46 to y=-12
 
-            int b2_prog = (animation_tick_ / 3 + 12) % 25;
-            int b2_x = 125 + b2_prog;
-            int b2_y = 35 - b2_prog;
-            PlaceDisc(smoke_puff_[2], smoke_puff_[3], nullptr, b2_x, b2_y, 14);
+                // Gentle sine-wave oscillation on X axis
+                float wave = std::sin(ratio * 6.283f * 1.5f + i * 1.2f);
+                int bx = 124 + static_cast<int>(ratio * 26.0f + wave * 5.0f);
+
+                // Auto growth: starts at 5px, expands to 16px
+                int diam = 5 + static_cast<int>(ratio * 11.0f);
+
+                lv_obj_remove_flag(smoke_puff_[i], LV_OBJ_FLAG_HIDDEN);
+                lv_obj_set_pos(smoke_puff_[i], bx, by);
+                lv_obj_set_size(smoke_puff_[i], diam, diam);
+                lv_obj_set_style_radius(smoke_puff_[i], LV_RADIUS_CIRCLE, 0); // 100% AUTO PERFECT CIRCLE
+                lv_obj_set_style_bg_color(smoke_puff_[i], lv_color_hex(0x80D8FF), 0); // Cyan glow
+                lv_obj_set_style_bg_opa(smoke_puff_[i], (ratio > 0.85f) ? LV_OPA_40 : LV_OPA_70, 0);
+                lv_obj_set_style_border_width(smoke_puff_[i], 1, 0);
+                lv_obj_set_style_border_color(smoke_puff_[i], lv_color_white(), 0);
+            }
         }
     } else if (face_mode_ == FaceMode::kListening && !blink) {
         for (int i = 0; i < 4; ++i) {
@@ -3010,20 +3023,14 @@ void PocketLcdDisplay::ShowStandbyClock() {
         lv_obj_set_style_radius(hero_accent_bar_, 2, 0);
 
         date_label_ = lv_label_create(hero_card_);
-        lv_obj_set_pos(date_label_, 18, 6);
+        lv_obj_set_pos(date_label_, 14, 4);
         lv_obj_set_style_text_color(date_label_, lv_color_hex(0xFF5500), 0);
         lv_label_set_text(date_label_, "MON NOV 9");
 
         time_label_ = lv_label_create(hero_card_);
-        lv_obj_set_pos(time_label_, 16, 22);
+        lv_obj_set_pos(time_label_, 10, 18);
         lv_obj_set_style_text_color(time_label_, lv_color_white(), 0);
-#if LV_FONT_MONTSERRAT_48
-        lv_obj_set_style_text_font(time_label_, &lv_font_montserrat_48, 0);
-#elif LV_FONT_MONTSERRAT_32
-        lv_obj_set_style_text_font(time_label_, &lv_font_montserrat_32, 0);
-#elif defined(BUILTIN_TEXT_FONT)
-        lv_obj_set_style_text_font(time_label_, &BUILTIN_TEXT_FONT, 0);
-#endif
+        lv_obj_set_style_text_font(time_label_, &lv_font_ultra_digits_64, 0);
         lv_label_set_text(time_label_, "10:09");
 
         sec_label_ = lv_label_create(hero_card_);
@@ -3039,8 +3046,8 @@ void PocketLcdDisplay::ShowStandbyClock() {
         lv_obj_align_to(sec_label_, time_label_, LV_ALIGN_OUT_RIGHT_BOTTOM, 3, -3);
 
         pinned_memo_label_ = lv_label_create(hero_card_);
-        lv_obj_set_pos(pinned_memo_label_, 18, 86);
-        lv_obj_set_width(pinned_memo_label_, 200);
+        lv_obj_set_pos(pinned_memo_label_, 14, 82);
+        lv_obj_set_width(pinned_memo_label_, 208);
         lv_label_set_long_mode(pinned_memo_label_, LV_LABEL_LONG_SCROLL_CIRCULAR);
         lv_obj_set_style_text_color(pinned_memo_label_, lv_color_hex(0xFFD60A), 0);
         lv_label_set_text(pinned_memo_label_, pinned_memo_.c_str());
