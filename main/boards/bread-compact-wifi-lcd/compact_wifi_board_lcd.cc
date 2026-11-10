@@ -311,6 +311,50 @@ private:
             }
         );
 
+        // 3.1. TOOL PHÁT ÂM THANH / NHẠC TỪ URL CHO ROBOT (OGG OPUS)
+        mcp_server.AddTool(
+            "self.audio.play_url",
+            "Phát âm thanh/nhạc trực tiếp từ một đường dẫn URL (HTTP/HTTPS luồng Ogg Opus). "
+            "Khi cần phát bài hát hoặc âm thanh từ server nhạc, hãy gọi tool này với tham số url.",
+            PropertyList({Property("url", kPropertyTypeString, "")}),
+            [this](const PropertyList& properties) -> ReturnValue {
+                std::string url = properties["url"].value<std::string>();
+                if (url.empty()) {
+                    return "Lỗi: url không được để trống";
+                }
+                ESP_LOGI("Board", "self.audio.play_url: %s", url.c_str());
+                if (display_ != nullptr) {
+                    display_->SetEmotion("music");
+                }
+                auto& app = Application::GetInstance();
+                app.Schedule([&app, url]() {
+                    if (app.GetDeviceState() == kDeviceStateSpeaking || app.GetDeviceState() == kDeviceStateListening) {
+                        app.SetDeviceState(kDeviceStateIdle);
+                    }
+                    app.StartNotification(url, {});
+                });
+                return "Đang phát âm thanh từ: " + url;
+            }
+        );
+
+        // 3.2. TOOL DỪNG PHÁT ÂM THANH / NHẠC TRÊN ROBOT
+        mcp_server.AddTool(
+            "self.audio.stop_playback",
+            "Dừng phát nhạc hoặc âm thanh đang phát từ URL trên robot.",
+            PropertyList(),
+            [this](const PropertyList& properties) -> ReturnValue {
+                ESP_LOGI("Board", "self.audio.stop_playback");
+                auto& app = Application::GetInstance();
+                app.Schedule([&app]() {
+                    app.StopNotification();
+                });
+                if (display_ != nullptr) {
+                    display_->SetEmotion("neutral");
+                }
+                return "Đã dừng phát âm thanh";
+            }
+        );
+
         // 4. TOOL CANH TRỘM PHÒNG BẰNG CẢM BIẾN ÂM THANH MIC (SENTRY MODE)
         mcp_server.AddTool(
             "self.security.guard_mode",
