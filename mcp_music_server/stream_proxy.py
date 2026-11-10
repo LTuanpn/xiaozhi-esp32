@@ -103,28 +103,36 @@ class StreamProxy:
             'pipe:1'
         ]
 
+        proc = None
         try:
-            self.active_process = await asyncio.create_subprocess_exec(
+            proc = await asyncio.create_subprocess_exec(
                 *cmd,
                 stdout=asyncio.subprocess.PIPE,
                 stderr=asyncio.subprocess.DEVNULL
             )
+            self.active_process = proc
             self.current_track['status'] = 'playing'
 
             while True:
-                chunk = await self.active_process.stdout.read(4096)
+                chunk = await proc.stdout.read(4096)
                 if not chunk:
                     break
                 await response.write(chunk)
 
-            await self.active_process.wait()
-        except asyncio.CancelledError:
-            logger.info("ESP32 đã ngắt kết nối stream.")
+            await proc.wait()
+        except (asyncio.CancelledError, ConnectionResetError, BrokenPipeError):
+            logger.info("ESP32 đã chủ động ngắt kết nối stream.")
+        except RuntimeError as e:
+            if "Cannot write to closing transport" in str(e) or "Session is closed" in str(e):
+                logger.info("ESP32 đã đóng kết nối stream (transport closed).")
+            else:
+                logger.error(f"Lỗi runtime trong quá trình stream: {e}")
         except Exception as e:
             logger.error(f"Lỗi trong quá trình stream: {e}")
         finally:
-            self.stop_current()
-            self.current_track['status'] = 'idle'
+            if self.active_process is proc:
+                self.stop_current()
+                self.current_track['status'] = 'idle'
 
         return response
 

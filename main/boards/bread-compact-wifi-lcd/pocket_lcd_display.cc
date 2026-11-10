@@ -137,6 +137,10 @@ PocketLcdDisplay::~PocketLcdDisplay() {
         esp_timer_delete(frame_timer_);
         frame_timer_ = nullptr;
     }
+    if (qr_cbuf_ != nullptr) {
+        heap_caps_free(qr_cbuf_);
+        qr_cbuf_ = nullptr;
+    }
 }
 
 void PocketLcdDisplay::SetupUI() {
@@ -623,7 +627,9 @@ void PocketLcdDisplay::SetChatMessage(const char* role, const char* content) {
     has_chat_text_ = !clean_text.empty();
     if (chat_line_ != nullptr && !hide_subtitle_) {
         lv_label_set_text(chat_line_, clean_text.c_str());
-        lv_obj_move_foreground(chat_line_);
+        if (qr_until_tick_ == 0 || animation_tick_ >= qr_until_tick_) {
+            lv_obj_move_foreground(chat_line_);
+        }
     }
 }
 
@@ -693,7 +699,7 @@ void PocketLcdDisplay::ApplyLayout() {
     lv_obj_set_style_radius(left_eye_, EyeRadius(current_left_width_, current_left_height_), 0);
     lv_obj_set_style_radius(right_eye_, EyeRadius(current_right_width_, current_right_height_), 0);
     lv_obj_move_foreground(face_layer_);
-    if (chat_line_ != nullptr) {
+    if (chat_line_ != nullptr && (qr_until_tick_ == 0 || animation_tick_ >= qr_until_tick_)) {
         lv_obj_move_foreground(chat_line_);
     }
     UpdateAnimationFrame();
@@ -2884,11 +2890,11 @@ void PocketLcdDisplay::ShowQrCode(const std::string& text, const std::string& ti
         lv_obj_remove_style_all(qr_container_);
         lv_obj_set_size(qr_container_, 240, 240);
         lv_obj_set_pos(qr_container_, 0, 0);
-        lv_obj_set_style_bg_color(qr_container_, lv_color_white(), 0);
+        lv_obj_set_style_bg_color(qr_container_, lv_color_hex(0x141416), 0);
         lv_obj_set_style_bg_opa(qr_container_, LV_OPA_COVER, 0);
 
         qr_title_label_ = lv_label_create(qr_container_);
-        lv_obj_set_style_text_color(qr_title_label_, lv_color_black(), 0);
+        lv_obj_set_style_text_color(qr_title_label_, lv_color_white(), 0);
         lv_obj_set_style_text_align(qr_title_label_, LV_TEXT_ALIGN_CENTER, 0);
         lv_obj_set_width(qr_title_label_, 220);
         lv_obj_set_pos(qr_title_label_, 10, 8);
@@ -2897,8 +2903,18 @@ void PocketLcdDisplay::ShowQrCode(const std::string& text, const std::string& ti
         lv_obj_set_size(qr_canvas_, 160, 160);
         lv_obj_set_pos(qr_canvas_, 40, 32);
 
+        if (qr_cbuf_ == nullptr) {
+            qr_cbuf_ = (uint16_t*)heap_caps_malloc(160 * 160 * sizeof(uint16_t), MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
+            if (qr_cbuf_ == nullptr) {
+                qr_cbuf_ = (uint16_t*)malloc(160 * 160 * sizeof(uint16_t));
+            }
+        }
+        if (qr_cbuf_ != nullptr) {
+            lv_canvas_set_buffer(qr_canvas_, qr_cbuf_, 160, 160, LV_COLOR_FORMAT_RGB565);
+        }
+
         qr_url_label_ = lv_label_create(qr_container_);
-        lv_obj_set_style_text_color(qr_url_label_, lv_color_hex(0x0055AA), 0);
+        lv_obj_set_style_text_color(qr_url_label_, lv_color_hex(0x00E5FF), 0);
         lv_obj_set_style_text_align(qr_url_label_, LV_TEXT_ALIGN_CENTER, 0);
         lv_obj_set_width(qr_url_label_, 220);
         lv_obj_set_pos(qr_url_label_, 10, 204);
@@ -2911,35 +2927,36 @@ void PocketLcdDisplay::ShowQrCode(const std::string& text, const std::string& ti
     lv_label_set_text(qr_title_label_, disp_title.c_str());
     lv_label_set_text(qr_url_label_, text.c_str());
 
-    std::vector<uint8_t> qrcode(qrcodegen_BUFFER_LEN_MAX);
-    std::vector<uint8_t> tempBuffer(qrcodegen_BUFFER_LEN_MAX);
-    bool ok = qrcodegen_encodeText(text.c_str(), tempBuffer.data(), qrcode.data(), qrcodegen_Ecc_LOW, 1, 20, qrcodegen_Mask_AUTO, true);
-    if (ok) {
-        int qr_size = qrcodegen_getSize(qrcode.data());
-        int scale = 144 / qr_size;
-        if (scale < 1) scale = 1;
-        int render_w = qr_size * scale;
-        int offset_x = (160 - render_w) / 2;
-        int offset_y = (160 - render_w) / 2;
+    if (qr_canvas_ != nullptr && qr_cbuf_ != nullptr) {
+        lv_canvas_fill_bg(qr_canvas_, lv_color_white(), LV_OPA_COVER);
 
-        static uint16_t s_qr_cbuf[160 * 160];
-        std::fill_n(s_qr_cbuf, 160 * 160, 0xFFFF); // Full white background
-        for (int y = 0; y < qr_size; y++) {
-            for (int x = 0; x < qr_size; x++) {
-                if (qrcodegen_getModule(qrcode.data(), x, y)) {
-                    for (int dy = 0; dy < scale; dy++) {
-                        for (int dx = 0; dx < scale; dx++) {
-                            int px = offset_x + x * scale + dx;
-                            int py = offset_y + y * scale + dy;
-                            if (px >= 0 && px < 160 && py >= 0 && py < 160) {
-                                s_qr_cbuf[py * 160 + px] = 0x0000; // Black module
+        std::vector<uint8_t> qrcode(qrcodegen_BUFFER_LEN_MAX);
+        std::vector<uint8_t> tempBuffer(qrcodegen_BUFFER_LEN_MAX);
+        bool ok = qrcodegen_encodeText(text.c_str(), tempBuffer.data(), qrcode.data(), qrcodegen_Ecc_MEDIUM, 1, 20, qrcodegen_Mask_AUTO, true);
+        if (ok) {
+            int qr_size = qrcodegen_getSize(qrcode.data());
+            int scale = 144 / qr_size;
+            if (scale < 1) scale = 1;
+            int render_w = qr_size * scale;
+            int offset_x = (160 - render_w) / 2;
+            int offset_y = (160 - render_w) / 2;
+
+            for (int y = 0; y < qr_size; y++) {
+                for (int x = 0; x < qr_size; x++) {
+                    if (qrcodegen_getModule(qrcode.data(), x, y)) {
+                        for (int dy = 0; dy < scale; dy++) {
+                            for (int dx = 0; dx < scale; dx++) {
+                                int px = offset_x + x * scale + dx;
+                                int py = offset_y + y * scale + dy;
+                                if (px >= 0 && px < 160 && py >= 0 && py < 160) {
+                                    lv_canvas_set_px(qr_canvas_, px, py, lv_color_black(), LV_OPA_COVER);
+                                }
                             }
                         }
                     }
                 }
             }
         }
-        lv_canvas_set_buffer(qr_canvas_, s_qr_cbuf, 160, 160, LV_COLOR_FORMAT_RGB565);
         lv_obj_invalidate(qr_canvas_);
     }
 
@@ -3386,17 +3403,7 @@ void PocketLcdDisplay::UpdateStandbyClock() {
         lv_label_set_text(vol_val_label_, vol_buf);
     }
 
-    // 5. Countdown / Pomodoro Timer
-    if (animation_tick_ >= last_countdown_tick_ + 20) {
-        last_countdown_tick_ = animation_tick_;
-        if (countdown_remaining_sec_ > 0) {
-            countdown_remaining_sec_--;
-            if (countdown_remaining_sec_ == 0) {
-                Application::GetInstance().PlaySound(Lang::Sounds::OGG_VIBRATION);
-                countdown_label_ = "IDLE";
-            }
-        }
-    }
+    // 5. Countdown / Pomodoro Timer Display (Timer tick decrement handled in UpdateAnimationFrame)
     if (timer_val_label_) {
         char timer_buf[16];
         snprintf(timer_buf, sizeof(timer_buf), "%02d:%02d",
@@ -3409,7 +3416,7 @@ void PocketLcdDisplay::UpdateStandbyClock() {
         lv_label_set_text(timer_tag_label_, countdown_label_.c_str());
     }
 
-    // 6. Guard Mode Widget & Acoustic Monitoring
+    // 6. Guard Mode Widget (Acoustic Monitoring handled in guard_timer_ of board)
     if (guard_canvas_) {
         DrawShield(guard_mode_active_);
     }
@@ -3417,18 +3424,5 @@ void PocketLcdDisplay::UpdateStandbyClock() {
         lv_label_set_text(guard_status_label_, guard_mode_active_ ? "ON" : "OFF");
         lv_obj_set_style_text_color(guard_status_label_,
             guard_mode_active_ ? lv_color_hex(0x32D74B) : lv_color_hex(0x8E8E93), 0);
-    }
-    if (guard_mode_active_) {
-        auto& app = Application::GetInstance();
-        if (app.GetDeviceState() == kDeviceStateIdle) {
-            uint8_t mic_lvl = app.GetAudioService().GetInputLevel();
-            if (mic_lvl > 30 && animation_tick_ >= guard_alarm_cooldown_tick_) {
-                guard_alarm_cooldown_tick_ = animation_tick_ + 100; // 5s cooldown
-                WakeUp();
-                SetEmotion("furious");
-                ShowNotification("[CANH BAO] PHAT HIEN XAM NHAP!", 10000);
-                app.PlaySound(Lang::Sounds::OGG_EXCLAMATION);
-            }
-        }
     }
 }

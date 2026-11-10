@@ -111,11 +111,12 @@ private:
 #if defined(LCD_TYPE_ILI9341_SERIAL)
         ESP_ERROR_CHECK(esp_lcd_new_panel_ili9341(panel_io, &panel_config, &panel_));
 #elif defined(LCD_TYPE_GC9A01_SERIAL)
-        ESP_ERROR_CHECK(esp_lcd_new_panel_gc9a01(panel_io, &panel_config, &panel_));
         gc9a01_vendor_config_t gc9107_vendor_config = {
             .init_cmds = gc9107_lcd_init_cmds,
             .init_cmds_size = sizeof(gc9107_lcd_init_cmds) / sizeof(gc9a01_lcd_init_cmd_t),
-        };        
+        };
+        panel_config.vendor_config = &gc9107_vendor_config;
+        ESP_ERROR_CHECK(esp_lcd_new_panel_gc9a01(panel_io, &panel_config, &panel_));
 #else
         ESP_ERROR_CHECK(esp_lcd_new_panel_st7789(panel_io, &panel_config, &panel_));
 #endif
@@ -126,9 +127,6 @@ private:
         esp_lcd_panel_swap_xy(panel_, DISPLAY_SWAP_XY);
         esp_lcd_panel_mirror(panel_, DISPLAY_MIRROR_X, DISPLAY_MIRROR_Y);
         ESP_ERROR_CHECK(esp_lcd_panel_disp_on_off(panel_, true));
-#ifdef LCD_TYPE_GC9A01_SERIAL
-        panel_config.vendor_config = &gc9107_vendor_config;
-#endif
         display_ = new PocketLcdDisplay(panel_io, panel_,
                                         DISPLAY_WIDTH, DISPLAY_HEIGHT, DISPLAY_OFFSET_X, DISPLAY_OFFSET_Y, DISPLAY_MIRROR_X, DISPLAY_MIRROR_Y, DISPLAY_SWAP_XY);
     }
@@ -241,17 +239,34 @@ private:
                 // TRƯỜNG HỢP 1: Yêu cầu hiển thị Mã QR
                 if (lower_text.find("qr") != std::string::npos) {
                     auto& wifi = WifiManager::GetInstance();
-                    std::string url;
+                    std::string qr_payload;
+                    std::string title;
                     if (wifi.IsConfigMode()) {
-                        url = "http://192.168.4.1";
+                        qr_payload = "http://192.168.4.1";
+                        title = "QUET CAU HINH WIFI";
                     } else {
+                        std::string ssid = wifi.GetSsid();
                         std::string ip = wifi.GetIpAddress();
-                        url = ip.empty() ? "http://192.168.4.1" : ("http://" + ip);
+                        std::string pwd = "";
+                        auto& ssid_mgr = SsidManager::GetInstance();
+                        for (const auto& item : ssid_mgr.GetSsidList()) {
+                            if (item.ssid == ssid) {
+                                pwd = item.password;
+                                break;
+                            }
+                        }
+                        if (!ssid.empty()) {
+                            qr_payload = "WIFI:T:WPA;S:" + ssid + ";P:" + pwd + ";;";
+                            title = "WF: " + ssid + " | IP: " + (ip.empty() ? "N/A" : ip);
+                        } else {
+                            qr_payload = ip.empty() ? "http://192.168.4.1" : ("http://" + ip);
+                            title = "QUET MA TRUY CAP";
+                        }
                     }
                     if (display_ != nullptr) {
-                        display_->ShowQrCode(url, "QUET MA CAU HINH", duration * 1000);
+                        display_->ShowQrCode(qr_payload, title, duration * 1000);
                     }
-                    return "Đã hiển thị mã QR cấu hình lên màn hình: " + url + ". Người dùng có thể quét bằng điện thoại.";
+                    return "Đã hiển thị mã QR lên màn hình: " + qr_payload + ". Người dùng có thể quét bằng điện thoại.";
                 }
 
                 // TRƯỜNG HỢP 2: Yêu cầu thông tin IP / WiFi / Mật khẩu
@@ -397,6 +412,7 @@ private:
                                     esp_timer_stop(board->guard_timer_);
                                     app.Schedule([board, &app]() {
                                         if (board->GetDisplay() != nullptr) {
+                                            board->GetDisplay()->SetGuardMode(false);
                                             board->GetDisplay()->SetEmotion("furious");
                                             board->GetDisplay()->ShowNotification("[CANH BAO] PHAT HIEN XAM NHAP!", 10000);
                                         }
@@ -526,13 +542,6 @@ private:
                 int sides = properties["sides"].value<int>();
 
                 if (type == "coin" || sides == 2) {
-                    if (display_ != nullptr) {
-                        display_->SetEmotion("dizzy");
-                        display_->ShowNotification("[DONG XU] Dang quay...", 1500);
-                    }
-                    Application::GetInstance().PlaySound(Lang::Sounds::OGG_POPUP);
-                    vTaskDelay(pdMS_TO_TICKS(1000));
-
                     bool is_heads = (esp_random() % 2) == 1;
                     std::string outcome = is_heads ? "[DONG XU] NGUA (Heads)" : "[DONG XU] SAP (Tails)";
                     if (display_ != nullptr) {
@@ -542,13 +551,6 @@ private:
                     Application::GetInstance().PlaySound(Lang::Sounds::OGG_SUCCESS);
                     return "Kết quả tung đồng xu: " + outcome;
                 } else {
-                    if (display_ != nullptr) {
-                        display_->SetEmotion("dizzy");
-                        display_->ShowNotification("[XUC XAC] Dang lac...", 1500);
-                    }
-                    Application::GetInstance().PlaySound(Lang::Sounds::OGG_POPUP);
-                    vTaskDelay(pdMS_TO_TICKS(1200));
-
                     int roll = static_cast<int>((esp_random() % sides) + 1);
                     std::string outcome = "[XUC XAC] " + std::to_string(roll) + " / d" + std::to_string(sides);
                     if (display_ != nullptr) {
@@ -592,17 +594,34 @@ private:
             [this](const PropertyList& properties) -> ReturnValue {
                 std::string url = properties["url"].value<std::string>();
                 int duration = properties["duration_seconds"].value<int>();
+                std::string title = "QUET MA QR";
                 if (url.empty()) {
                     auto& wifi = WifiManager::GetInstance();
                     if (wifi.IsConfigMode()) {
                         url = "http://192.168.4.1";
+                        title = "QUET CAU HINH WIFI";
                     } else {
+                        std::string ssid = wifi.GetSsid();
                         std::string ip = wifi.GetIpAddress();
-                        url = ip.empty() ? "http://192.168.4.1" : ("http://" + ip);
+                        std::string pwd = "";
+                        auto& ssid_mgr = SsidManager::GetInstance();
+                        for (const auto& item : ssid_mgr.GetSsidList()) {
+                            if (item.ssid == ssid) {
+                                pwd = item.password;
+                                break;
+                            }
+                        }
+                        if (!ssid.empty()) {
+                            url = "WIFI:T:WPA;S:" + ssid + ";P:" + pwd + ";;";
+                            title = "WF: " + ssid + " | IP: " + (ip.empty() ? "N/A" : ip);
+                        } else {
+                            url = ip.empty() ? "http://192.168.4.1" : ("http://" + ip);
+                            title = "QUET MA TRUY CAP";
+                        }
                     }
                 }
                 if (display_ != nullptr) {
-                    display_->ShowQrCode(url, "QUET MA CAU HINH", duration * 1000);
+                    display_->ShowQrCode(url, title, duration * 1000);
                 }
                 return "Đã hiển thị mã QR lên màn hình: " + url + ". Người dùng có thể quét bằng điện thoại.";
             }

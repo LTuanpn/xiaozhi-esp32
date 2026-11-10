@@ -232,6 +232,7 @@ private:
     // QR Code UI elements
     lv_obj_t* qr_container_ = nullptr;
     lv_obj_t* qr_canvas_ = nullptr;
+    uint16_t* qr_cbuf_ = nullptr;
     lv_obj_t* qr_title_label_ = nullptr;
     lv_obj_t* qr_url_label_ = nullptr;
     uint32_t qr_until_tick_ = 0;

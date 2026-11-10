@@ -1,5 +1,6 @@
 import sys
 import logging
+import asyncio
 from config import STREAM_URL
 from youtube_provider import YouTubeProvider
 from zingmp3_provider import ZingMP3Provider
@@ -137,6 +138,11 @@ class MCPHandler:
 
     def _build_play_response(self, info: dict, source_label: str):
         """Trả về STREAM_URL và chỉ thị bắt buộc LLM gọi self.audio.play_url trên ESP32."""
+        if info.get('audio_url'):
+            self.url_user_agents[info['audio_url']] = info.get('user_agent', '')
+            if len(self.url_user_agents) > 50:
+                self.url_user_agents.pop(next(iter(self.url_user_agents)))
+
         self.stream_proxy.set_track(info)
 
         instruction_text = (
@@ -172,13 +178,13 @@ class MCPHandler:
             source_label = "YouTube"
 
             if source == "zing":
-                info = self.zing_provider.search_and_extract(query)
+                info = await asyncio.to_thread(self.zing_provider.search_and_extract, query)
                 source_label = info.get('source', 'Zing MP3') if info else 'Zing MP3'
             else:
                 # Mặc định ưu tiên YouTube hoặc source == 'youtube' / 'all'
-                info = self.yt_provider.search_and_extract(query)
+                info = await asyncio.to_thread(self.yt_provider.search_and_extract, query)
                 if not info and source == "all":
-                    info = self.zing_provider.search_and_extract(query)
+                    info = await asyncio.to_thread(self.zing_provider.search_and_extract, query)
                     source_label = info.get('source', 'Zing MP3') if info else 'Zing MP3'
 
             if not info or not info.get("audio_url"):
@@ -195,11 +201,11 @@ class MCPHandler:
             results = []
 
             if source in ["youtube", "all"]:
-                yt_results = self.yt_provider.search_multiple(query, limit=3)
+                yt_results = await asyncio.to_thread(self.yt_provider.search_multiple, query, 3)
                 results.extend(yt_results)
 
             if source in ["zing", "all"]:
-                zing_results = self.zing_provider.search_suggestions(query)
+                zing_results = await asyncio.to_thread(self.zing_provider.search_suggestions, query)
                 for z in zing_results[:3]:
                     mins, secs = divmod(z.get('duration', 0), 60)
                     results.append({
