@@ -323,17 +323,17 @@ private:
                     return "Lỗi: url không được để trống";
                 }
                 ESP_LOGI("Board", "self.audio.play_url: %s", url.c_str());
-                if (display_ != nullptr) {
-                    display_->SetEmotion("music");
-                }
                 auto& app = Application::GetInstance();
-                app.Schedule([&app, url]() {
+                app.Schedule([this, &app, url]() {
                     if (app.GetDeviceState() == kDeviceStateSpeaking || app.GetDeviceState() == kDeviceStateListening) {
                         app.SetDeviceState(kDeviceStateIdle);
                     }
                     app.StartNotification(url, {});
+                    if (display_ != nullptr) {
+                        display_->SetEmotion("music");
+                    }
                 });
-                return "[Hệ thống: Loa thiết bị đã bắt đầu phát luồng nhạc. Hãy thông báo ngắn gọn 1 câu tên bài hát, TUYỆT ĐỐI KHÔNG chào lại người dùng hay lặp lại câu trước đó!]";
+                return "[Hệ thống: Loa của robot ĐÃ BẮT ĐẦU PHÁT NHẠC thành công. BẮT BUỘC: Kết thúc lượt ngay lập tức, TUYỆT ĐỐI KHÔNG nói thêm bất kỳ câu nào nữa để tránh đè lên tiếng nhạc!]";
             }
         );
 

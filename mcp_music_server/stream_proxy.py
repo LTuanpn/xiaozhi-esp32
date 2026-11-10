@@ -45,14 +45,17 @@ class StreamProxy:
         logger.info(f"Đã nạp bài hát vào Stream Proxy: {self.current_track['title']} - {self.current_track['artist']}")
 
     def stop_current(self):
-        """Hủy tiến trình transcode hiện tại."""
-        if self.active_process:
+        """Hủy tiến trình transcode hiện tại nếu còn đang chạy."""
+        proc = self.active_process
+        self.active_process = None
+        if proc is not None and proc.returncode is None:
             try:
                 logger.info("Đang dừng tiến trình phát nhạc...")
-                self.active_process.terminate()
+                proc.terminate()
+            except ProcessLookupError:
+                pass
             except Exception as e:
                 logger.warning(f"Lỗi khi dừng tiến trình: {e}")
-            self.active_process = None
         self.current_track['status'] = 'stopped'
 
     async def handle_stream(self, request):
@@ -85,6 +88,7 @@ class StreamProxy:
             '-reconnect', '1',
             '-reconnect_streamed', '1',
             '-reconnect_delay_max', '5',
+            '-re',
             '-i', audio_url,
             '-vn',
             '-c:a', 'libopus',

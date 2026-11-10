@@ -491,7 +491,11 @@ bool PocketLcdDisplay::SetEmotion(const char* emotion) {
     WakeUp();
     emotion_mode_ = FaceModeFromEmotion(emotion);
     SetFaceMode(emotion_mode_);
-    temporary_emotion_until_tick_ = animation_tick_ + (5000 / kAnimationPeriodMs);
+    if (emotion_mode_ == FaceMode::kMusic) {
+        temporary_emotion_until_tick_ = animation_tick_ + (300000 / kAnimationPeriodMs);
+    } else {
+        temporary_emotion_until_tick_ = animation_tick_ + (5000 / kAnimationPeriodMs);
+    }
     return true;
 }
 
@@ -554,54 +558,60 @@ void PocketLcdDisplay::SetChatMessage(const char* role, const char* content) {
         is_speaking_ = true;
         last_active_tick_ = animation_tick_;
 
-        // Build Dynamic Emotion Timeline Queue across clauses
-        emotion_timeline_.clear();
-        current_emotion_idx_ = 0;
-
-        if (!target_emotion.empty()) {
-            emotion_mode_ = FaceModeFromEmotion(target_emotion.c_str());
-            emotion_timeline_.push_back({emotion_mode_, 120}); // 6 seconds for explicit tag
+        if (Application::GetInstance().GetDeviceState() == kDeviceStateNotifying || face_mode_ == FaceMode::kMusic) {
+            emotion_mode_ = FaceMode::kMusic;
+            SetFaceMode(FaceMode::kMusic);
+            temporary_emotion_until_tick_ = animation_tick_ + (300000 / kAnimationPeriodMs);
         } else {
-            // Split into clauses by punctuation: '.', ',', '!', '?', ';', '\n'
-            size_t seg_start = 0;
-            const std::string delims = ".,!?;:\n-";
-            while (seg_start < clean_text.size()) {
-                size_t seg_end = clean_text.find_first_of(delims, seg_start);
-                std::string clause;
-                if (seg_end == std::string::npos) {
-                    clause = clean_text.substr(seg_start);
-                    seg_start = clean_text.size();
-                } else {
-                    clause = clean_text.substr(seg_start, seg_end - seg_start);
-                    seg_start = seg_end + 1;
-                }
-                // Trim clause
-                size_t c_first = clause.find_first_not_of(" \t\r\n");
-                if (c_first == std::string::npos) continue;
-                clause = clause.substr(c_first);
-                if (clause.length() < 3) continue;
+            // Build Dynamic Emotion Timeline Queue across clauses
+            emotion_timeline_.clear();
+            current_emotion_idx_ = 0;
 
-                FaceMode seg_mode = InferEmotionFromText(clause.c_str());
-                if (seg_mode == FaceMode::kNeutral) {
-                    seg_mode = FaceMode::kSmileGentle; // Default friendly conversational face
+            if (!target_emotion.empty()) {
+                emotion_mode_ = FaceModeFromEmotion(target_emotion.c_str());
+                emotion_timeline_.push_back({emotion_mode_, 120}); // 6 seconds for explicit tag
+            } else {
+                // Split into clauses by punctuation: '.', ',', '!', '?', ';', '\n'
+                size_t seg_start = 0;
+                const std::string delims = ".,!?;:\n-";
+                while (seg_start < clean_text.size()) {
+                    size_t seg_end = clean_text.find_first_of(delims, seg_start);
+                    std::string clause;
+                    if (seg_end == std::string::npos) {
+                        clause = clean_text.substr(seg_start);
+                        seg_start = clean_text.size();
+                    } else {
+                        clause = clean_text.substr(seg_start, seg_end - seg_start);
+                        seg_start = seg_end + 1;
+                    }
+                    // Trim clause
+                    size_t c_first = clause.find_first_not_of(" \t\r\n");
+                    if (c_first == std::string::npos) continue;
+                    clause = clause.substr(c_first);
+                    if (clause.length() < 3) continue;
+
+                    FaceMode seg_mode = InferEmotionFromText(clause.c_str());
+                    if (seg_mode == FaceMode::kNeutral) {
+                        seg_mode = emotion_timeline_.empty() ? emotion_mode_ : emotion_timeline_.back().mode;
+                    }
+                    uint32_t duration = static_cast<uint32_t>(std::clamp((int)clause.length() * 2, 25, 60));
+                    emotion_timeline_.push_back({seg_mode, duration});
                 }
-                uint32_t duration = static_cast<uint32_t>(std::clamp((int)clause.length() * 2, 25, 60));
-                emotion_timeline_.push_back({seg_mode, duration});
             }
-        }
 
-        if (emotion_timeline_.empty()) {
-            FaceMode fallback = InferEmotionFromText(clean_text.c_str());
-            if (fallback == FaceMode::kNeutral) fallback = FaceMode::kSmileGentle;
-            emotion_timeline_.push_back({fallback, 80});
-        }
+            if (emotion_timeline_.empty()) {
+                FaceMode fallback = InferEmotionFromText(clean_text.c_str());
+                if (fallback == FaceMode::kNeutral) fallback = emotion_mode_;
+                emotion_timeline_.push_back({fallback, 80});
+            }
 
-        // Activate the first emotion segment immediately
-        emotion_mode_ = emotion_timeline_[0].mode;
-        SetFaceMode(emotion_mode_);
-        next_emotion_tick_ = animation_tick_ + emotion_timeline_[0].duration_ticks;
-        current_emotion_idx_ = 1;
-        temporary_emotion_until_tick_ = animation_tick_ + (15000 / kAnimationPeriodMs);
+            // Activate the first emotion segment immediately
+            emotion_mode_ = emotion_timeline_[0].mode;
+            SetFaceMode(emotion_mode_);
+            next_emotion_tick_ = animation_tick_ + emotion_timeline_[0].duration_ticks;
+            current_emotion_idx_ = 1;
+            temporary_emotion_until_tick_ = animation_tick_ + (15000 / kAnimationPeriodMs);
+        }
     } else {
         if (!target_emotion.empty()) {
             emotion_mode_ = FaceModeFromEmotion(target_emotion.c_str());
@@ -1165,18 +1175,8 @@ void PocketLcdDisplay::UpdateAnimationFrame() {
         }
     }
 
-    if (standby_active_) {
-        if (animation_tick_ - last_clock_tick_ >= 20) {
-            last_clock_tick_ = animation_tick_;
-            UpdateStandbyClock();
-        }
-        if (height_ <= 240) {
-            return;
-        }
-    }
-
     if (qr_until_tick_ > 0 && animation_tick_ >= qr_until_tick_) {
-        HideQrCode();
+        HideQrCode(true);
     }
 
     if (notification_until_tick_ > 0 && animation_tick_ >= notification_until_tick_) {
@@ -1187,6 +1187,16 @@ void PocketLcdDisplay::UpdateAnimationFrame() {
             } else {
                 lv_label_set_text(chat_line_, last_status_text_.c_str());
             }
+        }
+    }
+
+    if (standby_active_) {
+        if (animation_tick_ - last_clock_tick_ >= 20) {
+            last_clock_tick_ = animation_tick_;
+            UpdateStandbyClock();
+        }
+        if (height_ <= 240) {
+            return;
         }
     }
 
@@ -1204,8 +1214,11 @@ void PocketLcdDisplay::UpdateAnimationFrame() {
     constexpr int max_look_x = 12;
     constexpr int max_look_y = 8;
 
-    // 1. Temporary Emotion Timeout (do not reset if speaking)
-    if (temporary_emotion_until_tick_ > 0 && animation_tick_ >= temporary_emotion_until_tick_) {
+    // 1. Temporary Emotion Timeout (do not reset if speaking or notifying)
+    if (dev_state == kDeviceStateNotifying) {
+        emotion_mode_ = FaceMode::kMusic;
+        SetFaceMode(FaceMode::kMusic);
+    } else if (temporary_emotion_until_tick_ > 0 && animation_tick_ >= temporary_emotion_until_tick_) {
         if (!is_speaking_ && dev_state != kDeviceStateSpeaking) {
             temporary_emotion_until_tick_ = 0;
             emotion_mode_ = FaceMode::kNeutral;
@@ -1214,7 +1227,7 @@ void PocketLcdDisplay::UpdateAnimationFrame() {
     }
 
     // 2. Autonomous Sleep (35s Sleepy, 60s Sleeping) & Mini Idle Quirks
-    if (face_mode_ != FaceMode::kSleeping && face_mode_ != FaceMode::kWakingUp && temporary_emotion_until_tick_ == 0) {
+    if (dev_state != kDeviceStateNotifying && face_mode_ != FaceMode::kSleeping && face_mode_ != FaceMode::kWakingUp && temporary_emotion_until_tick_ == 0) {
         if (animation_tick_ >= last_active_tick_ + kSleepingTimeoutTicks) {
             idle_quirk_ = IdleQuirk::kNone;
             SetFaceMode(FaceMode::kSleeping);
@@ -2881,6 +2894,7 @@ void PocketLcdDisplay::ShowQrCode(const std::string& text, const std::string& ti
         lv_obj_set_pos(qr_title_label_, 10, 8);
 
         qr_canvas_ = lv_canvas_create(qr_container_);
+        lv_obj_set_size(qr_canvas_, 160, 160);
         lv_obj_set_pos(qr_canvas_, 40, 32);
 
         qr_url_label_ = lv_label_create(qr_container_);
@@ -2899,37 +2913,41 @@ void PocketLcdDisplay::ShowQrCode(const std::string& text, const std::string& ti
 
     std::vector<uint8_t> qrcode(qrcodegen_BUFFER_LEN_MAX);
     std::vector<uint8_t> tempBuffer(qrcodegen_BUFFER_LEN_MAX);
-    bool ok = qrcodegen_encodeText(text.c_str(), tempBuffer.data(), qrcode.data(), qrcodegen_Ecc_LOW, 1, 8, qrcodegen_Mask_AUTO, true);
+    bool ok = qrcodegen_encodeText(text.c_str(), tempBuffer.data(), qrcode.data(), qrcodegen_Ecc_LOW, 1, 20, qrcodegen_Mask_AUTO, true);
     if (ok) {
         int qr_size = qrcodegen_getSize(qrcode.data());
-        int scale = 160 / qr_size;
+        int scale = 144 / qr_size;
         if (scale < 1) scale = 1;
         int render_w = qr_size * scale;
         int offset_x = (160 - render_w) / 2;
         int offset_y = (160 - render_w) / 2;
 
-        static lv_color_t s_qr_cbuf[160 * 160];
-        lv_canvas_set_buffer(qr_canvas_, s_qr_cbuf, 160, 160, LV_COLOR_FORMAT_RGB565);
-        lv_canvas_fill_bg(qr_canvas_, lv_color_white(), LV_OPA_COVER);
-
+        static uint16_t s_qr_cbuf[160 * 160];
+        std::fill_n(s_qr_cbuf, 160 * 160, 0xFFFF); // Full white background
         for (int y = 0; y < qr_size; y++) {
             for (int x = 0; x < qr_size; x++) {
                 if (qrcodegen_getModule(qrcode.data(), x, y)) {
                     for (int dy = 0; dy < scale; dy++) {
                         for (int dx = 0; dx < scale; dx++) {
-                            lv_canvas_set_px(qr_canvas_, offset_x + x * scale + dx, offset_y + y * scale + dy, lv_color_black(), LV_OPA_COVER);
+                            int px = offset_x + x * scale + dx;
+                            int py = offset_y + y * scale + dy;
+                            if (px >= 0 && px < 160 && py >= 0 && py < 160) {
+                                s_qr_cbuf[py * 160 + px] = 0x0000; // Black module
+                            }
                         }
                     }
                 }
             }
         }
+        lv_canvas_set_buffer(qr_canvas_, s_qr_cbuf, 160, 160, LV_COLOR_FORMAT_RGB565);
+        lv_obj_invalidate(qr_canvas_);
     }
 
     qr_until_tick_ = animation_tick_ + (duration_ms / kAnimationPeriodMs);
 }
 
 void PocketLcdDisplay::HideQrCode() {
-    HideQrCode(false);
+    HideQrCode(true);
 }
 
 void PocketLcdDisplay::HideQrCode(bool force) {
@@ -3031,7 +3049,7 @@ void PocketLcdDisplay::DrawShield(bool is_active) {
 }
 
 void PocketLcdDisplay::ShowStandbyClock() {
-    ShowStandbyClock(true);
+    ShowStandbyClock(false);
 }
 
 void PocketLcdDisplay::ShowStandbyClock(bool manual_lock) {

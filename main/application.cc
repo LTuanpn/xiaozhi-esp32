@@ -139,6 +139,9 @@ void Application::Initialize() {
                 break;
             }
             case NetworkEvent::Connected: {
+                if (display != nullptr) {
+                    display->HideQrCode();
+                }
                 std::string msg = Lang::Strings::CONNECTED_TO;
                 msg += data;
                 display->ShowNotification(msg.c_str(), 30000);
@@ -324,7 +327,10 @@ void Application::HandleNetworkConnectedEvent() {
 
     // Update the status bar immediately to show the network state
     auto display = Board::GetInstance().GetDisplay();
-    display->UpdateStatusBar(true);
+    if (display != nullptr) {
+        display->HideQrCode();
+        display->UpdateStatusBar(true);
+    }
 }
 
 void Application::HandleNetworkDisconnectedEvent() {
@@ -341,7 +347,7 @@ void Application::HandleNetworkDisconnectedEvent() {
 
     // Update the status bar immediately to show the network state
     auto display = Board::GetInstance().GetDisplay();
-    display->UpdateStatusBar(true);
+    display->UpdateStatusBar(false);
 }
 
 void Application::HandleActivationDoneEvent() {
@@ -652,7 +658,7 @@ void Application::InitializeProtocol() {
             }
             if (strcmp(state->valuestring, "start") == 0) {
                 Schedule([this]() {
-                    if (GetDeviceState() == kDeviceStateNotifying) {
+                    if (GetDeviceState() == kDeviceStateNotifying || notify_player_.IsBusy()) {
                         return; // Không cho TTS cắt ngang luồng nhạc đang phát
                     }
                     aborted_ = false;
@@ -660,7 +666,7 @@ void Application::InitializeProtocol() {
                 });
             } else if (strcmp(state->valuestring, "stop") == 0) {
                 Schedule([this]() {
-                    if (GetDeviceState() == kDeviceStateNotifying) {
+                    if (GetDeviceState() == kDeviceStateNotifying || notify_player_.IsBusy()) {
                         return; // Không cho TTS cắt ngang luồng nhạc đang phát
                     }
                     if (GetDeviceState() == kDeviceStateSpeaking) {
@@ -672,6 +678,9 @@ void Application::InitializeProtocol() {
                     }
                 });
             } else if (strcmp(state->valuestring, "sentence_start") == 0) {
+                if (GetDeviceState() == kDeviceStateNotifying || notify_player_.IsBusy()) {
+                    return; // Không hiện text thừa khi đang phát nhạc
+                }
                 auto text = cJSON_GetObjectItem(root, "text");
                 if (cJSON_IsString(text)) {
                     std::vector<TextGlyph> glyphs;
@@ -680,8 +689,11 @@ void Application::InitializeProtocol() {
                         glyphs.clear();
                     }
                     ESP_LOGI(TAG, "<< %s", text->valuestring);
-                    Schedule([display, message = std::string(text->valuestring),
+                    Schedule([this, display, message = std::string(text->valuestring),
                               glyphs = std::move(glyphs), bpp]() {
+                        if (GetDeviceState() == kDeviceStateNotifying || notify_player_.IsBusy()) {
+                            return;
+                        }
                         display->AddTextGlyphs(glyphs, bpp);
                         display->SetChatMessage("assistant", message.c_str());
                     });
@@ -705,7 +717,10 @@ void Application::InitializeProtocol() {
         } else if (strcmp(type->valuestring, "llm") == 0) {
             auto emotion = cJSON_GetObjectItem(root, "emotion");
             if (cJSON_IsString(emotion)) {
-                Schedule([display, emotion_str = std::string(emotion->valuestring)]() {
+                Schedule([this, display, emotion_str = std::string(emotion->valuestring)]() {
+                    if (GetDeviceState() == kDeviceStateNotifying || notify_player_.IsBusy()) {
+                        return; // Đang phát nhạc thì không để cảm xúc LLM đè mất biểu cảm music
+                    }
                     display->SetEmotion(emotion_str.c_str());
                 });
             }
@@ -815,7 +830,7 @@ void Application::StopListening() { xEventGroupSetBits(event_group_, MAIN_EVENT_
 void Application::HandleToggleChatEvent() {
     auto state = GetDeviceState();
 
-    if (state == kDeviceStateNotifying) {
+    if (state == kDeviceStateNotifying || notify_player_.IsBusy()) {
         StopNotification();
         state = kDeviceStateIdle;
     }
@@ -879,7 +894,7 @@ void Application::ContinueOpenAudioChannel(ListeningMode mode) {
 void Application::HandleStartListeningEvent() {
     auto state = GetDeviceState();
 
-    if (state == kDeviceStateNotifying) {
+    if (state == kDeviceStateNotifying || notify_player_.IsBusy()) {
         StopNotification();
         state = kDeviceStateIdle;
     }
@@ -915,7 +930,7 @@ void Application::HandleStartListeningEvent() {
 void Application::HandleStopListeningEvent() {
     auto state = GetDeviceState();
 
-    if (state == kDeviceStateNotifying) {
+    if (state == kDeviceStateNotifying || notify_player_.IsBusy()) {
         StopNotification();
     } else if (state == kDeviceStateAudioTesting) {
         audio_service_.EnableAudioTesting(false);
@@ -938,10 +953,10 @@ void Application::HandleWakeWordDetectedEvent() {
     auto wake_word = audio_service_.GetLastWakeWord();
     ESP_LOGI(TAG, "Wake word detected: %s (state: %d)", wake_word.c_str(), (int)state);
 
-    if (state == kDeviceStateIdle) {
-        BeginWakeWordInvoke(wake_word);
-    } else if (state == kDeviceStateNotifying) {
+    if (state == kDeviceStateNotifying || notify_player_.IsBusy()) {
         StopNotification();
+        BeginWakeWordInvoke(wake_word);
+    } else if (state == kDeviceStateIdle) {
         BeginWakeWordInvoke(wake_word);
     } else if (state == kDeviceStateSpeaking || state == kDeviceStateListening) {
         AbortSpeaking(kAbortReasonWakeWordDetected);
@@ -1384,9 +1399,9 @@ void Application::WakeWordInvoke(const std::string& wake_word) {
                 BeginWakeWordInvoke(wake_word);
             }
         });
-    } else if (state == kDeviceStateNotifying) {
+    } else if (state == kDeviceStateNotifying || notify_player_.IsBusy()) {
         Schedule([this, wake_word]() {
-            if (GetDeviceState() == kDeviceStateNotifying) {
+            if (GetDeviceState() == kDeviceStateNotifying || notify_player_.IsBusy()) {
                 StopNotification();
                 BeginWakeWordInvoke(wake_word);
             }
