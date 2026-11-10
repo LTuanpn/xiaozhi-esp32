@@ -1158,7 +1158,8 @@ void PocketLcdDisplay::UpdateAnimationFrame() {
             }
             last_active_tick_ = animation_tick_;
         } else {
-            if (!standby_active_ && (animation_tick_ - last_active_tick_ >= kStandbyTimeoutTicks)) {
+            if (!standby_active_ && (qr_until_tick_ == 0 || animation_tick_ >= qr_until_tick_) &&
+                (animation_tick_ - last_active_tick_ >= kStandbyTimeoutTicks)) {
                 ShowStandbyClock(false);
                 return;
             }
@@ -1172,10 +1173,6 @@ void PocketLcdDisplay::UpdateAnimationFrame() {
         if (countdown_remaining_sec_ > 0) {
             countdown_remaining_sec_--;
             if (countdown_remaining_sec_ == 0) {
-                WakeUp();
-                SetEmotion("thunder");
-                ShowNotification("[BAO THUC] HET GIO ROI!", 15000);
-                Application::GetInstance().PlaySound(Lang::Sounds::OGG_VIBRATION);
                 countdown_label_ = "IDLE";
             }
         }
@@ -2925,7 +2922,11 @@ void PocketLcdDisplay::ShowQrCode(const std::string& text, const std::string& ti
 
     std::string disp_title = title.empty() ? "QUET MA DE CAU HINH" : title;
     lv_label_set_text(qr_title_label_, disp_title.c_str());
-    lv_label_set_text(qr_url_label_, text.c_str());
+    if (text.rfind("WIFI:", 0) == 0) {
+        lv_label_set_text(qr_url_label_, "Quet bang Camera / Wi-Fi");
+    } else {
+        lv_label_set_text(qr_url_label_, text.c_str());
+    }
 
     if (qr_canvas_ != nullptr && qr_cbuf_ != nullptr) {
         lv_canvas_fill_bg(qr_canvas_, lv_color_white(), LV_OPA_COVER);
@@ -2935,7 +2936,7 @@ void PocketLcdDisplay::ShowQrCode(const std::string& text, const std::string& ti
         bool ok = qrcodegen_encodeText(text.c_str(), tempBuffer.data(), qrcode.data(), qrcodegen_Ecc_MEDIUM, 1, 20, qrcodegen_Mask_AUTO, true);
         if (ok) {
             int qr_size = qrcodegen_getSize(qrcode.data());
-            int scale = 144 / qr_size;
+            int scale = 160 / (qr_size + 8);
             if (scale < 1) scale = 1;
             int render_w = qr_size * scale;
             int offset_x = (160 - render_w) / 2;

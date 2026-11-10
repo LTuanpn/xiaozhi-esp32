@@ -256,7 +256,11 @@ private:
                             }
                         }
                         if (!ssid.empty()) {
-                            qr_payload = "WIFI:T:WPA;S:" + ssid + ";P:" + pwd + ";;";
+                            if (pwd.empty()) {
+                                qr_payload = "WIFI:T:nopass;S:" + ssid + ";;";
+                            } else {
+                                qr_payload = "WIFI:T:WPA;S:" + ssid + ";P:" + pwd + ";;";
+                            }
                             title = "WF: " + ssid + " | IP: " + (ip.empty() ? "N/A" : ip);
                         } else {
                             qr_payload = ip.empty() ? "http://192.168.4.1" : ("http://" + ip);
@@ -360,12 +364,12 @@ private:
             [this](const PropertyList& properties) -> ReturnValue {
                 ESP_LOGI("Board", "self.audio.stop_playback");
                 auto& app = Application::GetInstance();
-                app.Schedule([&app]() {
+                app.Schedule([this, &app]() {
                     app.StopNotification();
+                    if (display_ != nullptr) {
+                        display_->SetEmotion("neutral");
+                    }
                 });
-                if (display_ != nullptr) {
-                    display_->SetEmotion("neutral");
-                }
                 return "Đã dừng phát âm thanh";
             }
         );
@@ -612,7 +616,11 @@ private:
                             }
                         }
                         if (!ssid.empty()) {
-                            url = "WIFI:T:WPA;S:" + ssid + ";P:" + pwd + ";;";
+                            if (pwd.empty()) {
+                                url = "WIFI:T:nopass;S:" + ssid + ";;";
+                            } else {
+                                url = "WIFI:T:WPA;S:" + ssid + ";P:" + pwd + ";;";
+                            }
                             title = "WF: " + ssid + " | IP: " + (ip.empty() ? "N/A" : ip);
                         } else {
                             url = ip.empty() ? "http://192.168.4.1" : ("http://" + ip);
