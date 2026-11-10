@@ -28,11 +28,14 @@ public:
     void UpdateStatusBar(bool update_all = false) override;
     void ShowQrCode(const std::string& text, const std::string& title = "", int duration_ms = 30000) override;
     void HideQrCode() override;
+    void HideQrCode(bool force);
     void ShowStandbyClock() override;
+    void ShowStandbyClock(bool manual_lock);
     void HideStandbyClock() override;
+    void HideStandbyClock(bool force);
     bool IsStandbyClockActive() const override { return standby_active_; }
-    void UnlockBootStandby() { boot_standby_locked_ = false; }
-    bool IsBootStandbyLocked() const { return boot_standby_locked_; }
+    void UnlockBootStandby() { boot_standby_locked_ = false; manual_standby_locked_ = false; }
+    bool IsBootStandbyLocked() const { return boot_standby_locked_ || manual_standby_locked_; }
     void SetPinnedMemo(const std::string& memo);
     void SetCountdownTimer(int seconds, const std::string& label = "FOCUS");
     void SetGuardMode(bool enable);
@@ -237,6 +240,7 @@ private:
     void UpdateStandbyClock();
     bool standby_active_ = false;
     bool boot_standby_locked_ = true;
+    bool manual_standby_locked_ = false;
     uint32_t last_clock_tick_ = 0;
     lv_obj_t* standby_container_ = nullptr;
 

@@ -391,14 +391,16 @@ void PocketLcdDisplay::SetupUI() {
 }
 
 void PocketLcdDisplay::WakeUp() {
-    if (boot_standby_locked_) {
-        return; // Ignore internal system wakeups while locked in boot standby
+    if (boot_standby_locked_ || manual_standby_locked_) {
+        return; // Ignore internal system wakeups while locked in standby
     }
     last_active_tick_ = animation_tick_;
     if (standby_active_) {
-        HideStandbyClock();
+        HideStandbyClock(false);
     }
-    HideQrCode();
+    if (qr_until_tick_ == 0 || animation_tick_ >= qr_until_tick_) {
+        HideQrCode(false);
+    }
     if (face_mode_ == FaceMode::kSleeping || face_mode_ == FaceMode::kSleepy) {
         wake_up_until_tick_ = animation_tick_ + 30;  // 1.5s wake up animation
         SetFaceMode(FaceMode::kWakingUp);
@@ -473,15 +475,18 @@ bool PocketLcdDisplay::SetEmotion(const char* emotion) {
     DisplayLockGuard lock(this);
     if (!lock) return false;
     if (emotion != nullptr && std::strcmp(emotion, "standby") == 0) {
-        ShowStandbyClock();
+        ShowStandbyClock(true /* manual_lock */);
         return true;
     }
-    if (boot_standby_locked_) {
-        // Ignore background neutral / robot_2 calls during initial boot
-        if (std::strcmp(emotion, "neutral") == 0 || std::strcmp(emotion, "robot_2") == 0) {
+    if (boot_standby_locked_ || manual_standby_locked_) {
+        // Ignore background neutral / robot_2 / speaking / listening calls while locked in standby
+        if (std::strcmp(emotion, "neutral") == 0 || std::strcmp(emotion, "robot_2") == 0 ||
+            std::strcmp(emotion, "speaking") == 0 || std::strcmp(emotion, "listening") == 0) {
             return true;
         }
         boot_standby_locked_ = false;
+        manual_standby_locked_ = false;
+        HideStandbyClock(true);
     }
     WakeUp();
     emotion_mode_ = FaceModeFromEmotion(emotion);
@@ -493,11 +498,13 @@ bool PocketLcdDisplay::SetEmotion(const char* emotion) {
 void PocketLcdDisplay::SetChatMessage(const char* role, const char* content) {
     DisplayLockGuard lock(this);
     if (!lock) return;
-    if (boot_standby_locked_) {
-        if (role != nullptr && std::strcmp(role, "system") == 0) {
+    if (boot_standby_locked_ || manual_standby_locked_) {
+        if (role != nullptr && (std::strcmp(role, "system") == 0 || std::strcmp(role, "assistant") == 0)) {
             return;
         }
         boot_standby_locked_ = false;
+        manual_standby_locked_ = false;
+        HideStandbyClock(true);
     }
     WakeUp();
 
@@ -1111,26 +1118,37 @@ void PocketLcdDisplay::UpdateAnimationFrame() {
     constexpr uint32_t kSleepingTimeoutTicks = 1200; // 60s -> Sleeping (ngủ 60s)
     constexpr uint32_t kStandbyTimeoutTicks = 2400;  // 120s -> Standby Clock
 
-    if (boot_standby_locked_) {
+    static DeviceState prev_dev_state = kDeviceStateStarting;
+    if (manual_standby_locked_) {
+        // While manually locked in standby clock:
+        // Transition back to face ONLY when user explicitly starts listening AFTER reaching idle (e.g. said "Jarvis")
+        if (prev_dev_state == kDeviceStateIdle && dev_state == kDeviceStateListening) {
+            manual_standby_locked_ = false;
+            HideStandbyClock(true);
+        }
+    } else if (boot_standby_locked_) {
         if (dev_state == kDeviceStateListening || dev_state == kDeviceStateSpeaking ||
             dev_state == kDeviceStateWifiConfiguring) {
             boot_standby_locked_ = false;
-            HideStandbyClock();
+            HideStandbyClock(true);
         }
     } else {
         if (dev_state != kDeviceStateIdle) {
             if (standby_active_) {
-                HideStandbyClock();
+                HideStandbyClock(false);
             }
-            HideQrCode();
+            if (qr_until_tick_ == 0 || animation_tick_ >= qr_until_tick_) {
+                HideQrCode(false);
+            }
             last_active_tick_ = animation_tick_;
         } else {
             if (!standby_active_ && (animation_tick_ - last_active_tick_ >= kStandbyTimeoutTicks)) {
-                ShowStandbyClock();
+                ShowStandbyClock(false);
                 return;
             }
         }
     }
+    prev_dev_state = dev_state;
 
     // Continuous Pomodoro / Countdown timer update (1 tick per second)
     if (animation_tick_ >= last_countdown_tick_ + 20) {
@@ -2846,7 +2864,6 @@ uint32_t PocketLcdDisplay::NextRandom() {
 void PocketLcdDisplay::ShowQrCode(const std::string& text, const std::string& title, int duration_ms) {
     DisplayLockGuard lock(this);
     if (!lock) return;
-    WakeUp();
 
     if (qr_container_ == nullptr) {
         auto scr = lv_screen_active();
@@ -2912,8 +2929,15 @@ void PocketLcdDisplay::ShowQrCode(const std::string& text, const std::string& ti
 }
 
 void PocketLcdDisplay::HideQrCode() {
+    HideQrCode(false);
+}
+
+void PocketLcdDisplay::HideQrCode(bool force) {
     DisplayLockGuard lock(this);
     if (!lock) return;
+    if (!force && qr_until_tick_ > 0 && animation_tick_ < qr_until_tick_) {
+        return; // Protected while active
+    }
     qr_until_tick_ = 0;
     if (qr_container_ != nullptr) {
         lv_obj_add_flag(qr_container_, LV_OBJ_FLAG_HIDDEN);
@@ -3007,10 +3031,15 @@ void PocketLcdDisplay::DrawShield(bool is_active) {
 }
 
 void PocketLcdDisplay::ShowStandbyClock() {
+    ShowStandbyClock(true);
+}
+
+void PocketLcdDisplay::ShowStandbyClock(bool manual_lock) {
     DisplayLockGuard lock(this);
     if (!lock) return;
 
     standby_active_ = true;
+    manual_standby_locked_ = manual_lock;
     last_clock_tick_ = animation_tick_;
 
     if (standby_container_ == nullptr) {
@@ -3216,10 +3245,19 @@ void PocketLcdDisplay::ShowStandbyClock() {
 }
 
 void PocketLcdDisplay::HideStandbyClock() {
+    HideStandbyClock(false);
+}
+
+void PocketLcdDisplay::HideStandbyClock(bool force) {
     DisplayLockGuard lock(this);
     if (!lock) return;
 
+    if (!force && manual_standby_locked_) {
+        return; // Protected while manually locked
+    }
+
     boot_standby_locked_ = false;
+    manual_standby_locked_ = false;
     standby_active_ = false;
     if (standby_container_ != nullptr) {
         lv_obj_add_flag(standby_container_, LV_OBJ_FLAG_HIDDEN);
@@ -3286,6 +3324,13 @@ void PocketLcdDisplay::UpdateStandbyClock() {
             esp_sntp_setoperatingmode(SNTP_OPMODE_POLL);
             esp_sntp_setservername(0, "pool.ntp.org");
             esp_sntp_setservername(1, "time.google.com");
+            esp_sntp_set_time_sync_notification_cb([](struct timeval *tv) {
+                if (tv != nullptr) {
+                    tv->tv_sec += 7 * 3600;
+                    settimeofday(tv, nullptr);
+                    ESP_LOGI("StandbyClock", "SNTP time synced and adjusted to ICT (+7h): %ld", (long)tv->tv_sec);
+                }
+            });
             esp_sntp_init();
         }
     }

@@ -135,7 +135,11 @@ private:
 
     void InitializeButtons() {
         boot_button_.OnClick([this]() {
-            if (display_ != nullptr) { display_->HideStandbyClock(); display_->HideQrCode(); }
+            if (display_ != nullptr) {
+                auto* p_disp = static_cast<PocketLcdDisplay*>(display_);
+                p_disp->HideStandbyClock(true);
+                p_disp->HideQrCode(true);
+            }
             auto& app = Application::GetInstance();
             if (app.GetDeviceState() == kDeviceStateStarting) {
                 EnterWifiConfigMode();
@@ -331,9 +335,10 @@ private:
                 Application::GetInstance().SetDeviceState(kDeviceStateIdle);
 
                 if (display_ != nullptr) {
-                    display_->SetGuardMode(true);
-                    display_->ShowStandbyClock();
-                    display_->ShowNotification("[CANH GAC] SENTRY MODE: ON", 5000);
+                    auto* p_disp = static_cast<PocketLcdDisplay*>(display_);
+                    p_disp->SetGuardMode(true);
+                    p_disp->ShowStandbyClock(true /* manual_lock */);
+                    p_disp->ShowNotification("[CANH GAC] SENTRY MODE: ON", 5000);
                 }
 
                 if (guard_timer_ == nullptr) {
@@ -516,18 +521,46 @@ private:
         // TOOL CHUYỂN ĐỔI MÀN HÌNH CHỜ ĐỒNG HỒ
         mcp_server.AddTool(
             "self.screen.set_standby",
-            "Chuyển robot sang chế độ Màn hình chờ đồng hồ (Standby Clock) hoặc thoát khỏi màn hình chờ về khuôn mặt robot. enable=true để bật màn hình chờ, false để đánh thức robot.",
+            "Chuyển robot sang chế độ Màn hình chờ đồng hồ (Standby Clock) hoặc thoát khỏi màn hình chờ về khuôn mặt robot. Khi người dùng nói 'quay về màn hình chờ', 'vào màn hình chờ', 'màn hình chờ đi', 'đồng hồ', hãy gọi tool này với enable=true.",
             PropertyList({Property("enable", kPropertyTypeBoolean, true)}),
             [this](const PropertyList& properties) -> ReturnValue {
                 bool enable = properties["enable"].value<bool>();
                 if (display_ != nullptr) {
+                    auto* p_disp = static_cast<PocketLcdDisplay*>(display_);
                     if (enable) {
-                        display_->ShowStandbyClock();
+                        p_disp->ShowStandbyClock(true /* manual_lock */);
                     } else {
-                        display_->HideStandbyClock();
+                        p_disp->HideStandbyClock(true /* force */);
                     }
                 }
-                return enable ? "Đã bật màn hình chờ đồng hồ" : "Đã đánh thức robot trở lại trạng thái sẵn sàng";
+                return enable ? "Đã chuyển sang màn hình chờ đồng hồ. Bạn có thể gọi 'Jarvis' bất kỳ lúc nào để đánh thức tôi." : "Đã đánh thức robot trở lại trạng thái sẵn sàng";
+            }
+        );
+
+        // TOOL HIỂN THỊ MÃ QR CẤU HÌNH / WEB
+        mcp_server.AddTool(
+            "self.screen.show_qr",
+            "Hiển thị mã QR lên màn hình LCD để người dùng quét kết nối WiFi hoặc truy cập trang web cấu hình của robot. Có thể truyền url tùy chọn hoặc duration_seconds (mặc định 60 giây).",
+            PropertyList({
+                Property("url", kPropertyTypeString, ""),
+                Property("duration_seconds", kPropertyTypeInteger, 60, 10, 600)
+            }),
+            [this](const PropertyList& properties) -> ReturnValue {
+                std::string url = properties["url"].value<std::string>();
+                int duration = properties["duration_seconds"].value<int>();
+                if (url.empty()) {
+                    auto& wifi = WifiManager::GetInstance();
+                    if (wifi.IsConfigMode()) {
+                        url = "http://192.168.4.1";
+                    } else {
+                        std::string ip = wifi.GetIpAddress();
+                        url = ip.empty() ? "http://192.168.4.1" : ("http://" + ip);
+                    }
+                }
+                if (display_ != nullptr) {
+                    display_->ShowQrCode(url, "QUET MA CAU HINH", duration * 1000);
+                }
+                return "Đã hiển thị mã QR lên màn hình: " + url + ". Người dùng có thể quét bằng điện thoại.";
             }
         );
 
@@ -544,8 +577,8 @@ private:
 
     void InitializeSerialCli() {
         xTaskCreate([](void* arg) {
-            auto* display = static_cast<Display*>(arg);
-            char buf[64];
+            auto* display = static_cast<PocketLcdDisplay*>(arg);
+            char buf[128];
             int idx = 0;
             while (true) {
                 int c = getchar();
@@ -555,11 +588,20 @@ private:
                             buf[idx] = '\0';
                             ESP_LOGI(TAG, "Serial CLI command: %s", buf);
                             if (display != nullptr) {
-                                const char* cmd = buf;
-                                if (std::strncmp(cmd, "face ", 5) == 0) {
-                                    cmd += 5;
+                                if (std::strncmp(buf, "qr", 2) == 0) {
+                                    std::string url = (std::strlen(buf) > 3) ? (buf + 3) : "http://192.168.1.100";
+                                    display->ShowQrCode(url, "TEST QR CODE", 30000);
+                                } else if (std::strcmp(buf, "standby") == 0) {
+                                    display->ShowStandbyClock(true);
+                                } else if (std::strcmp(buf, "wake") == 0) {
+                                    display->HideStandbyClock(true);
+                                } else {
+                                    const char* cmd = buf;
+                                    if (std::strncmp(cmd, "face ", 5) == 0) {
+                                        cmd += 5;
+                                    }
+                                    display->SetEmotion(cmd);
                                 }
-                                display->SetEmotion(cmd);
                             }
                             idx = 0;
                         }
