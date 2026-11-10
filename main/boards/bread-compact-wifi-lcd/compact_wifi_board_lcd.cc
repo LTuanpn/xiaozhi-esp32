@@ -411,10 +411,10 @@ private:
                                     board->guard_mode_active_ = false;
                                     esp_timer_stop(board->guard_timer_);
                                     app.Schedule([board, &app]() {
-                                        if (board->GetDisplay() != nullptr) {
-                                            board->GetDisplay()->SetGuardMode(false);
-                                            board->GetDisplay()->SetEmotion("furious");
-                                            board->GetDisplay()->ShowNotification("[CANH BAO] PHAT HIEN XAM NHAP!", 10000);
+                                        if (board->display_ != nullptr) {
+                                            board->display_->SetGuardMode(false);
+                                            board->display_->SetEmotion("furious");
+                                            board->display_->ShowNotification("[CANH BAO] PHAT HIEN XAM NHAP!", 10000);
                                         }
                                         // Còi hú báo động reo to dồn dập
                                         app.PlaySound(Lang::Sounds::OGG_SUCCESS);
