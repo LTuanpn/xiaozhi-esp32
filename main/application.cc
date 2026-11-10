@@ -593,8 +593,12 @@ void Application::InitializeProtocol() {
     });
 
     protocol_->OnAudioChannelClosed([this, &board]() {
-        board.SetPowerSaveLevel(PowerSaveLevel::LOW_POWER);
-        Schedule([this]() {
+        Schedule([this, &board]() {
+            if (GetDeviceState() == kDeviceStateNotifying) {
+                ESP_LOGI(TAG, "Audio channel closed while notifying, keeping music stream active");
+                return;
+            }
+            board.SetPowerSaveLevel(PowerSaveLevel::LOW_POWER);
             auto display = Board::GetInstance().GetDisplay();
             display->SetChatMessage("system", "");
             SetDeviceState(kDeviceStateIdle);
@@ -648,11 +652,17 @@ void Application::InitializeProtocol() {
             }
             if (strcmp(state->valuestring, "start") == 0) {
                 Schedule([this]() {
+                    if (GetDeviceState() == kDeviceStateNotifying) {
+                        return; // Không cho TTS cắt ngang luồng nhạc đang phát
+                    }
                     aborted_ = false;
                     SetDeviceState(kDeviceStateSpeaking);
                 });
             } else if (strcmp(state->valuestring, "stop") == 0) {
                 Schedule([this]() {
+                    if (GetDeviceState() == kDeviceStateNotifying) {
+                        return; // Không cho TTS cắt ngang luồng nhạc đang phát
+                    }
                     if (GetDeviceState() == kDeviceStateSpeaking) {
                         if (listening_mode_ == kListeningModeManualStop) {
                             SetDeviceState(kDeviceStateIdle);
@@ -1192,9 +1202,12 @@ void Application::ConfigureWakeWordForListening() {
 }
 
 void Application::StartNotification(std::string audio_url, std::vector<NotifySubtitle> subtitles) {
-    if (GetDeviceState() != kDeviceStateIdle || notify_player_.IsBusy()) {
-        ESP_LOGW(TAG, "Ignoring notify message while device is busy");
-        return;
+    if (notify_player_.IsBusy()) {
+        notify_player_.Stop();
+        audio_service_.ResetDecoder();
+    }
+    if (GetDeviceState() != kDeviceStateIdle) {
+        SetDeviceState(kDeviceStateIdle);
     }
 
     auto& board = Board::GetInstance();
@@ -1216,7 +1229,6 @@ void Application::StartNotification(std::string audio_url, std::vector<NotifySub
     if (playback_id == 0) {
         playback_id = ++notification_playback_id_;
     }
-    audio_service_.PlaySound(Lang::Sounds::OGG_POPUP);
 
     bool started = notify_player_.Start(
         std::move(audio_url), std::move(subtitles), playback_id,

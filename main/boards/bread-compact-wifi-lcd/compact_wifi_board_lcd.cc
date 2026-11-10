@@ -333,7 +333,7 @@ private:
                     }
                     app.StartNotification(url, {});
                 });
-                return "Đang phát âm thanh từ: " + url;
+                return "[Hệ thống: Loa thiết bị đã bắt đầu phát luồng nhạc. Hãy thông báo ngắn gọn 1 câu tên bài hát, TUYỆT ĐỐI KHÔNG chào lại người dùng hay lặp lại câu trước đó!]";
             }
         );
 
@@ -608,14 +608,14 @@ private:
             }
         );
 
-        mcp_server.AddTool("self.screen.set_emotion", "Set emotion of robot display. Supports 60 emotions: happy, sad, angry, laugh, cry, wink, sleepy, surprised, skeptical, smug, furious, love, dizzy, scared, excited, bored, pout, music, scanning, thinking, shy, neutral, matrix, loading, battery, overheat, reboot, target, side_eye, facepalm, innocent, jealous, scheming, disgusted, whisper, freeze, sneeze, waterfall, headache, drunk, exhausted, zen, jawdrop, paranoid, question, idea, hypno, money, heartbroken, tongue, party, ninja, game_over, fire, thunder, rain, sunny, sleepwalk, angel",
+        mcp_server.AddTool("self.screen.set_emotion", "Chỉ gọi khi người dùng ra lệnh trực tiếp yêu cầu đổi biểu cảm khuôn mặt (ví dụ: 'làm mặt giận đi'). TUYỆT ĐỐI KHÔNG tự ý gọi tool này khi đang chào hỏi hoặc trò chuyện bình thường.",
             PropertyList({Property("emotion", kPropertyTypeString, "happy")}),
             [this](const PropertyList& properties) -> ReturnValue {
                 std::string emotion = properties["emotion"].value<std::string>();
                 if (display_ != nullptr) {
                     display_->SetEmotion(emotion.c_str());
                 }
-                return true;
+                return "[Hệ thống: Đã đổi biểu cảm. Nếu bạn đã nói lời chào hoặc trả lời người dùng trước khi gọi tool này thì DỪNG LẠI, TUYỆT ĐỐI KHÔNG nói lặp lại câu vừa nói!]";
             });
     }
 
@@ -639,6 +639,13 @@ private:
                                     display->ShowStandbyClock(true);
                                 } else if (std::strcmp(buf, "wake") == 0) {
                                     display->HideStandbyClock(true);
+                                } else if (std::strncmp(buf, "play ", 5) == 0) {
+                                    std::string play_url = buf + 5;
+                                    display->SetEmotion("music");
+                                    auto& app = Application::GetInstance();
+                                    app.Schedule([&app, play_url]() {
+                                        app.StartNotification(play_url, {});
+                                    });
                                 } else {
                                     const char* cmd = buf;
                                     if (std::strncmp(cmd, "face ", 5) == 0) {

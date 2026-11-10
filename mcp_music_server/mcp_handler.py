@@ -17,22 +17,55 @@ class MCPHandler:
         self.stream_proxy = stream_proxy
         self.yt_provider = yt_provider
         self.zing_provider = zing_provider
+        self.url_user_agents = {}
 
     def get_server_info(self):
         return {
             "name": "XiaozhiMusicMCPServer",
-            "version": "1.2.0"
+            "version": "1.4.0"
         }
+
+    def get_user_agent_for_url(self, url: str) -> str:
+        """Lấy User-Agent tương ứng cho URL âm thanh (đặc biệt cho YouTube CDN)."""
+        if not url:
+            return ""
+        if url in self.url_user_agents:
+            return self.url_user_agents[url]
+        for cached_url, ua in self.url_user_agents.items():
+            if url[:60] in cached_url or cached_url[:60] in url:
+                return ua
+        return "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/133.0.0.0 Safari/537.36"
 
     def get_tools_list(self):
         """Khai báo danh sách các công cụ hỗ trợ cho Robot Wall-E."""
         return [
             {
+                "name": "play_song",
+                "description": (
+                    "Phát bài hát theo yêu cầu của người dùng từ YouTube hoặc Zing MP3. "
+                    "Khi cần dùng tool này, hãy gọi tool NGAY LẬP TỨC mà KHÔNG nói lời chào hay câu trả lời trước khi gọi tool."
+                ),
+                "inputSchema": {
+                    "type": "object",
+                    "properties": {
+                        "query": {
+                            "type": "string",
+                            "description": "Tên bài hát, ca sĩ hoặc từ khóa bài hát người dùng muốn nghe"
+                        },
+                        "source": {
+                            "type": "string",
+                            "description": "Nguồn nhạc: 'all' (mặc định), 'youtube', hoặc 'zing'",
+                            "enum": ["all", "youtube", "zing"]
+                        }
+                    },
+                    "required": ["query"]
+                }
+            },
+            {
                 "name": "play_youtube_music",
                 "description": (
-                    "Tìm kiếm bài hát trên YouTube và tạo luồng phát cho robot Wall-E (ESP32). "
-                    "Hãy gọi tool này khi người dùng yêu cầu bật nhạc, nghe nhạc từ YouTube. "
-                    "Sau khi gọi tool này, BẮT BUỘC bạn phải gọi tiếp tool self.audio.play_url(url=...) trên robot để phát ra loa."
+                    "Tìm kiếm và phát bài hát từ YouTube cho robot Wall-E. "
+                    "Khi cần dùng tool này, hãy gọi tool NGAY LẬP TỨC mà KHÔNG nói lời chào hay câu trả lời trước khi gọi tool."
                 ),
                 "inputSchema": {
                     "type": "object",
@@ -48,9 +81,8 @@ class MCPHandler:
             {
                 "name": "play_zing_mp3",
                 "description": (
-                    "Tìm kiếm bài hát trên Zing MP3 và tạo luồng phát cho robot Wall-E (ESP32). "
-                    "Tự động chuyển bài hát chất lượng cao từ YouTube nếu bài trên Zing MP3 bị khóa bản quyền VIP. "
-                    "Sau khi gọi tool này, BẮT BUỘC bạn phải gọi tiếp tool self.audio.play_url(url=...) trên robot để phát ra loa."
+                    "Tìm kiếm và phát bài hát từ Zing MP3 cho robot Wall-E (tự động chuyển YouTube nếu VIP). "
+                    "Khi cần dùng tool này, hãy gọi tool NGAY LẬP TỨC mà KHÔNG nói lời chào hay câu trả lời trước khi gọi tool."
                 ),
                 "inputSchema": {
                     "type": "object",
@@ -103,102 +135,59 @@ class MCPHandler:
             }
         ]
 
+    def _build_play_response(self, info: dict, source_label: str):
+        """Trả về STREAM_URL và chỉ thị bắt buộc LLM gọi self.audio.play_url trên ESP32."""
+        self.stream_proxy.set_track(info)
+
+        instruction_text = (
+            f"[HỆ THỐNG: Đã chuẩn bị xong luồng nhạc '{info['title']} - {info['artist']}' tại {STREAM_URL}. "
+            f"BẮT BUỘC: Bạn phải gọi ngay lập tức tool 'self.audio.play_url' với tham số url='{STREAM_URL}' để phát nhạc ra loa phần cứng. "
+            f"LƯU Ý: Không nói lời chào trước khi gọi tool và không lặp lại câu đã nói trước đó!]"
+        )
+
+        return {
+            "content": [
+                {
+                    "type": "text",
+                    "text": instruction_text
+                }
+            ]
+        }
+
     async def handle_call_tool(self, name: str, arguments: dict):
         """Thực thi tool tương ứng khi có request từ Xiaozhi Cloud."""
         logger.info(f"Đang thực thi Tool: '{name}' với tham số: {arguments}")
 
-        if name == "play_youtube_music":
+        if name in ["play_song", "play_youtube_music", "play_zing_mp3"]:
             query = arguments.get("query", "").strip()
+            source = arguments.get("source", "all").lower() if name == "play_song" else ("youtube" if name == "play_youtube_music" else "zing")
+
             if not query:
                 return {
                     "isError": True,
-                    "content": [{"type": "text", "text": "Bạn muốn nghe bài gì trên YouTube? Hãy nói tên bài hát cho mình nhé!"}]
+                    "content": [{"type": "text", "text": "Bạn muốn nghe bài hát gì? Hãy nói tên bài hát cho mình nhé!"}]
                 }
 
-            info = self.yt_provider.search_and_extract(query)
+            info = None
+            source_label = "YouTube"
+
+            if source == "zing":
+                info = self.zing_provider.search_and_extract(query)
+                source_label = info.get('source', 'Zing MP3') if info else 'Zing MP3'
+            else:
+                # Mặc định ưu tiên YouTube hoặc source == 'youtube' / 'all'
+                info = self.yt_provider.search_and_extract(query)
+                if not info and source == "all":
+                    info = self.zing_provider.search_and_extract(query)
+                    source_label = info.get('source', 'Zing MP3') if info else 'Zing MP3'
+
             if not info or not info.get("audio_url"):
                 return {
                     "isError": True,
-                    "content": [{"type": "text", "text": f"Mình không tìm thấy bài hát '{query}' trên YouTube rồi."}]
+                    "content": [{"type": "text", "text": f"Mình không tìm thấy bài hát '{query}' rồi."}]
                 }
 
-            # Nạp bài hát vào Stream Proxy
-            self.stream_proxy.set_track(info)
-
-            # Chỉ thị bắt buộc để AI Cloud gọi tiếp tool phần cứng trên robot
-            speech_text = (
-                f"Đã tìm thấy bài hát \"{info['title']}\" của {info['artist']}. "
-                f"BẮT BUỘC: Hãy gọi ngay công cụ self.audio.play_url(url='{STREAM_URL}') "
-                f"để robot Wall-E phát bài hát này ra loa."
-            )
-            
-            return {
-                "content": [
-                    {"type": "text", "text": speech_text},
-                    {
-                        "type": "resource",
-                        "resource": {
-                            "uri": "resource://read_from_http",
-                            "mimeType": "audio/ogg",
-                            "text": STREAM_URL
-                        }
-                    }
-                ],
-                "audio_url": STREAM_URL,
-                "track": {
-                    "title": info['title'],
-                    "artist": info['artist'],
-                    "duration": info['duration_str'],
-                    "source": "YouTube",
-                    "stream_url": STREAM_URL
-                }
-            }
-
-        elif name == "play_zing_mp3":
-            query = arguments.get("query", "").strip()
-            if not query:
-                return {
-                    "isError": True,
-                    "content": [{"type": "text", "text": "Bạn muốn nghe bài hát nào trên Zing MP3?"}]
-                }
-
-            info = self.zing_provider.search_and_extract(query)
-            if not info or not info.get("audio_url"):
-                return {
-                    "isError": True,
-                    "content": [{"type": "text", "text": f"Mình không tìm thấy bài hát '{query}' trên Zing MP3 rồi."}]
-                }
-
-            # Nạp bài hát vào Stream Proxy
-            self.stream_proxy.set_track(info)
-
-            speech_text = (
-                f"Đã tìm thấy bài hát \"{info['title']}\" của {info['artist']}. "
-                f"BẮT BUỘC: Hãy gọi ngay công cụ self.audio.play_url(url='{STREAM_URL}') "
-                f"để robot Wall-E phát bài hát này ra loa."
-            )
-
-            return {
-                "content": [
-                    {"type": "text", "text": speech_text},
-                    {
-                        "type": "resource",
-                        "resource": {
-                            "uri": "resource://read_from_http",
-                            "mimeType": "audio/ogg",
-                            "text": STREAM_URL
-                        }
-                    }
-                ],
-                "audio_url": STREAM_URL,
-                "track": {
-                    "title": info['title'],
-                    "artist": info['artist'],
-                    "duration": info['duration_str'],
-                    "source": info.get('source', 'Zing MP3'),
-                    "stream_url": STREAM_URL
-                }
-            }
+            return self._build_play_response(info, source_label)
 
         elif name == "search_music":
             query = arguments.get("query", "").strip()
@@ -232,15 +221,19 @@ class MCPHandler:
 
         elif name == "stop_music":
             self.stream_proxy.stop_current()
-            msg = "Đã dừng phát nhạc trên máy tính. BẮT BUỘC: Hãy gọi thêm công cụ self.audio.stop_playback() trên robot để dừng âm thanh ngay lập tức."
-            return {"content": [{"type": "text", "text": msg}]}
+            instruction_text = (
+                "[HỆ THỐNG: Đã dừng luồng stream trên máy tính. BẮT BUỘC: Hãy gọi tiếp tool "
+                "'self.audio.stop_playback' trên robot để dừng âm thanh ngay lập tức. "
+                "Tuyệt đối không lặp lại câu đã nói trước đó!]"
+            )
+            return {"content": [{"type": "text", "text": instruction_text}]}
 
         elif name == "get_player_status":
             track = self.stream_proxy.current_track
             if track.get("status") == "playing":
                 msg = f"Đang phát bài: {track.get('title')} của ca sĩ {track.get('artist')} ({track.get('duration_str')}) từ {track.get('source', 'YouTube')}."
             elif track.get("status") == "ready":
-                msg = f"Đã sẵn sàng phát bài {track.get('title')} của ca sĩ {track.get('artist')}, đang chờ robot kết nối tải luồng âm thanh."
+                msg = f"Đã sẵn sàng bài {track.get('title')} của ca sĩ {track.get('artist')}."
             else:
                 msg = "Hiện tại robot đang không phát bài hát nào."
             return {"content": [{"type": "text", "text": msg}]}

@@ -25,7 +25,7 @@ logging.basicConfig(
 )
 logger = logging.getLogger("XiaozhiMusicServer")
 
-async def handle_resource_read(params: dict, session: aiohttp.ClientSession):
+async def handle_resource_read(params: dict, session: aiohttp.ClientSession, mcp_handler: MCPHandler):
     """
     Xử lý phương thức 'resources/read' theo chuẩn Xiaozhi Cloud.
     Hỗ trợ đọc phân đoạn Base64 qua HTTP Range để truyền âm thanh xuống robot.
@@ -51,10 +51,16 @@ async def handle_resource_read(params: dict, session: aiohttp.ClientSession):
     if not url:
         url = STREAM_URL
 
-    logger.info(f"Xiaozhi Cloud yêu cầu đọc tài nguyên: {url} [Bytes {start}-{end}]")
+    # Lấy User-Agent phù hợp để bypass 403 Forbidden của Google CDN
+    ua = mcp_handler.get_user_agent_for_url(url)
+
+    logger.info(f"Xiaozhi Cloud yêu cầu đọc tài nguyên: {url[:70]}... [Bytes {start}-{end}]")
     try:
-        headers = {'Range': f'bytes={start}-{end}'}
-        async with session.get(url, headers=headers, timeout=aiohttp.ClientTimeout(total=5)) as resp:
+        headers = {
+            'Range': f'bytes={start}-{end}',
+            'User-Agent': ua
+        }
+        async with session.get(url, headers=headers, timeout=aiohttp.ClientTimeout(total=8)) as resp:
             if resp.status in [200, 206]:
                 data = await resp.read()
                 if data:
@@ -62,6 +68,7 @@ async def handle_resource_read(params: dict, session: aiohttp.ClientSession):
                 else:
                     blob = base64.b64encode(b"[DONE]").decode('ascii')
             else:
+                logger.warning(f"HTTP Status {resp.status} khi đọc chunk {start}-{end}")
                 blob = base64.b64encode(b"[DONE]").decode('ascii')
     except Exception as e:
         logger.warning(f"Lỗi khi đọc resource chunk: {e}")
@@ -71,7 +78,7 @@ async def handle_resource_read(params: dict, session: aiohttp.ClientSession):
         "contents": [
             {
                 "uri": uri or "resource://read_from_http",
-                "mimeType": "audio/ogg",
+                "mimeType": "audio/mpeg",
                 "blob": blob
             }
         ]
@@ -94,6 +101,7 @@ async def run_server():
     logger.info(f"[*] Cổng Stream Audio Robot   : {STREAM_PORT}")
     logger.info(f"[*] URL Luồng Ogg Opus Robot  : {STREAM_URL}")
     logger.info(f"[*] Trình giải mã FFmpeg       : Lệnh '{FFMPEG_CMD}' (qua System PATH)")
+    logger.info(f"[*] Chuẩn âm thanh Cloud     : resource_link (read_from_http)")
     logger.info(f"[*] Kết nối WebSocket Cloud  : {MCP_ENDPOINT[:40]}...")
     logger.info("=" * 65)
 
@@ -162,7 +170,7 @@ async def run_server():
                                 }
                             }
                             await ws.send(json.dumps(resp))
-                            logger.info("-> Đã gửi danh sách 5 tools thành công.")
+                            logger.info(f"-> Đã gửi danh sách {len(tools)} tools thành công.")
 
                         # 5. Tools Call
                         elif method == "tools/call":
@@ -182,7 +190,7 @@ async def run_server():
 
                         # 6. Resources Read (Chuẩn streaming audio của Xiaozhi Cloud)
                         elif method == "resources/read":
-                            res = await handle_resource_read(params, http_session)
+                            res = await handle_resource_read(params, http_session, mcp_handler)
                             resp = {
                                 "jsonrpc": "2.0",
                                 "id": msg_id,

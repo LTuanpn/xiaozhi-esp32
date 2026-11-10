@@ -91,6 +91,10 @@ class StreamProxy:
             '-b:a', AUDIO_BITRATE,
             '-ar', str(AUDIO_SAMPLE_RATE),
             '-ac', str(AUDIO_CHANNELS),
+            '-application', 'audio',
+            '-frame_duration', '20',
+            '-page_duration', '20000',
+            '-flush_packets', '1',
             '-f', 'ogg',
             'pipe:1'
         ]

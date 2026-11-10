@@ -12,7 +12,7 @@ logger = logging.getLogger("YouTubeProvider")
 class YouTubeProvider:
     def __init__(self):
         self.ydl_opts = {
-            'format': 'bestaudio/best',
+            'format': 'bestaudio[ext=m4a]/bestaudio[ext=webm]/bestaudio/best',
             'quiet': True,
             'no_warnings': True,
             'ignoreerrors': True,
