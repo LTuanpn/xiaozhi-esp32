@@ -230,10 +230,11 @@ private:
                     lower_text.find("chế độ chờ") != std::string::npos ||
                     lower_text.find("dong ho") != std::string::npos ||
                     lower_text.find("đồng hồ") != std::string::npos) {
+                    Application::GetInstance().SetDeviceState(kDeviceStateIdle);
                     if (display_ != nullptr) {
-                        display_->ShowStandbyClock();
+                        display_->ShowStandbyClock(true /* manual_lock */);
                     }
-                    return "Đã chuyển sang màn hình chờ đồng hồ. Bạn có thể gọi 'Jarvis' bất kỳ lúc nào để đánh thức tôi.";
+                    return "[Hệ thống: Đã chuyển sang màn hình chờ đồng hồ. BẮT BUỘC: Không gọi thêm tool nào khác!]";
                 }
 
                 // TRƯỜNG HỢP 1: Yêu cầu hiển thị Mã QR
@@ -575,6 +576,9 @@ private:
             PropertyList({Property("enable", kPropertyTypeBoolean, true)}),
             [this](const PropertyList& properties) -> ReturnValue {
                 bool enable = properties["enable"].value<bool>();
+                if (enable) {
+                    Application::GetInstance().SetDeviceState(kDeviceStateIdle);
+                }
                 if (display_ != nullptr) {
                     auto* p_disp = static_cast<PocketLcdDisplay*>(display_);
                     if (enable) {
@@ -583,14 +587,14 @@ private:
                         p_disp->HideStandbyClock(true /* force */);
                     }
                 }
-                return enable ? "Đã chuyển sang màn hình chờ đồng hồ. Bạn có thể gọi 'Jarvis' bất kỳ lúc nào để đánh thức tôi." : "Đã đánh thức robot trở lại trạng thái sẵn sàng";
+                return enable ? "[Hệ thống: Đã chuyển sang màn hình chờ đồng hồ. BẮT BUỘC: Không gọi thêm tool nào khác!]" : "Đã đánh thức robot trở lại trạng thái sẵn sàng";
             }
         );
 
         // TOOL HIỂN THỊ MÃ QR CẤU HÌNH / WEB
         mcp_server.AddTool(
             "self.screen.show_qr",
-            "Hiển thị mã QR lên màn hình LCD để người dùng quét kết nối WiFi hoặc truy cập trang web cấu hình của robot. Có thể truyền url tùy chọn hoặc duration_seconds (mặc định 60 giây).",
+            "Hiển thị mã QR lên màn hình LCD để người dùng quét kết nối WiFi hoặc truy cập trang web. Không cần truyền tham số url nếu người dùng chỉ yêu cầu mở mã QR cấu hình/WiFi.",
             PropertyList({
                 Property("url", kPropertyTypeString, ""),
                 Property("duration_seconds", kPropertyTypeInteger, 60, 10, 600)
@@ -599,7 +603,17 @@ private:
                 std::string url = properties["url"].value<std::string>();
                 int duration = properties["duration_seconds"].value<int>();
                 std::string title = "QUET MA QR";
-                if (url.empty()) {
+
+                std::string lower_url = url;
+                std::transform(lower_url.begin(), lower_url.end(), lower_url.begin(), ::tolower);
+
+                // Nếu url rỗng hoặc LLM tự điền từ khóa 'wifi', 'qr', 'config', '192.168.4.1'... thì tự động lấy QR Wi-Fi thật
+                bool is_generic_qr_request = url.empty() ||
+                    lower_url == "qr" || lower_url == "wifi" || lower_url == "ip" || lower_url == "config" ||
+                    lower_url.find("192.168.4.1") != std::string::npos ||
+                    (lower_url.rfind("http://", 0) != 0 && lower_url.rfind("https://", 0) != 0 && lower_url.rfind("wifi:", 0) != 0);
+
+                if (is_generic_qr_request) {
                     auto& wifi = WifiManager::GetInstance();
                     if (wifi.IsConfigMode()) {
                         url = "http://192.168.4.1";

@@ -242,6 +242,7 @@ private:
     bool standby_active_ = false;
     bool boot_standby_locked_ = true;
     bool manual_standby_locked_ = false;
+    uint32_t standby_lock_until_tick_ = 0;
     uint32_t last_clock_tick_ = 0;
     lv_obj_t* standby_container_ = nullptr;
 

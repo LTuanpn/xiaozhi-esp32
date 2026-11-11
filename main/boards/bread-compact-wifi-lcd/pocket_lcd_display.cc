@@ -483,14 +483,8 @@ bool PocketLcdDisplay::SetEmotion(const char* emotion) {
         return true;
     }
     if (boot_standby_locked_ || manual_standby_locked_) {
-        // Ignore background neutral / robot_2 / speaking / listening calls while locked in standby
-        if (std::strcmp(emotion, "neutral") == 0 || std::strcmp(emotion, "robot_2") == 0 ||
-            std::strcmp(emotion, "speaking") == 0 || std::strcmp(emotion, "listening") == 0) {
-            return true;
-        }
-        boot_standby_locked_ = false;
-        manual_standby_locked_ = false;
-        HideStandbyClock(true);
+        // Khi đang khóa màn hình chờ, bỏ qua mọi lệnh đổi biểu cảm tự động từ LLM
+        return true;
     }
     WakeUp();
     emotion_mode_ = FaceModeFromEmotion(emotion);
@@ -507,7 +501,8 @@ void PocketLcdDisplay::SetChatMessage(const char* role, const char* content) {
     DisplayLockGuard lock(this);
     if (!lock) return;
     if (boot_standby_locked_ || manual_standby_locked_) {
-        if (role != nullptr && (std::strcmp(role, "system") == 0 || std::strcmp(role, "assistant") == 0)) {
+        if (animation_tick_ < standby_lock_until_tick_ ||
+            (role != nullptr && (std::strcmp(role, "system") == 0 || std::strcmp(role, "assistant") == 0))) {
             return;
         }
         boot_standby_locked_ = false;
@@ -1136,9 +1131,9 @@ void PocketLcdDisplay::UpdateAnimationFrame() {
 
     static DeviceState prev_dev_state = kDeviceStateStarting;
     if (manual_standby_locked_) {
-        // While manually locked in standby clock:
-        // Transition back to face ONLY when user explicitly starts listening AFTER reaching idle (e.g. said "Jarvis")
-        if (prev_dev_state == kDeviceStateIdle && dev_state == kDeviceStateListening) {
+        // Chỉ thoát màn hình chờ khi đã qua thời gian bảo vệ và người dùng gọi đánh thức mới từ trạng thái Idle
+        if (animation_tick_ >= standby_lock_until_tick_ &&
+            prev_dev_state == kDeviceStateIdle && dev_state == kDeviceStateListening) {
             manual_standby_locked_ = false;
             HideStandbyClock(true);
         }
@@ -2881,6 +2876,16 @@ void PocketLcdDisplay::ShowQrCode(const std::string& text, const std::string& ti
     DisplayLockGuard lock(this);
     if (!lock) return;
 
+    // Ẩn màn hình chờ nếu đang kích hoạt để không che mã QR
+    boot_standby_locked_ = false;
+    manual_standby_locked_ = false;
+    standby_active_ = false;
+    if (standby_container_ != nullptr) {
+        lv_obj_add_flag(standby_container_, LV_OBJ_FLAG_HIDDEN);
+    }
+
+    constexpr int kCanvasSize = 180;
+
     if (qr_container_ == nullptr) {
         auto scr = lv_screen_active();
         qr_container_ = lv_obj_create(scr);
@@ -2891,30 +2896,31 @@ void PocketLcdDisplay::ShowQrCode(const std::string& text, const std::string& ti
         lv_obj_set_style_bg_opa(qr_container_, LV_OPA_COVER, 0);
 
         qr_title_label_ = lv_label_create(qr_container_);
+        lv_label_set_long_mode(qr_title_label_, LV_LABEL_LONG_SCROLL_CIRCULAR);
         lv_obj_set_style_text_color(qr_title_label_, lv_color_white(), 0);
         lv_obj_set_style_text_align(qr_title_label_, LV_TEXT_ALIGN_CENTER, 0);
-        lv_obj_set_width(qr_title_label_, 220);
-        lv_obj_set_pos(qr_title_label_, 10, 8);
+        lv_obj_set_width(qr_title_label_, 228);
+        lv_obj_set_pos(qr_title_label_, 6, 5);
 
         qr_canvas_ = lv_canvas_create(qr_container_);
-        lv_obj_set_size(qr_canvas_, 160, 160);
-        lv_obj_set_pos(qr_canvas_, 40, 32);
-
         if (qr_cbuf_ == nullptr) {
-            qr_cbuf_ = (uint16_t*)heap_caps_malloc(160 * 160 * sizeof(uint16_t), MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
+            qr_cbuf_ = (uint16_t*)heap_caps_malloc(kCanvasSize * kCanvasSize * sizeof(uint16_t), MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
             if (qr_cbuf_ == nullptr) {
-                qr_cbuf_ = (uint16_t*)malloc(160 * 160 * sizeof(uint16_t));
+                qr_cbuf_ = (uint16_t*)malloc(kCanvasSize * kCanvasSize * sizeof(uint16_t));
             }
         }
         if (qr_cbuf_ != nullptr) {
-            lv_canvas_set_buffer(qr_canvas_, qr_cbuf_, 160, 160, LV_COLOR_FORMAT_RGB565);
+            lv_canvas_set_buffer(qr_canvas_, qr_cbuf_, kCanvasSize, kCanvasSize, LV_COLOR_FORMAT_RGB565);
         }
+        lv_obj_set_size(qr_canvas_, kCanvasSize, kCanvasSize);
+        lv_obj_set_pos(qr_canvas_, (240 - kCanvasSize) / 2, 26);
 
         qr_url_label_ = lv_label_create(qr_container_);
+        lv_label_set_long_mode(qr_url_label_, LV_LABEL_LONG_SCROLL_CIRCULAR);
         lv_obj_set_style_text_color(qr_url_label_, lv_color_hex(0x00E5FF), 0);
         lv_obj_set_style_text_align(qr_url_label_, LV_TEXT_ALIGN_CENTER, 0);
-        lv_obj_set_width(qr_url_label_, 220);
-        lv_obj_set_pos(qr_url_label_, 10, 204);
+        lv_obj_set_width(qr_url_label_, 228);
+        lv_obj_set_pos(qr_url_label_, 6, 212);
     }
 
     lv_obj_remove_flag(qr_container_, LV_OBJ_FLAG_HIDDEN);
@@ -2923,7 +2929,7 @@ void PocketLcdDisplay::ShowQrCode(const std::string& text, const std::string& ti
     std::string disp_title = title.empty() ? "QUET MA DE CAU HINH" : title;
     lv_label_set_text(qr_title_label_, disp_title.c_str());
     if (text.rfind("WIFI:", 0) == 0) {
-        lv_label_set_text(qr_url_label_, "Quet bang Camera / Wi-Fi");
+        lv_label_set_text(qr_url_label_, "Quet bang Camera ket noi Wi-Fi");
     } else {
         lv_label_set_text(qr_url_label_, text.c_str());
     }
@@ -2933,14 +2939,15 @@ void PocketLcdDisplay::ShowQrCode(const std::string& text, const std::string& ti
 
         std::vector<uint8_t> qrcode(qrcodegen_BUFFER_LEN_MAX);
         std::vector<uint8_t> tempBuffer(qrcodegen_BUFFER_LEN_MAX);
-        bool ok = qrcodegen_encodeText(text.c_str(), tempBuffer.data(), qrcode.data(), qrcodegen_Ecc_MEDIUM, 1, 20, qrcodegen_Mask_AUTO, true);
+        bool ok = qrcodegen_encodeText(text.c_str(), tempBuffer.data(), qrcode.data(),
+                                       qrcodegen_Ecc_LOW, 1, 20, qrcodegen_Mask_AUTO, true);
         if (ok) {
             int qr_size = qrcodegen_getSize(qrcode.data());
-            int scale = 160 / (qr_size + 8);
+            int scale = (kCanvasSize - 16) / qr_size; // Đảm bảo lề trắng Quiet Zone >= 8px mỗi cạnh
             if (scale < 1) scale = 1;
             int render_w = qr_size * scale;
-            int offset_x = (160 - render_w) / 2;
-            int offset_y = (160 - render_w) / 2;
+            int offset_x = (kCanvasSize - render_w) / 2;
+            int offset_y = (kCanvasSize - render_w) / 2;
 
             for (int y = 0; y < qr_size; y++) {
                 for (int x = 0; x < qr_size; x++) {
@@ -2949,7 +2956,7 @@ void PocketLcdDisplay::ShowQrCode(const std::string& text, const std::string& ti
                             for (int dx = 0; dx < scale; dx++) {
                                 int px = offset_x + x * scale + dx;
                                 int py = offset_y + y * scale + dy;
-                                if (px >= 0 && px < 160 && py >= 0 && py < 160) {
+                                if (px >= 0 && px < kCanvasSize && py >= 0 && py < kCanvasSize) {
                                     lv_canvas_set_px(qr_canvas_, px, py, lv_color_black(), LV_OPA_COVER);
                                 }
                             }
@@ -3074,6 +3081,13 @@ void PocketLcdDisplay::ShowStandbyClock(bool manual_lock) {
     DisplayLockGuard lock(this);
     if (!lock) return;
 
+    if (manual_lock) {
+        standby_lock_until_tick_ = animation_tick_ + 100; // Bảo vệ 5 giây chống các sự kiện kết thúc câu của AI
+        if (qr_container_ != nullptr) {
+            qr_until_tick_ = 0;
+            lv_obj_add_flag(qr_container_, LV_OBJ_FLAG_HIDDEN);
+        }
+    }
     standby_active_ = true;
     manual_standby_locked_ = manual_lock;
     last_clock_tick_ = animation_tick_;
