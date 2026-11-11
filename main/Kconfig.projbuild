@@ -1238,3 +1238,10 @@ menu "TAIJIPAI_S3_CONFIG"
 endmenu
 
 endmenu
+
+config BREAD_LCD_LAMP_ENABLED
+    bool "Enable external lamp tools on Bread Compact LCD"
+    depends on BOARD_TYPE_BREAD_COMPACT_WIFI_LCD
+    default n
+    help
+        Enable only when an external lamp is connected to the board's existing LAMP_GPIO.

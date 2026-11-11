@@ -8,6 +8,7 @@
 #include <functional>
 #include <mutex>
 #include <string>
+#include <string_view>
 #include <vector>
 
 #include "audio_service.h"
@@ -26,7 +27,8 @@ public:
     ~NotifyPlayer();
 
     bool Start(std::string audio_url, std::vector<NotifySubtitle> subtitles, uint32_t playback_id,
-               SubtitleCallback subtitle_callback, FinishedCallback finished_callback);
+               SubtitleCallback subtitle_callback, FinishedCallback finished_callback,
+               std::string_view local_audio = {});
     void Stop();
     void OnPlaybackProgress(uint32_t playback_id, uint32_t media_position_ms);
     void OnPlaybackDrained();
@@ -37,6 +39,9 @@ private:
     AudioService& audio_service_;
     mutable std::mutex mutex_;
     std::string audio_url_;
+    // Local audio must have static storage (embedded Ogg asset).
+    std::string_view local_audio_;
+    uint32_t audio_generation_ = 0;
     std::vector<NotifySubtitle> subtitles_;
     std::string displayed_text_;
     SubtitleCallback subtitle_callback_;

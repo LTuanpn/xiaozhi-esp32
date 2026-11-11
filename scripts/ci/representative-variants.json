@@ -25,7 +25,7 @@
     },
     {
       "board": "bread-compact-wifi-lcd",
-      "name": "bread-compact-wifi-lcd",
+      "name": "bread-compact-wifi-lcd-240x240",
       "reason": "Widely used basic S3 LCD configuration"
     },
     {

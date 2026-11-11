@@ -5,8 +5,24 @@ on:
   push:
     branches:
       - feat/wall-e-roboeyes-s3
+      - codex/firmware-music-reliability
+
+permissions:
+  contents: read
 
 jobs:
+  host-tests:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.13'
+      - run: sudo apt-get update && sudo apt-get install -y libcjson-dev ffmpeg
+      - run: python -m pip install -r mcp_music_server/requirements.txt numpy zxing-cpp
+      - run: python -m unittest discover -s scripts/tests -v
+      - run: python -m unittest discover -s mcp_music_server -v
+
   build-s3:
     name: Build ${{ matrix.name }}
     runs-on: ubuntu-latest
@@ -22,6 +38,16 @@ jobs:
           - board: bread-compact-wifi-lcd
             name: bread-compact-wifi-lcd-240x240
             artifact: bread-compact-wifi-lcd-240x240-walle
+          - board: bread-compact-wifi-lcd
+            name: bread-compact-wifi-lcd-240x320
+            artifact: bread-compact-wifi-lcd-240x320-walle
+          - board: xmini/c3
+            name: xmini-c3
+            artifact: xmini-c3-regression
+            wake_word: default
+          - board: m5stack/atom-echos3r
+            name: atom-echos3r
+            artifact: atom-echos3r-regression
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -30,11 +56,19 @@ jobs:
         shell: bash
         run: |
           source "$IDF_PATH/export.sh"
-          python3 scripts/build.py ${{ matrix.board }} --name ${{ matrix.name }} --wake-word wn9_jarvis_tts
+          OPTIONS=()
+          if [[ '${{ matrix.wake_word }}' != 'default' ]]; then
+            OPTIONS+=(--wake-word wn9_jarvis_tts)
+          fi
+          python3 scripts/build.py ${{ matrix.board }} --name ${{ matrix.name }} "${OPTIONS[@]}"
 
       - name: Upload merged-binary.bin
         uses: actions/upload-artifact@v4
         with:
           name: ${{ matrix.artifact }}
-          path: build/merged-binary.bin
+          path: |
+            build/merged-binary.bin
+            build/partition_table/partition-table.bin
+            build/flasher_args.json
+            build/xiaozhi.bin
           if-no-files-found: error

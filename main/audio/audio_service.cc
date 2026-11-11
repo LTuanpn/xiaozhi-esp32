@@ -641,9 +641,17 @@ void AudioService::PushTaskToEncodeQueue(AudioTaskType type, std::vector<int16_t
     }
 }
 
-bool AudioService::PushPacketToDecodeQueue(std::unique_ptr<AudioStreamPacket> packet, bool wait) {
+uint32_t AudioService::GetPlaybackGeneration() {
+    std::lock_guard<std::mutex> lock(audio_queue_mutex_);
+    return playback_generation_;
+}
+
+bool AudioService::PushPacketToDecodeQueue(std::unique_ptr<AudioStreamPacket> packet, bool wait,
+                                           std::optional<uint32_t> expected_generation) {
     std::unique_lock<std::mutex> lock(audio_queue_mutex_);
-    const uint32_t generation = playback_generation_;
+    const uint32_t generation = expected_generation.value_or(playback_generation_);
+    if (generation != playback_generation_)
+        return false;
     if (audio_decode_queue_.size() >= MAX_DECODE_PACKETS_IN_QUEUE) {
         if (wait) {
             audio_queue_cv_.wait(lock, [this, generation]() {

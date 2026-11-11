@@ -20,6 +20,8 @@ public:
     void ShowNotification(const char* notification, int duration_ms = 3000) override;
     void ShowNotification(const std::string& notification, int duration_ms = 3000) override;
     bool SetEmotion(const char* emotion) override;
+    bool SetManualEmotion(const std::string& emotion, int duration_ms = 8000);
+    bool TryShowQrCode(const std::string& text, const std::string& title, int duration_ms);
     void SetChatMessage(const char* role, const char* content) override;
     void ClearChatMessages() override;
     void RemoveChatMessage(const char* role, const char* content) override;
@@ -190,7 +192,10 @@ private:
     IdleQuirk idle_quirk_ = IdleQuirk::kNone;
     bool is_speaking_ = false;
 
-    esp_timer_handle_t frame_timer_ = nullptr;
+    lv_timer_t* frame_timer_ = nullptr;
+    int64_t manual_emotion_until_us_ = 0;
+    FaceMode manual_emotion_mode_ = FaceMode::kNeutral;
+    int64_t countdown_deadline_us_ = 0;
     uint32_t animation_tick_ = 0;
     uint32_t last_active_tick_ = 0;
     uint32_t wake_up_until_tick_ = 0;

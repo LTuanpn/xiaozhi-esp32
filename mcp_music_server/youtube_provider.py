@@ -1,108 +1,73 @@
-import sys
 import logging
+from urllib.parse import urlsplit, parse_qs
 import yt_dlp
+from music_selection import choose_candidate, AmbiguousMusic
 
-if sys.stdout and hasattr(sys.stdout, 'reconfigure'):
-    sys.stdout.reconfigure(encoding='utf-8')
-if sys.stderr and hasattr(sys.stderr, 'reconfigure'):
-    sys.stderr.reconfigure(encoding='utf-8')
+logger = logging.getLogger(__name__)
 
-logger = logging.getLogger("YouTubeProvider")
+class QuietExtractorLog:
+    def debug(self, message): pass
+    def warning(self, message): pass
+    def error(self, message): logger.warning('Music extractor failed; details omitted to protect signed URLs')
 
 class YouTubeProvider:
     def __init__(self):
-        self.ydl_opts = {
-            'format': 'bestaudio[ext=m4a]/bestaudio[ext=webm]/bestaudio/best',
-            'quiet': True,
-            'no_warnings': True,
-            'ignoreerrors': True,
-            'noplaylist': True,
-            'extract_flat': False,
-            'skip_download': True,
-        }
+        self.ydl_opts = {'format': 'bestaudio[ext=m4a]/bestaudio[ext=webm]/bestaudio/best',
+            'quiet': True, 'no_warnings': True, 'ignoreerrors': False, 'noplaylist': True,
+            'skip_download': True, 'socket_timeout': 8, 'retries': 1, 'extractor_retries': 1,
+            'logger': QuietExtractorLog()}
 
-    def search_and_extract(self, query: str):
-        """
-        Tìm kiếm bài hát trên YouTube và trích xuất direct audio URL cùng metadata.
-        Hỗ trợ cả tên bài hát hoặc link YouTube trực tiếp.
-        """
-        target = query.strip()
-        if not (target.startswith("http://") or target.startswith("https://")):
-            target = f"ytsearch1:{target}"
-
-        logger.info(f"Đang tìm kiếm YouTube cho: '{query}'...")
-        try:
-            with yt_dlp.YoutubeDL(self.ydl_opts) as ydl:
-                info = ydl.extract_info(target, download=False)
-                if not info:
-                    logger.warning(f"Không tìm thấy kết quả YouTube cho: '{query}'")
-                    return None
-
-                # Nếu là danh sách tìm kiếm ytsearch
-                if 'entries' in info:
-                    entries = [e for e in info['entries'] if e]
-                    if not entries:
-                        logger.warning(f"Không có video nào trong kết quả tìm kiếm cho: '{query}'")
-                        return None
-                    entry = entries[0]
-                else:
-                    entry = info
-
-                title = entry.get('title', 'Unknown Title')
-                duration = entry.get('duration', 0)
-                uploader = entry.get('uploader') or entry.get('channel') or 'YouTube'
-                webpage_url = entry.get('webpage_url') or entry.get('url')
-                audio_url = entry.get('url')
-                thumbnail = entry.get('thumbnail', '')
-                user_agent = entry.get('http_headers', {}).get('User-Agent', '')
-
-                # Định dạng thời lượng mm:ss
-                mins, secs = divmod(duration, 60)
-                duration_str = f"{mins:02d}:{secs:02d}"
-
-                logger.info(f"Tìm thấy: {title} ({duration_str}) - {uploader}")
-                return {
-                    'source': 'YouTube',
-                    'title': title,
-                    'artist': uploader,
-                    'duration': duration,
-                    'duration_str': duration_str,
-                    'audio_url': audio_url,
-                    'webpage_url': webpage_url,
-                    'thumbnail': thumbnail,
-                    'user_agent': user_agent
-                }
-        except Exception as e:
-            logger.error(f"Lỗi khi trích xuất YouTube: {e}")
+    @staticmethod
+    def video_url(value):
+        parsed = urlsplit(value)
+        if parsed.scheme not in ('http', 'https'):
             return None
+        host = (parsed.hostname or '').lower()
+        if host in ('youtube.com', 'www.youtube.com', 'music.youtube.com', 'm.youtube.com'):
+            video = parse_qs(parsed.query).get('v', [''])[0]
+            if not video and parsed.path.startswith(('/shorts/', '/embed/')):
+                video = parsed.path.split('/')[2]
+        elif host == 'youtu.be':
+            video = parsed.path.strip('/').split('/')[0]
+        else:
+            raise ValueError('Only YouTube video links are supported')
+        import re
+        if not re.fullmatch(r'[A-Za-z0-9_-]{11}', video):
+            raise ValueError('Invalid YouTube video link')
+        return 'https://www.youtube.com/watch?v=' + video
 
-    def search_multiple(self, query: str, limit: int = 5):
-        """Tìm kiếm nhiều kết quả để tra cứu (chỉ lấy metadata, không lấy direct stream)."""
-        opts = {
-            'quiet': True,
-            'no_warnings': True,
-            'ignoreerrors': True,
-            'extract_flat': True,
-            'skip_download': True,
-        }
-        target = f"ytsearch{limit}:{query}"
-        results = []
-        try:
-            with yt_dlp.YoutubeDL(opts) as ydl:
-                info = ydl.extract_info(target, download=False)
-                if info and 'entries' in info:
-                    for e in info['entries']:
-                        if not e:
-                            continue
-                        dur = e.get('duration') or 0
-                        mins, secs = divmod(dur, 60)
-                        results.append({
-                            'source': 'YouTube',
-                            'title': e.get('title', ''),
-                            'artist': e.get('uploader', '') or 'YouTube',
-                            'duration_str': f"{mins:02d}:{secs:02d}" if dur else "N/A",
-                            'url': e.get('url') or e.get('webpage_url') or ''
-                        })
-        except Exception as e:
-            logger.error(f"Lỗi tìm kiếm danh sách YouTube: {e}")
-        return results
+    def search_multiple(self, query, limit=5):
+        opts = {**self.ydl_opts, 'extract_flat': True}
+        with yt_dlp.YoutubeDL(opts) as ydl:
+            info = ydl.extract_info(f'ytsearch{min(5, limit)}:{query}', download=False)
+        rows = []
+        for entry in (info or {}).get('entries', []):
+            if not entry: continue
+            duration = int(entry.get('duration') or 0)
+            mins, secs = divmod(duration, 60)
+            rows.append({'source': 'YouTube', 'video_id': entry.get('id'),
+                'title': entry.get('title') or '', 'artist': entry.get('uploader') or entry.get('channel') or '',
+                'duration': duration, 'duration_str': f'{mins:02d}:{secs:02d}',
+                'is_live': entry.get('is_live', False),
+                'url': 'https://www.youtube.com/watch?v=' + (entry.get('id') or '')})
+        return rows
+
+    def search_and_extract(self, query, artist=''):
+        target = self.video_url(query.strip())
+        if target is None:
+            rows = self.search_multiple((query + ' ' + artist).strip())
+            choice, alternatives = choose_candidate(query, artist, rows)
+            if choice is None:
+                raise AmbiguousMusic(alternatives)
+            target = choice['url']
+        with yt_dlp.YoutubeDL(self.ydl_opts) as ydl:
+            info = ydl.extract_info(target, download=False)
+        if not info or not info.get('url') or info.get('is_live'):
+            return None
+        duration = int(info.get('duration') or 0)
+        mins, secs = divmod(duration, 60)
+        logger.info('Selected music video=%s title=%s channel=%s', info.get('id'), info.get('title'), info.get('channel'))
+        return {'source': 'YouTube', 'video_id': info.get('id'), 'title': info.get('title') or '',
+            'artist': info.get('artist') or info.get('uploader') or info.get('channel') or '',
+            'duration': duration, 'duration_str': f'{mins:02d}:{secs:02d}', 'audio_url': info['url'],
+            'webpage_url': target, 'user_agent': info.get('http_headers', {}).get('User-Agent', '')}

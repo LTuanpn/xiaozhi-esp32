@@ -6,6 +6,7 @@
 #include <condition_variable>
 #include <memory>
 #include <mutex>
+#include <optional>
 
 #include <esp_timer.h>
 #include <freertos/FreeRTOS.h>
@@ -144,7 +145,9 @@ public:
 
     void SetCallbacks(AudioServiceCallbacks& callbacks);
 
-    bool PushPacketToDecodeQueue(std::unique_ptr<AudioStreamPacket> packet, bool wait = false);
+    bool PushPacketToDecodeQueue(std::unique_ptr<AudioStreamPacket> packet, bool wait = false,
+                                 std::optional<uint32_t> expected_generation = std::nullopt);
+    uint32_t GetPlaybackGeneration();
     std::unique_ptr<AudioStreamPacket> PopPacketFromSendQueue();
     void PlaySound(const std::string_view& sound);
     bool ReadAudioData(std::vector<int16_t>& data, int sample_rate, int samples);

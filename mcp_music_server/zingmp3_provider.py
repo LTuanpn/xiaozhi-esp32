@@ -3,7 +3,8 @@ import logging
 import urllib.parse
 import requests
 import yt_dlp
-from youtube_provider import YouTubeProvider
+from youtube_provider import YouTubeProvider, QuietExtractorLog
+from music_selection import choose_candidate, AmbiguousMusic
 
 if sys.stdout and hasattr(sys.stdout, 'reconfigure'):
     sys.stdout.reconfigure(encoding='utf-8')
@@ -49,17 +50,17 @@ class ZingMP3Provider:
                                     'thumb': s.get('thumb')
                                 })
                 return songs
-        except Exception as e:
-            logger.error(f"Lỗi khi tìm kiếm Zing MP3 API: {e}")
+        except Exception:
+            logger.warning("Zing MP3 search failed")
         return []
 
-    def search_and_extract(self, query: str):
+    def search_and_extract(self, query: str, artist: str = ""):
         """
         Tìm kiếm và trích xuất audio bài hát Zing MP3.
         Nếu bài hát bị hạn chế bản quyền VIP, tự động fallback sang YouTube.
         """
         logger.info(f"Đang tìm kiếm Zing MP3 cho: '{query}'...")
-        suggestions = self.search_suggestions(query)
+        suggestions = self.search_suggestions((query + " " + artist).strip())
         
         target_title = query
         target_artist = ""
@@ -67,10 +68,15 @@ class ZingMP3Provider:
         duration = 0
 
         if suggestions:
-            first = suggestions[0]
+            first, alternatives = choose_candidate(query, artist, suggestions)
+            if first is None:
+                raise AmbiguousMusic(alternatives)
             target_title = first['title']
             target_artist = first['artist']
-            zing_link = first['link']
+            zing_link = urllib.parse.urljoin('https://zingmp3.vn/', first.get('link') or '')
+            parsed = urllib.parse.urlsplit(zing_link)
+            if parsed.scheme != 'https' or parsed.hostname != 'zingmp3.vn' or not parsed.path.startswith('/bai-hat/'):
+                zing_link = None
             duration = first['duration']
             logger.info(f"Zing MP3 tìm thấy: {target_title} - {target_artist}")
 
@@ -84,6 +90,8 @@ class ZingMP3Provider:
                     'ignoreerrors': False,
                     'noplaylist': True,
                     'skip_download': True,
+                    'socket_timeout': 8, 'retries': 1, 'extractor_retries': 1,
+                    'logger': QuietExtractorLog(),
                 }
                 with yt_dlp.YoutubeDL(ydl_opts) as ydl:
                     info = ydl.extract_info(zing_link, download=False)
@@ -99,13 +107,13 @@ class ZingMP3Provider:
                             'webpage_url': zing_link,
                             'thumbnail': info.get('thumbnail') or ''
                         }
-            except Exception as e:
-                logger.warning(f"Zing MP3 không thể trích xuất trực tiếp (VIP/Bản quyền: {e}). Đang tự động chuyển sang YouTube...")
+            except Exception:
+                logger.warning("Zing MP3 unavailable; trying YouTube")
 
         # Fallback sang YouTube với tên bài hát + ca sĩ
         fallback_query = f"{target_title} {target_artist}".strip()
         logger.info(f"Fallback YouTube: Tìm kiếm '{fallback_query}'...")
-        yt_result = self.youtube_provider.search_and_extract(fallback_query)
+        yt_result = self.youtube_provider.search_and_extract(target_title, target_artist or artist)
         if yt_result:
             yt_result['note'] = '(Chuyển tiếp từ Zing MP3 sang YouTube chất lượng cao)'
             return yt_result

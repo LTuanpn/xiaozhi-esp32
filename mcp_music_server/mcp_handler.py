@@ -1,248 +1,108 @@
-import sys
-import logging
 import asyncio
-from config import STREAM_URL
-from youtube_provider import YouTubeProvider
-from zingmp3_provider import ZingMP3Provider
-from stream_proxy import StreamProxy
+import json
+import logging
+from concurrent.futures import ThreadPoolExecutor
+from music_selection import AmbiguousMusic
 
-if sys.stdout and hasattr(sys.stdout, 'reconfigure'):
-    sys.stdout.reconfigure(encoding='utf-8')
-if sys.stderr and hasattr(sys.stderr, 'reconfigure'):
-    sys.stderr.reconfigure(encoding='utf-8')
+logger = logging.getLogger(__name__)
 
-logger = logging.getLogger("MCPHandler")
+def result(data, error=False):
+    return {'isError': error, 'content': [{'type': 'text', 'text': json.dumps(data, ensure_ascii=False)}]}
 
 class MCPHandler:
-    def __init__(self, stream_proxy: StreamProxy, yt_provider: YouTubeProvider, zing_provider: ZingMP3Provider):
+    def __init__(self, stream_proxy, yt_provider, zing_provider):
         self.stream_proxy = stream_proxy
         self.yt_provider = yt_provider
         self.zing_provider = zing_provider
-        self.url_user_agents = {}
+        self._executor = ThreadPoolExecutor(max_workers=1, thread_name_prefix='music-search')
+        self._search_future = None
+        self._intent = 0
 
     def get_server_info(self):
-        return {
-            "name": "XiaozhiMusicMCPServer",
-            "version": "1.4.0"
-        }
-
-    def get_user_agent_for_url(self, url: str) -> str:
-        """Lấy User-Agent tương ứng cho URL âm thanh (đặc biệt cho YouTube CDN)."""
-        if not url:
-            return ""
-        if url in self.url_user_agents:
-            return self.url_user_agents[url]
-        for cached_url, ua in self.url_user_agents.items():
-            if url[:60] in cached_url or cached_url[:60] in url:
-                return ua
-        return "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/133.0.0.0 Safari/537.36"
+        return {'name': 'XiaozhiMusicMCPServer', 'version': '2.0.0'}
 
     def get_tools_list(self):
-        """Khai báo danh sách các công cụ hỗ trợ cho Robot Wall-E."""
-        return [
-            {
-                "name": "play_song",
-                "description": (
-                    "Phát bài hát theo yêu cầu của người dùng từ YouTube hoặc Zing MP3. "
-                    "Khi cần dùng tool này, hãy gọi tool NGAY LẬP TỨC mà KHÔNG nói lời chào hay câu trả lời trước khi gọi tool."
-                ),
-                "inputSchema": {
-                    "type": "object",
-                    "properties": {
-                        "query": {
-                            "type": "string",
-                            "description": "Tên bài hát, ca sĩ hoặc từ khóa bài hát người dùng muốn nghe"
-                        },
-                        "source": {
-                            "type": "string",
-                            "description": "Nguồn nhạc: 'all' (mặc định), 'youtube', hoặc 'zing'",
-                            "enum": ["all", "youtube", "zing"]
-                        }
-                    },
-                    "required": ["query"]
-                }
-            },
-            {
-                "name": "play_youtube_music",
-                "description": (
-                    "Tìm kiếm và phát bài hát từ YouTube cho robot Wall-E. "
-                    "Khi cần dùng tool này, hãy gọi tool NGAY LẬP TỨC mà KHÔNG nói lời chào hay câu trả lời trước khi gọi tool."
-                ),
-                "inputSchema": {
-                    "type": "object",
-                    "properties": {
-                        "query": {
-                            "type": "string",
-                            "description": "Tên bài hát, ca sĩ hoặc từ khóa tìm kiếm trên YouTube"
-                        }
-                    },
-                    "required": ["query"]
-                }
-            },
-            {
-                "name": "play_zing_mp3",
-                "description": (
-                    "Tìm kiếm và phát bài hát từ Zing MP3 cho robot Wall-E (tự động chuyển YouTube nếu VIP). "
-                    "Khi cần dùng tool này, hãy gọi tool NGAY LẬP TỨC mà KHÔNG nói lời chào hay câu trả lời trước khi gọi tool."
-                ),
-                "inputSchema": {
-                    "type": "object",
-                    "properties": {
-                        "query": {
-                            "type": "string",
-                            "description": "Tên bài hát hoặc ca sĩ trên Zing MP3"
-                        }
-                    },
-                    "required": ["query"]
-                }
-            },
-            {
-                "name": "search_music",
-                "description": (
-                    "Tìm kiếm và tra cứu danh sách bài hát từ YouTube hoặc Zing MP3 kèm thời lượng, ca sĩ "
-                    "để thông báo cho người dùng mà không phát nhạc ngay."
-                ),
-                "inputSchema": {
-                    "type": "object",
-                    "properties": {
-                        "query": {
-                            "type": "string",
-                            "description": "Tên bài hát cần tra cứu"
-                        },
-                        "source": {
-                            "type": "string",
-                            "description": "Nguồn tìm kiếm: 'youtube', 'zing' hoặc 'all'",
-                            "enum": ["youtube", "zing", "all"]
-                        }
-                    },
-                    "required": ["query"]
-                }
-            },
-            {
-                "name": "stop_music",
-                "description": "Dừng phát nhạc ngay lập tức trên robot Wall-E.",
-                "inputSchema": {
-                    "type": "object",
-                    "properties": {}
-                }
-            },
-            {
-                "name": "get_player_status",
-                "description": "Kiểm tra thông tin bài hát đang phát hoặc trạng thái trình phát nhạc của robot.",
-                "inputSchema": {
-                    "type": "object",
-                    "properties": {}
-                }
-            }
-        ]
+        query_schema = {'type': 'object', 'properties': {
+            'query': {'type': 'string', 'minLength': 1, 'maxLength': 256, 'description': 'Tên bài hoặc URL video YouTube chính xác'},
+            'artist': {'type': 'string', 'maxLength': 120, 'description': 'Ca sĩ nếu người dùng nêu rõ'},
+            'source': {'type': 'string', 'enum': ['all', 'youtube', 'zing']}}, 'required': ['query']}
+        play_description = ('Dùng khi người dùng yêu cầu mở/phát/nghe bài hát. Không dùng cho kiến thức hay tìm web. '
+            'Gọi trước khi nói. Khi status=ready, gọi self.audio.play_url với stream_url rồi kết thúc lượt, '
+            'không đọc URL hoặc nói đè nhạc. Khi needs_clarification, hỏi chọn bài, không tự phát hoặc đổi chủ đề.')
+        return [{'name': name, 'description': description, 'inputSchema': schema} for name, description, schema in [
+            ('play_song', play_description, query_schema),
+            ('play_youtube_music', 'Alias YouTube của play_song. ' + play_description, query_schema),
+            ('play_zing_mp3', 'Alias Zing của play_song. ' + play_description, query_schema),
+            ('search_music', 'Chỉ tìm danh sách bài hát, không phát.', query_schema),
+            ('stop_music', 'Dừng nhạc. Sau khi dừng server, gọi self.audio.stop_playback trên robot; xác nhận một lần.', {'type':'object','properties':{}}),
+            ('get_player_status', 'Xem bài và trạng thái phát nhạc.', {'type':'object','properties':{}})]]
 
-    def _build_play_response(self, info: dict, source_label: str):
-        """Trả về STREAM_URL và chỉ thị bắt buộc LLM gọi self.audio.play_url trên ESP32."""
-        if info.get('audio_url'):
-            self.url_user_agents[info['audio_url']] = info.get('user_agent', '')
-            if len(self.url_user_agents) > 50:
-                self.url_user_agents.pop(next(iter(self.url_user_agents)))
+    def cancel_pending(self):
+        self._intent += 1
 
-        self.stream_proxy.set_track(info)
+    async def _search(self, function, *args):
+        # A timed-out yt-dlp thread still occupies this single slot until it really ends.
+        if self._search_future is not None and not self._search_future.done():
+            raise RuntimeError('search_busy')
+        future = asyncio.get_running_loop().run_in_executor(self._executor, function, *args)
+        self._search_future = future
+        # Retrieve eventual exceptions even if the caller timed out or disconnected.
+        future.add_done_callback(lambda done: done.exception() if not done.cancelled() else None)
+        return await asyncio.wait_for(asyncio.shield(future), 25)
 
-        instruction_text = (
-            f"[HỆ THỐNG: Đã chuẩn bị xong luồng nhạc '{info['title']} - {info['artist']}' tại {STREAM_URL}. "
-            f"BẮT BUỘC: Bạn phải gọi ngay lập tức tool 'self.audio.play_url' với tham số url='{STREAM_URL}' để phát nhạc ra loa phần cứng. "
-            f"LƯU Ý: Không nói lời chào trước khi gọi tool và không lặp lại câu đã nói trước đó!]"
-        )
+    def _build_play_response(self, info, source_label=None):
+        url = self.stream_proxy.set_track(info)
+        return result({'status': 'ready', 'title': info['title'], 'artist': info['artist'],
+            'source': info.get('source'), 'video_id': info.get('video_id'), 'stream_url': url,
+            'next_tool': 'self.audio.play_url', 'arguments': {'url': url}})
 
-        return {
-            "content": [
-                {
-                    "type": "text",
-                    "text": instruction_text
-                }
-            ]
-        }
-
-    async def handle_call_tool(self, name: str, arguments: dict):
-        """Thực thi tool tương ứng khi có request từ Xiaozhi Cloud."""
-        logger.info(f"Đang thực thi Tool: '{name}' với tham số: {arguments}")
-
-        if name in ["play_song", "play_youtube_music", "play_zing_mp3"]:
-            query = arguments.get("query", "").strip()
-            source = arguments.get("source", "all").lower() if name == "play_song" else ("youtube" if name == "play_youtube_music" else "zing")
-
-            if not query:
-                return {
-                    "isError": True,
-                    "content": [{"type": "text", "text": "Bạn muốn nghe bài hát gì? Hãy nói tên bài hát cho mình nhé!"}]
-                }
-
-            info = None
-            source_label = "YouTube"
-
-            if source == "zing":
-                info = await asyncio.to_thread(self.zing_provider.search_and_extract, query)
-                source_label = info.get('source', 'Zing MP3') if info else 'Zing MP3'
-            else:
-                # Mặc định ưu tiên YouTube hoặc source == 'youtube' / 'all'
-                info = await asyncio.to_thread(self.yt_provider.search_and_extract, query)
-                if not info and source == "all":
-                    info = await asyncio.to_thread(self.zing_provider.search_and_extract, query)
-                    source_label = info.get('source', 'Zing MP3') if info else 'Zing MP3'
-
-            if not info or not info.get("audio_url"):
-                return {
-                    "isError": True,
-                    "content": [{"type": "text", "text": f"Mình không tìm thấy bài hát '{query}' rồi."}]
-                }
-
-            return self._build_play_response(info, source_label)
-
-        elif name == "search_music":
-            query = arguments.get("query", "").strip()
-            source = arguments.get("source", "all").lower()
-            results = []
-
-            if source in ["youtube", "all"]:
-                yt_results = await asyncio.to_thread(self.yt_provider.search_multiple, query, 3)
-                results.extend(yt_results)
-
-            if source in ["zing", "all"]:
-                zing_results = await asyncio.to_thread(self.zing_provider.search_suggestions, query)
-                for z in zing_results[:3]:
-                    mins, secs = divmod(z.get('duration', 0), 60)
-                    results.append({
-                        'source': 'Zing MP3',
-                        'title': z.get('title'),
-                        'artist': z.get('artist'),
-                        'duration_str': f"{mins:02d}:{secs:02d}",
-                        'url': z.get('link')
-                    })
-
-            if not results:
-                return {"content": [{"type": "text", "text": f"Mình không tìm thấy bài hát nào cho từ khóa '{query}'."}]}
-
-            lines = [f"Dưới đây là một số bài hát tìm thấy cho '{query}':"]
-            for idx, r in enumerate(results, 1):
-                lines.append(f"{idx}. {r['title']} của {r['artist']} ({r['duration_str']}) trên {r['source']}")
-
-            return {"content": [{"type": "text", "text": "\n".join(lines)}]}
-
-        elif name == "stop_music":
+    async def handle_call_tool(self, name, arguments):
+        if not isinstance(arguments, dict):
+            return result({'status': 'invalid_arguments'}, True)
+        if name == 'stop_music':
+            self.cancel_pending()
             self.stream_proxy.stop_current()
-            instruction_text = (
-                "[HỆ THỐNG: Đã dừng luồng stream trên máy tính. BẮT BUỘC: Hãy gọi tiếp tool "
-                "'self.audio.stop_playback' trên robot để dừng âm thanh ngay lập tức. "
-                "Tuyệt đối không lặp lại câu đã nói trước đó!]"
-            )
-            return {"content": [{"type": "text", "text": instruction_text}]}
+            return result({'status': 'stopped', 'next_tool': 'self.audio.stop_playback', 'arguments': {}})
+        if name == 'get_player_status':
+            return result(self.stream_proxy.public_status())
+        if name not in ('play_song', 'play_youtube_music', 'play_zing_mp3', 'search_music'):
+            return result({'status': 'unknown_tool'}, True)
+        query, artist = arguments.get('query', ''), arguments.get('artist', '')
+        source = arguments.get('source', 'all')
+        if not isinstance(query, str) or not 1 <= len(query.strip()) <= 256 or not isinstance(artist, str) or len(artist) > 120 or source not in ('all', 'youtube', 'zing'):
+            return result({'status': 'invalid_arguments', 'message': 'Cần tên bài/ca sĩ hợp lệ.'}, True)
+        query = query.strip()
+        if name == 'play_youtube_music': source = 'youtube'
+        if name == 'play_zing_mp3': source = 'zing'
+        if self._search_future is not None and not self._search_future.done():
+            return result({'status': 'busy', 'message': 'Đang tìm bài; có thể gọi stop_music để hủy.'}, True)
+        self._intent += 1
+        intent = self._intent
+        logger.info('Music request tool=%s query=%s artist=%s source=%s', name, query, artist, source)
+        try:
+            if name == 'search_music':
+                provider = self.zing_provider.search_suggestions if source == 'zing' else self.yt_provider.search_multiple
+                rows = await self._search(provider, (query + ' ' + artist).strip())
+                return result({'status': 'found', 'choices': rows[:5]})
+            provider = self.zing_provider if source == 'zing' else self.yt_provider
+            info = await self._search(provider.search_and_extract, query, artist)
+            if intent != self._intent:
+                return result({'status': 'cancelled'})
+            if not info and source == 'all':
+                info = await self._search(self.zing_provider.search_and_extract, query, artist)
+            if intent != self._intent:
+                return result({'status': 'cancelled'})
+            if not info or not info.get('audio_url'):
+                return result({'status': 'not_found', 'message': 'Không tìm thấy nguồn nhạc phù hợp.'}, True)
+            return self._build_play_response(info)
+        except AmbiguousMusic as exc:
+            return result({'status': 'needs_clarification', 'choices': exc.choices})
+        except asyncio.TimeoutError:
+            return result({'status': 'timeout', 'message': 'Nguồn nhạc phản hồi chậm.'}, True)
+        except Exception as exc:
+            logger.warning('Music request failed: %s', type(exc).__name__)
+            return result({'status': 'error', 'message': 'Không thể lấy nguồn nhạc; thử tên bài và ca sĩ rõ hơn.'}, True)
 
-        elif name == "get_player_status":
-            track = self.stream_proxy.current_track
-            if track.get("status") == "playing":
-                msg = f"Đang phát bài: {track.get('title')} của ca sĩ {track.get('artist')} ({track.get('duration_str')}) từ {track.get('source', 'YouTube')}."
-            elif track.get("status") == "ready":
-                msg = f"Đã sẵn sàng bài {track.get('title')} của ca sĩ {track.get('artist')}."
-            else:
-                msg = "Hiện tại robot đang không phát bài hát nào."
-            return {"content": [{"type": "text", "text": msg}]}
-
-        else:
-            return {"isError": True, "content": [{"type": "text", "text": f"Lệnh '{name}' không được hỗ trợ."}]}
+    def close(self):
+        self.cancel_pending()
+        self._executor.shutdown(wait=False, cancel_futures=True)

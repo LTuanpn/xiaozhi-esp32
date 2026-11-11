@@ -1,119 +1,111 @@
-import sys
 import asyncio
 import json
-import base64
-import aiohttp
-import websockets
-from config import MCP_ENDPOINT, LAN_IP, STREAM_PORT, STREAM_URL, FFMPEG_CMD
+import threading
+import unittest
+from unittest.mock import Mock
+from music_selection import choose_candidate
 from youtube_provider import YouTubeProvider
-from zingmp3_provider import ZingMP3Provider
-from stream_proxy import StreamProxy
 from mcp_handler import MCPHandler
-from server import handle_resource_read
+from server import dispatch, serve_connection
+from stream_proxy import StreamProxy
 
-if sys.stdout and hasattr(sys.stdout, 'reconfigure'):
-    sys.stdout.reconfigure(encoding='utf-8')
-if sys.stderr and hasattr(sys.stderr, 'reconfigure'):
-    sys.stderr.reconfigure(encoding='utf-8')
+def payload(reply):
+    return json.loads(reply['content'][0]['text'])
 
-async def test_youtube(yt: YouTubeProvider):
-    print("\n--- [TEST 1] Kiểm tra tìm kiếm và trích xuất YouTube ---", flush=True)
-    query = "Nắng ấm xa dần Sơn Tùng"
-    res = yt.search_and_extract(query)
-    assert res is not None, "Không tìm thấy kết quả YouTube!"
-    assert res.get('audio_url'), "Không có direct audio URL!"
-    assert res.get('user_agent'), "Không có user_agent!"
-    print(f"[PASS] YouTube: '{res['title']}' | Ca sĩ: '{res['artist']}' | Thời lượng: {res['duration_str']}", flush=True)
-    print(f"       User-Agent: {res['user_agent'][:50]}...", flush=True)
-    return res
+class SelectionTests(unittest.TestCase):
+    def test_correct_music_beats_unrelated_first_result(self):
+        rows = [{'title':'Kiến thức thú vị', 'artist':'Fun Facts', 'duration':300},
+                {'title':'SON TUNG M-TP x TYGA | COME MY WAY | OFFICIAL MUSIC VIDEO', 'artist':'Sơn Tùng M-TP Official', 'duration':235},
+                {'title':'Come My Way softer version', 'artist':'Sơn Tùng M-TP Official', 'duration':253}]
+        selected, _ = choose_candidate('come my way', 'Sơn Tùng MTP', rows)
+        self.assertIn('OFFICIAL MUSIC VIDEO', selected['title'])
 
-async def test_zingmp3(zing: ZingMP3Provider):
-    print("\n--- [TEST 2] Kiểm tra tìm kiếm Zing MP3 + Fallback ---", flush=True)
-    query = "See Tình Hoàng Thùy Linh"
-    res = zing.search_and_extract(query)
-    assert res is not None, "Không tìm thấy kết quả Zing MP3 / Fallback!"
-    assert res.get('audio_url'), "Không có audio URL!"
-    note = f" ({res.get('note')})" if res.get('note') else ""
-    print(f"[PASS] Zing MP3: '{res['title']}' | Nguồn: {res['source']}{note}", flush=True)
-    return res
+    def test_ambiguous_artist_does_not_autoplay(self):
+        selected, choices = choose_candidate('Hello', '', [
+            {'title':'Hello', 'artist':'Adele Official'}, {'title':'Hello','artist':'Lionel Richie Official'}])
+        self.assertIsNone(selected)
+        self.assertEqual(len(choices), 2)
 
-TEST_PORT = 8766
-TEST_STREAM_URL = f"http://{LAN_IP}:{TEST_PORT}/stream.ogg"
+    def test_no_match_does_not_autoplay(self):
+        selected, _ = choose_candidate('come my way', 'Son Tung', [{'title':'Kien thuc thu vi','artist':'News'}])
+        self.assertIsNone(selected)
 
-async def test_stream_proxy(proxy: StreamProxy, track: dict):
-    print("\n--- [TEST 3] Kiểm tra HTTP Audio Stream Proxy (FFmpeg -> Ogg Opus) ---", flush=True)
-    print(f"       FFmpeg Command: {FFMPEG_CMD} (System PATH)", flush=True)
-    await proxy.start()
-    proxy.set_track(track)
-    print(f"[PASS] Stream Proxy đã chạy tại {TEST_STREAM_URL}", flush=True)
+    def test_explicit_remix_is_allowed(self):
+        selected, _ = choose_candidate('Hello remix', 'Adele', [{'title':'Adele Hello remix','artist':'Adele Official'}])
+        self.assertIsNotNone(selected)
 
-    async with aiohttp.ClientSession() as session:
-        # Test status
-        async with session.get(f"http://127.0.0.1:{TEST_PORT}/status") as resp:
-            assert resp.status == 200
-            status = await resp.json()
-            assert status.get('status') == 'ready', f"Trạng thái không đúng: {status}"
-            print(f"[PASS] Trạng thái Track: {status['title']} - {status['status']}", flush=True)
+    def test_url_allowlist_and_video_id(self):
+        for url in ('http://127.0.0.1/admin', 'https://youtube.com.evil.test/watch?v=SlQR9iu09bQ', 'https://www.youtube.com/playlist?list=x'):
+            with self.assertRaises(ValueError): YouTubeProvider.video_url(url)
+        self.assertEqual(YouTubeProvider.video_url('https://youtu.be/SlQR9iu09bQ'), 'https://www.youtube.com/watch?v=SlQR9iu09bQ')
 
-        # Test actual live stream Ogg Opus generation
-        print("       Đang kiểm tra luồng phát thực tế stream.ogg...", flush=True)
-        async with session.get(f"http://127.0.0.1:{TEST_PORT}/stream.ogg") as stream_resp:
-            assert stream_resp.status == 200
-            assert stream_resp.headers.get('Content-Type') == 'audio/ogg'
-            first_chunk = await stream_resp.content.read(1024)
-            assert len(first_chunk) > 0, "Không nhận được dữ liệu stream!"
-            assert first_chunk[:4] == b'OggS', f"Header không đúng: {first_chunk[:4]}"
-            print(f"[PASS] Nhận được dữ liệu Ogg Opus thực tế: {len(first_chunk)} bytes, Header={first_chunk[:4]}", flush=True)
+class FakeWebSocket:
+    def __init__(self):
+        self.incoming = asyncio.Queue()
+        self.sent = asyncio.Queue()
+    def __aiter__(self): return self
+    async def __anext__(self):
+        value = await self.incoming.get()
+        if value is None: raise StopAsyncIteration
+        return json.dumps(value)
+    async def send(self, raw): await self.sent.put(json.loads(raw))
 
-        # Test resources/read handler
-        print("       Đang kiểm tra handler resources/read cho Xiaozhi Cloud...", flush=True)
-        read_res = await handle_resource_read({"uri": f"resource://read_from_http?url={TEST_STREAM_URL}&start=0&end=2048"}, session)
-        contents = read_res.get("contents", [])
-        assert len(contents) > 0
-        blob = contents[0].get("blob")
-        assert blob and len(blob) > 0
-        decoded = base64.b64decode(blob)
-        print(f"[PASS] resources/read Base64 chunk: {len(decoded)} bytes", flush=True)
+class HandlerTests(unittest.IsolatedAsyncioTestCase):
+    async def asyncSetUp(self):
+        self.proxy = StreamProxy()
+        self.provider = Mock()
+        self.handler = MCPHandler(self.proxy, self.provider, self.provider)
+    async def asyncTearDown(self):
+        self.handler.close()
+        await self.proxy.stop()
 
-    await proxy.stop()
+    async def test_invalid_arguments_are_errors(self):
+        for arguments in ([], {'query':[]}, {'query':'x','source':'bogus'}, {'query':'x'*257}):
+            self.assertTrue((await self.handler.handle_call_tool('play_song', arguments))['isError'])
 
-async def test_websocket_cloud():
-    print("\n--- [TEST 4] Kiểm tra kết nối WebSocket tới Xiaozhi Cloud Endpoint ---", flush=True)
-    print(f"Kết nối tới: {MCP_ENDPOINT[:40]}...", flush=True)
-    try:
-        async with websockets.connect(MCP_ENDPOINT, open_timeout=10) as ws:
-            print("[PASS] Kết nối WebSocket TCP/TLS thành công!", flush=True)
-            ping_req = {"jsonrpc": "2.0", "id": 999, "method": "ping"}
-            await ws.send(json.dumps(ping_req))
-            print("       Đã gửi JSON-RPC ping thành công...", flush=True)
-    except Exception as e:
-        print(f"[FAIL] Lỗi kết nối WebSocket: {e}", flush=True)
-        raise
+    async def test_play_result_uses_ticket_and_no_system_directive(self):
+        self.provider.search_and_extract.return_value = {'title':'Test','artist':'Artist','audio_url':'https://example.com/audio','source':'YouTube'}
+        reply = await self.handler.handle_call_tool('play_song', {'query':'Test'})
+        data = payload(reply)
+        self.assertEqual(data['status'], 'ready')
+        self.assertIn('/stream/', data['stream_url'])
+        self.assertEqual(data['next_tool'], 'self.audio.play_url')
+        self.assertNotIn('HỆ THỐNG', reply['content'][0]['text'])
 
-async def main():
-    print("==================================================================", flush=True)
-    print("   BẮT ĐẦU KIỂM THỬ NÂNG CẤP MCP MUSIC SERVER (PYTHON 3.13)   ", flush=True)
-    print("==================================================================", flush=True)
+    async def test_resources_read_is_not_exposed(self):
+        reply = await dispatch({'id':1,'method':'resources/read','params':{'url':'http://127.0.0.1'}}, self.handler)
+        self.assertEqual(reply['error']['code'], -32601)
 
-    yt = YouTubeProvider()
-    zing = ZingMP3Provider(yt)
-    proxy = StreamProxy(port=TEST_PORT)
+    async def test_ping_stop_and_duplicate_during_slow_search(self):
+        release = threading.Event()
+        started = threading.Event()
+        def slow(*args):
+            started.set()
+            release.wait(3)
+            return {'title':'Test','artist':'Artist','audio_url':'https://example.com/audio'}
+        self.provider.search_and_extract.side_effect = slow
+        ws = FakeWebSocket()
+        task = asyncio.create_task(serve_connection(ws, self.handler))
+        request = {'jsonrpc':'2.0','id':1,'method':'tools/call','params':{'name':'play_song','arguments':{'query':'Test'}}}
+        try:
+            await ws.incoming.put(request)
+            while not started.is_set(): await asyncio.sleep(.01)
+            await ws.incoming.put(request)
+            await ws.incoming.put({'jsonrpc':'2.0','id':2,'method':'ping'})
+            await ws.incoming.put({'jsonrpc':'2.0','id':3,'method':'tools/call','params':{'name':'stop_music'}})
+            replies = [await asyncio.wait_for(ws.sent.get(), 1), await asyncio.wait_for(ws.sent.get(), 1)]
+            self.assertEqual({r['id'] for r in replies}, {2,3})
+            release.set()
+            reply = await asyncio.wait_for(ws.sent.get(), 2)
+            self.assertEqual(payload(reply['result'])['status'], 'cancelled')
+            self.assertEqual(self.provider.search_and_extract.call_count, 1)
+            self.assertEqual(self.proxy.current_track['status'], 'stopped')
+            await ws.incoming.put(request)
+            cached = await asyncio.wait_for(ws.sent.get(), 1)
+            self.assertEqual(cached, reply)
+        finally:
+            release.set()
+            await ws.incoming.put(None)
+            await task
 
-    # 1. Test YouTube
-    yt_res = await test_youtube(yt)
-
-    # 2. Test Zing MP3
-    await test_zingmp3(zing)
-
-    # 3. Test Stream Proxy (Full live transcode + resources/read)
-    await test_stream_proxy(proxy, yt_res)
-
-    # 4. Test WebSocket Cloud Endpoint
-    await test_websocket_cloud()
-
-    print("\n==================================================================", flush=True)
-    print("   [TẤT CẢ CÁC BÀI TEST ĐÃ VƯỢT QUA 100% THÀNH CÔNG!]   ", flush=True)
-    print("==================================================================", flush=True)
-
-if __name__ == "__main__":
-    asyncio.run(main())
+if __name__ == '__main__': unittest.main()

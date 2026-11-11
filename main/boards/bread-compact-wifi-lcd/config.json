@@ -6,7 +6,6 @@
             "name": "bread-compact-wifi-lcd-240x240",
             "sdkconfig_append": [
                 "CONFIG_LCD_ST7789_240X240=y",
-                "CONFIG_SR_WN_WN9_JARVIS_TTS=y",
                 "CONFIG_LV_FONT_MONTSERRAT_20=y",
                 "CONFIG_LV_FONT_MONTSERRAT_24=y",
                 "CONFIG_LV_FONT_MONTSERRAT_32=y",
@@ -17,7 +16,6 @@
             "name": "bread-compact-wifi-lcd-240x320",
             "sdkconfig_append": [
                 "CONFIG_LCD_ST7789_240X320=y",
-                "CONFIG_SR_WN_WN9_JARVIS_TTS=y",
                 "CONFIG_LV_FONT_MONTSERRAT_20=y",
                 "CONFIG_LV_FONT_MONTSERRAT_24=y",
                 "CONFIG_LV_FONT_MONTSERRAT_32=y",
