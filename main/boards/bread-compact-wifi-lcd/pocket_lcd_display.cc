@@ -616,6 +616,13 @@ void PocketLcdDisplay::SetChatMessage(const char* role, const char* content) {
             emotion_mode_ = FaceModeFromEmotion(target_emotion.c_str());
             SetFaceMode(emotion_mode_);
             temporary_emotion_until_tick_ = animation_tick_ + (8000 / kAnimationPeriodMs);
+        } else {
+            FaceMode user_req_mode = InferEmotionFromText(clean_text.c_str());
+            if (user_req_mode != FaceMode::kNeutral) {
+                emotion_mode_ = user_req_mode;
+                SetFaceMode(emotion_mode_);
+                temporary_emotion_until_tick_ = animation_tick_ + (8000 / kAnimationPeriodMs);
+            }
         }
     }
 
@@ -2884,7 +2891,15 @@ void PocketLcdDisplay::ShowQrCode(const std::string& text, const std::string& ti
         lv_obj_add_flag(standby_container_, LV_OBJ_FLAG_HIDDEN);
     }
 
-    constexpr int kCanvasSize = 180;
+    auto backlight = Board::GetInstance().GetBacklight();
+    if (backlight != nullptr && !qr_backlight_dimmed_) {
+        uint8_t cur_b = backlight->brightness();
+        saved_backlight_brightness_ = (cur_b > 0) ? cur_b : 80;
+        backlight->SetBrightness(15); // Hạ đèn nền xuống 15% để camera điện thoại không bị cháy sáng
+        qr_backlight_dimmed_ = true;
+    }
+
+    constexpr int kCanvasSize = 192;
 
     if (qr_container_ == nullptr) {
         auto scr = lv_screen_active();
@@ -2892,7 +2907,7 @@ void PocketLcdDisplay::ShowQrCode(const std::string& text, const std::string& ti
         lv_obj_remove_style_all(qr_container_);
         lv_obj_set_size(qr_container_, 240, 240);
         lv_obj_set_pos(qr_container_, 0, 0);
-        lv_obj_set_style_bg_color(qr_container_, lv_color_hex(0x141416), 0);
+        lv_obj_set_style_bg_color(qr_container_, lv_color_hex(0x3A3A3C), 0);
         lv_obj_set_style_bg_opa(qr_container_, LV_OPA_COVER, 0);
 
         qr_title_label_ = lv_label_create(qr_container_);
@@ -2900,7 +2915,7 @@ void PocketLcdDisplay::ShowQrCode(const std::string& text, const std::string& ti
         lv_obj_set_style_text_color(qr_title_label_, lv_color_white(), 0);
         lv_obj_set_style_text_align(qr_title_label_, LV_TEXT_ALIGN_CENTER, 0);
         lv_obj_set_width(qr_title_label_, 228);
-        lv_obj_set_pos(qr_title_label_, 6, 5);
+        lv_obj_set_pos(qr_title_label_, 6, 4);
 
         qr_canvas_ = lv_canvas_create(qr_container_);
         if (qr_cbuf_ == nullptr) {
@@ -2913,14 +2928,14 @@ void PocketLcdDisplay::ShowQrCode(const std::string& text, const std::string& ti
             lv_canvas_set_buffer(qr_canvas_, qr_cbuf_, kCanvasSize, kCanvasSize, LV_COLOR_FORMAT_RGB565);
         }
         lv_obj_set_size(qr_canvas_, kCanvasSize, kCanvasSize);
-        lv_obj_set_pos(qr_canvas_, (240 - kCanvasSize) / 2, 26);
+        lv_obj_set_pos(qr_canvas_, (240 - kCanvasSize) / 2, 24);
 
         qr_url_label_ = lv_label_create(qr_container_);
         lv_label_set_long_mode(qr_url_label_, LV_LABEL_LONG_SCROLL_CIRCULAR);
         lv_obj_set_style_text_color(qr_url_label_, lv_color_hex(0x00E5FF), 0);
         lv_obj_set_style_text_align(qr_url_label_, LV_TEXT_ALIGN_CENTER, 0);
         lv_obj_set_width(qr_url_label_, 228);
-        lv_obj_set_pos(qr_url_label_, 6, 212);
+        lv_obj_set_pos(qr_url_label_, 6, 219);
     }
 
     lv_obj_remove_flag(qr_container_, LV_OBJ_FLAG_HIDDEN);
@@ -2935,7 +2950,8 @@ void PocketLcdDisplay::ShowQrCode(const std::string& text, const std::string& ti
     }
 
     if (qr_canvas_ != nullptr && qr_cbuf_ != nullptr) {
-        lv_canvas_fill_bg(qr_canvas_, lv_color_white(), LV_OPA_COVER);
+        lv_color_t c_light = lv_color_hex(0xD0D0D0);
+        lv_color_t c_dark = lv_color_black();
 
         std::vector<uint8_t> qrcode(qrcodegen_BUFFER_LEN_MAX);
         std::vector<uint8_t> tempBuffer(qrcodegen_BUFFER_LEN_MAX);
@@ -2943,25 +2959,22 @@ void PocketLcdDisplay::ShowQrCode(const std::string& text, const std::string& ti
                                        qrcodegen_Ecc_LOW, 1, 20, qrcodegen_Mask_AUTO, true);
         if (ok) {
             int qr_size = qrcodegen_getSize(qrcode.data());
-            int scale = (kCanvasSize - 16) / qr_size; // Đảm bảo lề trắng Quiet Zone >= 8px mỗi cạnh
+            int scale = (kCanvasSize - 24) / qr_size; // Luôn chừa lề Quiet Zone >= 12px mỗi cạnh
             if (scale < 1) scale = 1;
             int render_w = qr_size * scale;
             int offset_x = (kCanvasSize - render_w) / 2;
             int offset_y = (kCanvasSize - render_w) / 2;
 
-            for (int y = 0; y < qr_size; y++) {
-                for (int x = 0; x < qr_size; x++) {
-                    if (qrcodegen_getModule(qrcode.data(), x, y)) {
-                        for (int dy = 0; dy < scale; dy++) {
-                            for (int dx = 0; dx < scale; dx++) {
-                                int px = offset_x + x * scale + dx;
-                                int py = offset_y + y * scale + dy;
-                                if (px >= 0 && px < kCanvasSize && py >= 0 && py < kCanvasSize) {
-                                    lv_canvas_set_px(qr_canvas_, px, py, lv_color_black(), LV_OPA_COVER);
-                                }
-                            }
-                        }
+            for (int py = 0; py < kCanvasSize; ++py) {
+                for (int px = 0; px < kCanvasSize; ++px) {
+                    bool is_dark = false;
+                    if (px >= offset_x && px < offset_x + render_w &&
+                        py >= offset_y && py < offset_y + render_w) {
+                        int qx = (px - offset_x) / scale;
+                        int qy = (py - offset_y) / scale;
+                        is_dark = qrcodegen_getModule(qrcode.data(), qx, qy);
                     }
+                    lv_canvas_set_px(qr_canvas_, px, py, is_dark ? c_dark : c_light, LV_OPA_COVER);
                 }
             }
         }
@@ -2984,6 +2997,13 @@ void PocketLcdDisplay::HideQrCode(bool force) {
     qr_until_tick_ = 0;
     if (qr_container_ != nullptr) {
         lv_obj_add_flag(qr_container_, LV_OBJ_FLAG_HIDDEN);
+    }
+    if (qr_backlight_dimmed_) {
+        auto backlight = Board::GetInstance().GetBacklight();
+        if (backlight != nullptr) {
+            backlight->SetBrightness(saved_backlight_brightness_);
+        }
+        qr_backlight_dimmed_ = false;
     }
 }
 

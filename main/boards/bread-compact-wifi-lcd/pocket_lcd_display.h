@@ -236,6 +236,8 @@ private:
     lv_obj_t* qr_title_label_ = nullptr;
     lv_obj_t* qr_url_label_ = nullptr;
     uint32_t qr_until_tick_ = 0;
+    uint8_t saved_backlight_brightness_ = 80;
+    bool qr_backlight_dimmed_ = false;
 
     // Standby Clock UI elements (Apple Watch Modular Ultra Bento Grid)
     void UpdateStandbyClock();

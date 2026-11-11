@@ -76,6 +76,7 @@ private:
     esp_timer_handle_t guard_timer_ = nullptr;
     esp_timer_handle_t workout_timer_ = nullptr;
     bool guard_mode_active_ = false;
+    int guard_arm_countdown_ = 0;
     int workout_remaining_sec_ = 0;
 
     void InitializeSpi() {
@@ -191,7 +192,7 @@ private:
                         display_->SetCountdownTimer(0, "IDLE");
                         display_->ShowNotification("Đã hủy hẹn giờ", 3000);
                     }
-                    return "Đã hủy bộ đếm ngược";
+                    return "Đã hủy bộ đếm ngược [HỆ THỐNG: Nếu trước khi gọi tool bạn ĐÃ trả lời người dùng rồi thì kết thúc lượt NGAY LẬP TỨC, TUYỆT ĐỐI KHÔNG nói lặp lại!]";
                 }
 
                 esp_timer_start_once(countdown_timer_, static_cast<uint64_t>(seconds) * 1000000ULL);
@@ -202,7 +203,7 @@ private:
                     display_->ShowNotification(notify_msg.c_str(), 5000);
                     display_->SetEmotion("target");
                 }
-                return "Đã bật đếm ngược " + std::to_string(seconds) + " giây cho: " + label;
+                return "Đã bật đếm ngược " + std::to_string(seconds) + " giây cho: " + label + " [HỆ THỐNG: Nếu trước khi gọi tool bạn ĐÃ trả lời người dùng rồi thì kết thúc lượt NGAY LẬP TỨC, TUYỆT ĐỐI KHÔNG nói lặp lại!]";
             }
         );
 
@@ -230,11 +231,14 @@ private:
                     lower_text.find("chế độ chờ") != std::string::npos ||
                     lower_text.find("dong ho") != std::string::npos ||
                     lower_text.find("đồng hồ") != std::string::npos) {
-                    Application::GetInstance().SetDeviceState(kDeviceStateIdle);
+                    Application::GetInstance().Schedule([]() {
+                        Application::GetInstance().StopListening();
+                        Application::GetInstance().SetDeviceState(kDeviceStateIdle);
+                    });
                     if (display_ != nullptr) {
                         display_->ShowStandbyClock(true /* manual_lock */);
                     }
-                    return "[Hệ thống: Đã chuyển sang màn hình chờ đồng hồ. BẮT BUỘC: Không gọi thêm tool nào khác!]";
+                    return "[Hệ thống: Đã chuyển sang màn hình chờ đồng hồ. BẮT BUỘC: Không gọi thêm tool nào khác! Nếu trước khi gọi tool bạn ĐÃ trả lời người dùng rồi thì kết thúc lượt NGAY LẬP TỨC, TUYỆT ĐỐI KHÔNG nói lặp lại!]";
                 }
 
                 // TRƯỜNG HỢP 1: Yêu cầu hiển thị Mã QR
@@ -304,7 +308,7 @@ private:
                     return "Thông tin mạng phần cứng hiện tại: WiFi = " + (ssid.empty() ? "Chưa kết nối" : ssid) +
                            ", Mật khẩu = " + pwd +
                            ", Địa chỉ IP = " + (ip.empty() ? "Chưa nhận IP" : ip) +
-                           ", Cường độ sóng = " + std::to_string(rssi) + "dBm. Đã ghim thông tin lên màn hình.";
+                           ", Cường độ sóng = " + std::to_string(rssi) + "dBm. Đã ghim thông tin lên màn hình. [HỆ THỐNG: Nếu trước khi gọi tool bạn ĐÃ trả lời người dùng rồi thì kết thúc lượt NGAY LẬP TỨC, TUYỆT ĐỐI KHÔNG nói lặp lại!]";
                 }
 
                 // TRƯỜNG HỢP 3: Ghim ghi chú văn bản thông thường
@@ -314,7 +318,7 @@ private:
                     display_->ShowNotification(pinned.c_str(), duration * 1000);
                     display_->SetEmotion("idea");
                 }
-                return "Đã ghim nội dung lên màn hình: " + text;
+                return "Đã ghim nội dung lên màn hình: " + text + " [HỆ THỐNG: Nếu trước khi gọi tool bạn ĐÃ trả lời người dùng rồi thì kết thúc lượt NGAY LẬP TỨC, TUYỆT ĐỐI KHÔNG nói lặp lại!]";
             }
         );
 
@@ -326,8 +330,8 @@ private:
             [](const PropertyList& properties) -> ReturnValue {
                 bool enable = properties["enable"].value<bool>();
                 Application::GetInstance().SetAecMode(enable ? kAecOnServerSide : kAecOff);
-                return enable ? "Đã bật chế độ Realtime (cho phép ngắt lời)" 
-                              : "Đã chuyển về chế độ đàm thoại tiêu chuẩn";
+                return enable ? "Đã bật chế độ Realtime (cho phép ngắt lời) [HỆ THỐNG: Nếu trước khi gọi tool bạn ĐÃ trả lời người dùng rồi thì kết thúc lượt NGAY LẬP TỨC, TUYỆT ĐỐI KHÔNG nói lặp lại!]" 
+                              : "Đã chuyển về chế độ đàm thoại tiêu chuẩn [HỆ THỐNG: Nếu trước khi gọi tool bạn ĐÃ trả lời người dùng rồi thì kết thúc lượt NGAY LẬP TỨC, TUYỆT ĐỐI KHÔNG nói lặp lại!]";
             }
         );
 
@@ -371,7 +375,7 @@ private:
                         display_->SetEmotion("neutral");
                     }
                 });
-                return "Đã dừng phát âm thanh";
+                return "Đã dừng phát âm thanh [HỆ THỐNG: Nếu trước khi gọi tool bạn ĐÃ trả lời người dùng rồi thì kết thúc lượt NGAY LẬP TỨC, TUYỆT ĐỐI KHÔNG nói lặp lại!]";
             }
         );
 
@@ -392,11 +396,15 @@ private:
                         display_->SetEmotion("neutral");
                         display_->ShowNotification("[CANH GAC] Da tat canh phong", 3000);
                     }
-                    return "Đã tắt chế độ canh phòng";
+                    return "Đã tắt chế độ canh phòng [HỆ THỐNG: Nếu trước khi gọi tool bạn ĐÃ trả lời người dùng rồi thì kết thúc lượt NGAY LẬP TỨC, TUYỆT ĐỐI KHÔNG nói lặp lại!]";
                 }
 
-                // Chuyển bot sang Idle ngay lập tức để không kẹt ở Listening
-                Application::GetInstance().SetDeviceState(kDeviceStateIdle);
+                // Chuyển bot sang Idle và ngắt phiên thu âm ngay lập tức
+                guard_arm_countdown_ = 120; // 6s trễ vũ trang
+                Application::GetInstance().Schedule([]() {
+                    Application::GetInstance().StopListening();
+                    Application::GetInstance().SetDeviceState(kDeviceStateIdle);
+                });
 
                 if (display_ != nullptr) {
                     auto* p_disp = static_cast<PocketLcdDisplay*>(display_);
@@ -411,6 +419,13 @@ private:
                             auto* board = static_cast<CompactWifiBoardLCD*>(arg);
                             auto& app = Application::GetInstance();
                             if (board->guard_mode_active_) {
+                                if (board->guard_arm_countdown_ > 0) {
+                                    board->guard_arm_countdown_--;
+                                    return;
+                                }
+                                if (app.GetDeviceState() == kDeviceStateSpeaking) {
+                                    return; // Bỏ qua mic khi robot đang nói
+                                }
                                 uint8_t mic_lvl = app.GetAudioService().GetInputLevel();
                                 if (mic_lvl > 25) { // Bắt xung tiếng vỗ tay / bước chân nhạy bén!
                                     board->guard_mode_active_ = false;
@@ -435,7 +450,7 @@ private:
                     esp_timer_create(&timer_args, &guard_timer_);
                 }
                 esp_timer_start_periodic(guard_timer_, 50 * 1000); // Kiểm tra mỗi 50ms bắt trúng đỉnh xung vỗ tay!
-                return "Đã kích hoạt chế độ canh gác phòng bằng cảm biến âm thanh";
+                return "Đã kích hoạt chế độ canh gác phòng bằng cảm biến âm thanh [HỆ THỐNG: Nếu trước khi gọi tool bạn ĐÃ trả lời người dùng rồi thì kết thúc lượt NGAY LẬP TỨC, TUYỆT ĐỐI KHÔNG nói lặp lại!]";
             }
         );
 
@@ -494,7 +509,7 @@ private:
                 if (display_ != nullptr) {
                     display_->SetEmotion("excited");
                 }
-                return "Đã bắt đầu đếm hiệp tập " + std::to_string(workout_remaining_sec_) + " giây";
+                return "Đã bắt đầu đếm hiệp tập " + std::to_string(workout_remaining_sec_) + " giây [HỆ THỐNG: Nếu trước khi gọi tool bạn ĐÃ trả lời người dùng rồi thì kết thúc lượt NGAY LẬP TỨC, TUYỆT ĐỐI KHÔNG nói lặp lại!]";
             }
         );
 
@@ -530,7 +545,7 @@ private:
                     std::string result_msg = "[CHOT] " + chosen;
                     display_->ShowNotification(result_msg.c_str(), 10000);
                 }
-                return "Kết quả bốc thăm ngẫu nhiên từ phần cứng là: " + chosen;
+                return "Kết quả bốc thăm ngẫu nhiên từ phần cứng là: " + chosen + " [HỆ THỐNG: Nếu trước khi gọi tool bạn ĐÃ trả lời người dùng rồi thì kết thúc lượt NGAY LẬP TỨC, TUYỆT ĐỐI KHÔNG nói lặp lại!]";
             }
         );
 
@@ -554,7 +569,7 @@ private:
                         display_->ShowNotification(outcome.c_str(), 8000);
                     }
                     Application::GetInstance().PlaySound(Lang::Sounds::OGG_SUCCESS);
-                    return "Kết quả tung đồng xu: " + outcome;
+                    return "Kết quả tung đồng xu: " + outcome + " [HỆ THỐNG: Nếu trước khi gọi tool bạn ĐÃ trả lời người dùng rồi thì kết thúc lượt NGAY LẬP TỨC, TUYỆT ĐỐI KHÔNG nói lặp lại!]";
                 } else {
                     int roll = static_cast<int>((esp_random() % sides) + 1);
                     std::string outcome = "[XUC XAC] " + std::to_string(roll) + " / d" + std::to_string(sides);
@@ -563,7 +578,7 @@ private:
                         display_->ShowNotification(outcome.c_str(), 8000);
                     }
                     Application::GetInstance().PlaySound(roll == sides ? Lang::Sounds::OGG_SUCCESS : Lang::Sounds::OGG_POPUP);
-                    return "Kết quả đổ xúc xắc " + std::to_string(sides) + " mặt: " + outcome;
+                    return "Kết quả đổ xúc xắc " + std::to_string(sides) + " mặt: " + outcome + " [HỆ THỐNG: Nếu trước khi gọi tool bạn ĐÃ trả lời người dùng rồi thì kết thúc lượt NGAY LẬP TỨC, TUYỆT ĐỐI KHÔNG nói lặp lại!]";
                 }
             }
         );
@@ -577,7 +592,10 @@ private:
             [this](const PropertyList& properties) -> ReturnValue {
                 bool enable = properties["enable"].value<bool>();
                 if (enable) {
-                    Application::GetInstance().SetDeviceState(kDeviceStateIdle);
+                    Application::GetInstance().Schedule([]() {
+                        Application::GetInstance().StopListening();
+                        Application::GetInstance().SetDeviceState(kDeviceStateIdle);
+                    });
                 }
                 if (display_ != nullptr) {
                     auto* p_disp = static_cast<PocketLcdDisplay*>(display_);
@@ -587,7 +605,7 @@ private:
                         p_disp->HideStandbyClock(true /* force */);
                     }
                 }
-                return enable ? "[Hệ thống: Đã chuyển sang màn hình chờ đồng hồ. BẮT BUỘC: Không gọi thêm tool nào khác!]" : "Đã đánh thức robot trở lại trạng thái sẵn sàng";
+                return enable ? "[Hệ thống: Đã chuyển sang màn hình chờ đồng hồ. BẮT BUỘC: Không gọi thêm tool nào khác! Nếu trước khi gọi tool bạn ĐÃ trả lời người dùng rồi thì kết thúc lượt NGAY LẬP TỨC, TUYỆT ĐỐI KHÔNG nói lặp lại!]" : "Đã đánh thức robot trở lại trạng thái sẵn sàng [HỆ THỐNG: Nếu trước khi gọi tool bạn ĐÃ trả lời người dùng rồi thì kết thúc lượt NGAY LẬP TỨC, TUYỆT ĐỐI KHÔNG nói lặp lại!]";
             }
         );
 
@@ -645,19 +663,9 @@ private:
                 if (display_ != nullptr) {
                     display_->ShowQrCode(url, title, duration * 1000);
                 }
-                return "Đã hiển thị mã QR lên màn hình: " + url + ". Người dùng có thể quét bằng điện thoại.";
+                return "Đã hiển thị mã QR lên màn hình: " + url + ". Người dùng có thể quét bằng điện thoại. [HỆ THỐNG: Nếu trước khi gọi tool bạn ĐÃ trả lời người dùng rồi thì kết thúc lượt NGAY LẬP TỨC, TUYỆT ĐỐI KHÔNG nói lặp lại!]";
             }
         );
-
-        mcp_server.AddTool("self.screen.set_emotion", "Chỉ gọi khi người dùng ra lệnh trực tiếp yêu cầu đổi biểu cảm khuôn mặt (ví dụ: 'làm mặt giận đi'). TUYỆT ĐỐI KHÔNG tự ý gọi tool này khi đang chào hỏi hoặc trò chuyện bình thường.",
-            PropertyList({Property("emotion", kPropertyTypeString, "happy")}),
-            [this](const PropertyList& properties) -> ReturnValue {
-                std::string emotion = properties["emotion"].value<std::string>();
-                if (display_ != nullptr) {
-                    display_->SetEmotion(emotion.c_str());
-                }
-                return "[Hệ thống: Đã đổi biểu cảm. Nếu bạn đã nói lời chào hoặc trả lời người dùng trước khi gọi tool này thì DỪNG LẠI, TUYỆT ĐỐI KHÔNG nói lặp lại câu vừa nói!]";
-            });
     }
 
     void InitializeSerialCli() {
