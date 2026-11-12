@@ -728,50 +728,73 @@ private:
     }
 
     void InitializeSerialCli() {
-        xTaskCreate([](void* arg) {
-            auto* display = static_cast<PocketLcdDisplay*>(arg);
-            char buf[128];
-            int idx = 0;
-            while (true) {
-                int c = getchar();
-                if (c != EOF && c > 0) {
-                    if (c == '\r' || c == '\n') {
-                        if (idx > 0) {
-                            buf[idx] = '\0';
-                            ESP_LOGI(TAG, "Serial CLI command: %s", buf);
-                            if (display != nullptr) {
-                                if (std::strncmp(buf, "qr", 2) == 0) {
-                                    std::string url = (std::strlen(buf) > 3) ? (buf + 3) : "http://192.168.1.100";
-                                    display->ShowQrCode(url, "TEST QR CODE", 30000);
-                                } else if (std::strcmp(buf, "standby") == 0) {
-                                    display->ShowStandbyClock(true);
-                                } else if (std::strcmp(buf, "wake") == 0) {
-                                    display->HideStandbyClock(true);
-                                } else if (std::strncmp(buf, "play ", 5) == 0) {
-                                    std::string play_url = buf + 5;
-                                    display->SetEmotion("music");
-                                    auto& app = Application::GetInstance();
-                                    app.Schedule([&app, play_url]() {
-                                        app.StartNotification(play_url, {});
-                                    });
-                                } else {
-                                    const char* cmd = buf;
-                                    if (std::strncmp(cmd, "face ", 5) == 0) {
-                                        cmd += 5;
-                                    }
-                                    display->SetEmotion(cmd);
-                                }
+        xTaskCreate(
+            [](void* arg) {
+                auto* display = static_cast<PocketLcdDisplay*>(arg);
+                char buf[1024];
+                int idx = 0;
+                bool overflow = false;
+                while (true) {
+                    int c = getchar();
+                    if (c != EOF && c > 0) {
+                        if (c == '\r' || c == '\n') {
+                            if (overflow) {
+                                idx = 0;
+                                overflow = false;
+                                ESP_LOGW(TAG, "Serial CLI input too long; discarded");
+                                continue;
                             }
-                            idx = 0;
+                            if (idx > 0) {
+                                buf[idx] = '\0';
+                                if (buf[0] == '{') {
+                                    // Exercise the same validated dispatcher as Cloud, with replies
+                                    // sent only to USB serial. DoToolCall schedules mutations on
+                                    // main.
+                                    McpServer::GetInstance().ParseMessage(
+                                        std::string(buf), [](const std::string& response) {
+                                            printf("MCPCLI %s\n", response.c_str());
+                                        });
+                                } else if (display != nullptr) {
+                                    ESP_LOGI(TAG, "Serial CLI display command");
+                                    if (std::strncmp(buf, "qr", 2) == 0) {
+                                        std::string url = (std::strlen(buf) > 3)
+                                                              ? (buf + 3)
+                                                              : "http://192.168.1.100";
+                                        display->ShowQrCode(url, "TEST QR CODE", 30000);
+                                    } else if (std::strcmp(buf, "standby") == 0) {
+                                        display->ShowStandbyClock(true);
+                                    } else if (std::strcmp(buf, "wake") == 0) {
+                                        display->HideStandbyClock(true);
+                                    } else if (std::strncmp(buf, "play ", 5) == 0) {
+                                        std::string play_url = buf + 5;
+                                        display->SetEmotion("music");
+                                        auto& app = Application::GetInstance();
+                                        app.Schedule([&app, play_url]() {
+                                            app.StartNotification(play_url, {});
+                                        });
+                                    } else {
+                                        const char* cmd = buf;
+                                        if (std::strncmp(cmd, "face ", 5) == 0) {
+                                            cmd += 5;
+                                        }
+                                        if (!display->SetManualEmotion(cmd)) {
+                                            ESP_LOGW(TAG, "Serial CLI unsupported emotion");
+                                        }
+                                    }
+                                }
+                                idx = 0;
+                            }
+                        } else if (idx < static_cast<int>(sizeof(buf)) - 1) {
+                            buf[idx++] = static_cast<char>(c);
+                        } else {
+                            overflow = true;
                         }
-                    } else if (idx < static_cast<int>(sizeof(buf)) - 1) {
-                        buf[idx++] = static_cast<char>(c);
+                    } else {
+                        vTaskDelay(pdMS_TO_TICKS(50));
                     }
-                } else {
-                    vTaskDelay(pdMS_TO_TICKS(50));
                 }
-            }
-        }, "serial_cli_lcd", 3072, display_, 1, nullptr);
+            },
+            "serial_cli_lcd", 4096, display_, 1, nullptr);
     }
 
 public:

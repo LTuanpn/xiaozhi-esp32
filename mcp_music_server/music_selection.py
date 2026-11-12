@@ -5,7 +5,8 @@ from difflib import SequenceMatcher
 
 def normalize(text):
     text = unicodedata.normalize('NFKD', text.lower().replace('đ', 'd'))
-    return ' '.join(re.sub(r'[^a-z0-9]+', ' ', ''.join(c for c in text if not unicodedata.combining(c))).split())
+    normalized = ' '.join(re.sub(r'[^a-z0-9]+', ' ', ''.join(c for c in text if not unicodedata.combining(c))).split())
+    return re.sub(r'\bm tp\b', 'mtp', normalized)
 
 def score_candidate(query, artist, item):
     q = normalize(query)
@@ -24,10 +25,14 @@ def score_candidate(query, artist, item):
     exact = q in title
     artist_tokens = set(normalize(artist).split())
     artist_match = len(artist_tokens & set((title + ' ' + channel).split())) / len(artist_tokens) if artist_tokens else recall
-    source = 1.0 if any(x in channel for x in ('official', 'topic')) else 0.5
-    score = .65 * recall + .25 * artist_match + .10 * source
+    # Do not saturate both official uploads and fan reuploads at 1.0:
+    # title equality alone must not erase the channel preference.
+    channel_tokens = set(channel.split())
+    channel_matches_artist = not artist_tokens or artist_tokens.issubset(channel_tokens)
+    source = 1.0 if channel_matches_artist and any(x in channel_tokens for x in ('official', 'topic')) else .25
+    score = .55 * recall + .25 * artist_match + .20 * source
     if exact:
-        score = min(1.0, score + .05)
+        score += .03
     for variant in ('cover', 'remix', 'karaoke', 'live', 'reaction', 'review', 'softer', 'speed', 'slowed'):
         if variant in title.split() and variant not in q.split():
             score -= .24
@@ -46,7 +51,8 @@ def choose_candidate(query, artist, items):
         return None, ranked[:3]
     if len(ranked) > 1 and ranked[0]['match_score'] - ranked[1]['match_score'] < .08:
         # Duplicate uploads of a near-identical title are interchangeable only when the channel matches.
-        same_artist = normalize(ranked[0].get('artist', '')) == normalize(ranked[1].get('artist', ''))
+        first_artist = normalize(ranked[0].get('artist', ''))
+        same_artist = bool(first_artist) and first_artist == normalize(ranked[1].get('artist', ''))
         similar = SequenceMatcher(None, normalize(ranked[0]['title']), normalize(ranked[1]['title'])).ratio() > .9
         if not (same_artist and similar):
             return None, ranked[:3]

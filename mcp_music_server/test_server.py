@@ -26,6 +26,18 @@ class SelectionTests(unittest.TestCase):
         self.assertIsNone(selected)
         self.assertEqual(len(choices), 2)
 
+    def test_official_channel_beats_fan_reupload_with_identical_title(self):
+        rows = [
+            {'title':'SON TUNG M-TP x TYGA | COME MY WAY | LOI VIET | OFFICIAL MUSIC VIDEO',
+             'artist':'SKY M-TP Fans', 'video_id':'fan'},
+            {'title':'SON TUNG M-TP x TYGA | COME MY WAY | OFFICIAL MUSIC VIDEO',
+             'artist':'Sơn Tùng M-TP Official and Tyga', 'video_id':'official'},
+            {'title':'SON TUNG M-TP | MAKING MY WAY | OFFICIAL VISUALIZER',
+             'artist':'Sơn Tùng M-TP Official', 'video_id':'different-song'}]
+        for artist in ('Sơn Tùng M-TP', 'Son Tung MTP'):
+            selected, _ = choose_candidate('Come My Way', artist, rows)
+            self.assertEqual(selected['video_id'], 'official')
+
     def test_no_match_does_not_autoplay(self):
         selected, _ = choose_candidate('come my way', 'Son Tung', [{'title':'Kien thuc thu vi','artist':'News'}])
         self.assertIsNone(selected)
