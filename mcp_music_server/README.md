@@ -14,6 +14,8 @@ FFMPEG_CMD=ffmpeg
 
 `STREAM_HOST` phải là IP/tên máy robot truy cập được; robot và máy server cần thông mạng. Chỉ mở cổng stream trên mạng tin cậy. Không commit endpoint/token. Token cũ từng nằm trong source cần thu hồi và tạo lại trên Xiaozhi Cloud; di chuyển vào `.env` không thu hồi credential đã công khai.
 
+Nếu bỏ trống `STREAM_HOST`, server tự dò lại IP LAN mỗi khi chuẩn bị bài mới, kể cả khi máy vừa đổi Wi-Fi. Nếu đặt IP/tên máy cố định, giá trị đó được giữ nguyên và bạn cần cập nhật khi đổi mạng. Sau khi đổi mạng, robot cũng phải được cấu hình vào mạng mới; cơ chế này không tự sửa Wi-Fi của robot.
+
 `play_song(query, artist, source)` tìm tối đa 5 ứng viên, đánh giá tên/ca sĩ/phiên bản rồi mới lấy audio. Trả `ready` cùng URL riêng cho bài và bước gọi `self.audio.play_url`; đây là nguồn đã chuẩn bị, chưa phải xác nhận loa đã phát. Kết quả mơ hồ trả `needs_clarification`, không tự chọn video khác chủ đề. Alias `play_youtube_music`, `play_zing_mp3` được giữ cho cấu hình Cloud cũ.
 
 Một worker tìm kiếm, tối đa 8 request MCP đang xử lý; timeout không tạo thêm worker vô hạn. Kết quả request được cache theo ID trong từng kết nối (64 ID, 120 giây). `stop_music` hủy ý định tìm bài trước đó, dừng FFmpeg và yêu cầu Cloud gọi `self.audio.stop_playback` để xóa buffer trên robot. Lệnh mới dùng ID mới; không khử trùng theo nội dung câu nói.

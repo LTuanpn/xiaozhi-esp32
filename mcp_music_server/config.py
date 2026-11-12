@@ -21,7 +21,8 @@ def get_lan_ip():
 MCP_ENDPOINT = os.environ.get("MCP_ENDPOINT", "").strip()
 STREAM_PORT = int(os.environ.get("STREAM_PORT", "8765"))
 LAN_IP = get_lan_ip()
-STREAM_HOST = os.environ.get("STREAM_HOST", "").strip() or LAN_IP
+STREAM_HOST_OVERRIDE = os.environ.get("STREAM_HOST", "").strip()
+STREAM_HOST = STREAM_HOST_OVERRIDE or LAN_IP
 STREAM_URL = f"http://{STREAM_HOST}:{STREAM_PORT}/stream.ogg"
 ADMIN_TOKEN = os.environ.get("MUSIC_ADMIN_TOKEN", "")
 AUDIO_SAMPLE_RATE = 16000

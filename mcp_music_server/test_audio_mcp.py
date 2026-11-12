@@ -25,6 +25,21 @@ class ProxyTests(unittest.IsolatedAsyncioTestCase):
         self.assertNotIn('audio_url', self.proxy.public_status())
         self.assertNotIn('ticket', self.proxy.public_status())
 
+    async def test_stream_url_tracks_network_changes_and_actual_port(self):
+        self.proxy.port = 9876
+        with patch('stream_proxy.STREAM_HOST_OVERRIDE', ''), patch('stream_proxy.get_lan_ip',
+                side_effect=['192.168.1.10', '192.168.198.10']):
+            first = self.proxy.set_track(self.track)
+            second = self.proxy.set_track(self.track)
+        self.assertTrue(first.startswith('http://192.168.1.10:9876/stream/'))
+        self.assertTrue(second.startswith('http://192.168.198.10:9876/stream/'))
+
+    async def test_explicit_stream_host_is_preserved(self):
+        with patch('stream_proxy.STREAM_HOST_OVERRIDE', 'music.example.test'), patch('stream_proxy.get_lan_ip') as lookup:
+            url = self.proxy.set_track(self.track)
+            lookup.assert_not_called()
+        self.assertTrue(url.startswith('http://music.example.test:'))
+
     async def test_admin_is_denied_without_credentials(self):
         request = Mock(headers={})
         with self.assertRaises(web.HTTPForbidden): await self.proxy.handle_stop(request)

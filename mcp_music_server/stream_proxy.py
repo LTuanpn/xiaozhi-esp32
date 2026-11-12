@@ -7,7 +7,7 @@ import sys
 import time
 from urllib.parse import urlsplit
 from aiohttp import web
-from config import STREAM_PORT, STREAM_URL, ADMIN_TOKEN, AUDIO_SAMPLE_RATE, AUDIO_BITRATE, AUDIO_CHANNELS, FFMPEG_CMD
+from config import STREAM_PORT, STREAM_HOST_OVERRIDE, get_lan_ip, ADMIN_TOKEN, AUDIO_SAMPLE_RATE, AUDIO_BITRATE, AUDIO_CHANNELS, FFMPEG_CMD
 
 logger = logging.getLogger(__name__)
 
@@ -59,7 +59,12 @@ class StreamProxy:
         self._ticket = secrets.token_urlsafe(24)
         self._expires = time.monotonic() + 3600
         self.current_track = {**info, 'status': 'ready'}
-        return STREAM_URL.rsplit('/', 1)[0] + f'/stream/{self._ticket}.ogg'
+        # The PC may move between Wi-Fi networks while the MCP websocket reconnects.
+        # Refresh the automatic LAN address for each track; preserve an explicit host.
+        host = STREAM_HOST_OVERRIDE or get_lan_ip()
+        if ':' in host and not host.startswith('['):
+            host = '[' + host + ']'
+        return f'http://{host}:{self.port}/stream/{self._ticket}.ogg'
 
     def public_status(self):
         return {k: self.current_track.get(k) for k in
