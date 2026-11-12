@@ -44,12 +44,20 @@ def main():
             while time.monotonic() < end:
                 read_line()
 
+        def send_line(line):
+            # The console may use the UART FIFO without a larger RX ring. Pace
+            # longer JSON requests so the 50 ms getchar polling cannot overrun it.
+            data = (line + '\n').encode('utf-8')
+            for offset in range(0, len(data), 16):
+                connection.write(data[offset:offset+16])
+                time.sleep(.015)
+
         def call(name, arguments, expect_error=False):
             nonlocal request_id
             request_id += 1
             request = {'jsonrpc':'2.0', 'id':request_id, 'method':'tools/call',
                        'params':{'name':name, 'arguments':arguments}}
-            connection.write((json.dumps(request, ensure_ascii=False)+'\n').encode('utf-8'))
+            send_line(json.dumps(request, ensure_ascii=False, separators=(',',':')))
             deadline = time.monotonic() + 8
             while time.monotonic() < deadline:
                 line = read_line()
@@ -64,6 +72,7 @@ def main():
                 return response
             raise TimeoutError(f'No serial MCP response for {name}')
 
+        send_line('')
         pump(1)
         for emotion in EMOTIONS:
             call('self.screen.set_emotion', {'emotion':emotion, 'duration_seconds':1})
@@ -79,7 +88,7 @@ def main():
             pump(3)
             print('Timer expiry/cancel sequence completed; verify sound and Local alarm log')
         if args.qr:
-            connection.write(b'qr https://example.com\n')
+            call('self.screen.show_qr', {'url':'https://example.com', 'duration_seconds':300})
             pump(3)
             print('Test QR https://example.com displayed request sent; scan with a real phone')
         pump(2)

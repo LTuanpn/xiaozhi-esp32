@@ -728,6 +728,9 @@ private:
     }
 
     void InitializeSerialCli() {
+        // The polling console must deliver short lines without waiting for stdio's
+        // input buffer to fill with a later command.
+        setvbuf(stdin, nullptr, _IONBF, 0);
         xTaskCreate(
             [](void* arg) {
                 auto* display = static_cast<PocketLcdDisplay*>(arg);
@@ -753,6 +756,7 @@ private:
                                     McpServer::GetInstance().ParseMessage(
                                         std::string(buf), [](const std::string& response) {
                                             printf("MCPCLI %s\n", response.c_str());
+                                            fflush(stdout);
                                         });
                                 } else if (display != nullptr) {
                                     ESP_LOGI(TAG, "Serial CLI display command");
