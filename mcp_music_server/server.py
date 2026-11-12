@@ -2,8 +2,10 @@
 import asyncio
 import json
 import logging
+import os
 import time
 from collections import OrderedDict
+from pathlib import Path
 import websockets
 from config import MCP_ENDPOINT, STREAM_PORT
 from stream_proxy import StreamProxy
@@ -95,25 +97,43 @@ async def run_server():
     yt = YouTubeProvider()
     proxy = StreamProxy(STREAM_PORT)
     handler = MCPHandler(proxy, yt, ZingMP3Provider(yt))
-    await proxy.start()
+    fleet = None
+    if os.getenv("FLEET_ENABLED") == "1":
+        from fleet import Fleet
+        fleet = Fleet(Path(__file__).resolve().parents[1] / ".fleet-data", proxy, handler)
+        fleet.attach(proxy.app)
     backoff = 2
     try:
+        await proxy.start(private_routes=fleet is not None)
+        if fleet:
+            port = int(os.getenv("FLEET_PORT", "8766"))
+            await fleet.start(port)
+            logger.info("Fleet dashboard at http://127.0.0.1:%s", port)
         while True:
             try:
                 async with websockets.connect(MCP_ENDPOINT, open_timeout=15, ping_interval=20,
                         ping_timeout=15, max_size=65536) as ws:
                     logger.info('MCP connected')
+                    if fleet:
+                        fleet.connected = True
                     backoff = 2
                     await serve_connection(ws, handler)
             except asyncio.CancelledError:
                 raise
             except Exception as exc:
                 logger.warning('MCP disconnected: %s; retry in %ss', type(exc).__name__, backoff)
+            finally:
+                if fleet:
+                    fleet.connected = False
             await asyncio.sleep(backoff)
             backoff = min(backoff * 2, 30)
     finally:
         handler.close()
+        if fleet:
+            await fleet.stop_admin()
         await proxy.stop()
+        if fleet:
+            fleet.db.close()
 
 if __name__ == '__main__':
     logging.basicConfig(level=logging.INFO, format='%(asctime)s %(name)s %(message)s')

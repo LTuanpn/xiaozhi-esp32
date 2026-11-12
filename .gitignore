@@ -1,5 +1,7 @@
 tmp/
+.fleet-data/
 components/
+!/fleet-ui/src/components/
 managed_components/
 build/
 dist/

@@ -3,6 +3,7 @@ import json
 import logging
 from concurrent.futures import ThreadPoolExecutor
 from music_selection import AmbiguousMusic
+import utility_tools
 
 logger = logging.getLogger(__name__)
 
@@ -19,7 +20,7 @@ class MCPHandler:
         self._intent = 0
 
     def get_server_info(self):
-        return {'name': 'XiaozhiMusicMCPServer', 'version': '2.0.0'}
+        return {'name': 'XiaozhiMusicMCPServer', 'version': '2.1.0'}
 
     def get_tools_list(self):
         query_schema = {'type': 'object', 'properties': {
@@ -35,7 +36,10 @@ class MCPHandler:
             ('play_zing_mp3', 'Alias Zing của play_song. ' + play_description, query_schema),
             ('search_music', 'Chỉ tìm danh sách bài hát, không phát.', query_schema),
             ('stop_music', 'Dừng nhạc. Sau khi dừng server, gọi self.audio.stop_playback trên robot; xác nhận một lần.', {'type':'object','properties':{}}),
-            ('get_player_status', 'Xem bài và trạng thái phát nhạc.', {'type':'object','properties':{}})]]
+            ('get_player_status', 'Xem bài và trạng thái phát nhạc.', {'type':'object','properties':{}})]] + [
+                {key: value for key, value in tool.items() if key != "category"}
+                for tool, _ in utility_tools.TOOLS.values()
+            ]
 
     def cancel_pending(self):
         self._intent += 1
@@ -59,6 +63,11 @@ class MCPHandler:
     async def handle_call_tool(self, name, arguments):
         if not isinstance(arguments, dict):
             return result({'status': 'invalid_arguments'}, True)
+        if isinstance(name, str) and name in utility_tools.TOOLS:
+            try:
+                return result({"status": "ok", "value": utility_tools.run(name, arguments)})
+            except (ValueError, TypeError, ArithmeticError, RecursionError):
+                return result({"status": "invalid_arguments", "message": "Dữ liệu không hợp lệ cho công cụ này."}, True)
         if name == 'stop_music':
             self.cancel_pending()
             self.stream_proxy.stop_current()

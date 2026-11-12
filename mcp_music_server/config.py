@@ -7,7 +7,9 @@ env_file = Path(__file__).resolve().parents[1] / ".env"
 if env_file.exists():
     for line in env_file.read_text(encoding="utf-8").splitlines():
         key, sep, value = line.strip().partition("=")
-        if sep and key in {"MCP_ENDPOINT", "STREAM_HOST", "STREAM_PORT", "MUSIC_ADMIN_TOKEN", "FFMPEG_CMD"}:
+        if sep and key in {"MCP_ENDPOINT", "STREAM_HOST", "STREAM_PORT", "MUSIC_ADMIN_TOKEN", "FFMPEG_CMD",
+                           "FLEET_ENABLED", "FLEET_PORT", "FLEET_PUBLIC_URL", "FLEET_UPSTREAM_OTA",
+                           "FLEET_GITHUB_REPO"}:
             os.environ.setdefault(key, value.strip().strip("\"'"))
 
 def get_lan_ip():

@@ -151,8 +151,8 @@ class StreamProxy:
                     if self.current_track['status'] != 'error':
                         self.current_track['status'] = 'idle'
 
-    async def start(self):
-        self.runner = web.AppRunner(self.app)
+    async def start(self, *, private_routes=False):
+        self.runner = web.AppRunner(self.app, **({"access_log": None} if private_routes else {}))
         await self.runner.setup()
         self.site = web.TCPSite(self.runner, '0.0.0.0', self.port)
         await self.site.start()
