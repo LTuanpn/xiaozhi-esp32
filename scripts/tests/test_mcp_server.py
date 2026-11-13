@@ -120,6 +120,7 @@ class McpServerTest(unittest.TestCase):
             #include "press_to_talk_mcp_tool.h"
             int main(int argc, char**) {
                 auto& server = McpServer::GetInstance();
+                server.AddUserOnlyTools();
                 PressToTalkMcpTool press_to_talk;
                 press_to_talk.Initialize();
                 server.AddTool("test.error", "Return a tool error",
@@ -218,6 +219,16 @@ class McpServerTest(unittest.TestCase):
         method, tool = self.responses(requests)
         self.assert_error(method, 0, -32601, "Method not implemented: " + name)
         self.assert_error(tool, -1, -32602, "Unknown tool: " + name)
+
+    def test_ota_url_validation_and_save(self):
+        invalid = ["", "file:///tmp/test", "http:///missing", "https://user@host/ota",
+                   "http://host/ota#fragment", "http://host/\n", "http://host/" + "a" * 1024]
+        requests = [self.call(i, "self.set_ota_url", {"url": url}) for i, url in enumerate(invalid)]
+        for i, response in enumerate(self.responses(requests)):
+            self.assert_error(response, i, -32603, "Invalid HTTP(S) OTA URL")
+        response, = self.responses([self.call(100, "self.set_ota_url", {"url": "http://192.168.1.4:8765/fleet/ota/key"})])
+        self.assertFalse(response["result"]["isError"])
+        self.assertEqual(response["result"]["content"][0]["text"], "true")
 
     def test_missing_argument_keeps_error_code(self):
         response, = self.responses([self.call(7, "self.set_press_to_talk", {})])
