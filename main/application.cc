@@ -373,6 +373,11 @@ void Application::HandleActivationDoneEvent() {
         display->SetChatMessage("system", "");
     }
 
+    // A healthy startup using cached AI settings must also confirm the new image.
+    // Otherwise an unavailable OTA endpoint would cause rollback on the next reboot.
+    if (!has_error) {
+        ota_->MarkCurrentVersionValid();
+    }
     // Release OTA object after activation is complete
     ota_.reset();
     auto& board = Board::GetInstance();
