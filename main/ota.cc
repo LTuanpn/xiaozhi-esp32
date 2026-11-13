@@ -99,6 +99,7 @@ NetworkResult<> Ota::CheckVersion() {
     }
 
     auto http = SetupHttp();
+    http->SetTimeout(5000);
 
     std::string data = board.GetSystemInfoJson();
     std::string method = data.length() > 0 ? "POST" : "GET";

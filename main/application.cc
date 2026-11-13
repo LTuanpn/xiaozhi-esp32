@@ -471,9 +471,9 @@ void Application::CheckAssetsVersion() {
 }
 
 void Application::CheckNewVersion() {
-    const int MAX_RETRY = 10;
+    const int MAX_RETRY = 2;
     int retry_count = 0;
-    int retry_delay = 10;  // Initial retry delay in seconds
+    int retry_delay = 2;  // Keep startup recovery bounded.
 
     auto& board = Board::GetInstance();
     while (true) {
@@ -482,6 +482,12 @@ void Application::CheckNewVersion() {
 
         auto check = ota_->CheckVersion();
         if (!check) {
+            Settings mqtt("mqtt", false);
+            Settings websocket("websocket", false);
+            if (!mqtt.GetString("endpoint").empty() || !websocket.GetString("url").empty()) {
+                ESP_LOGW(TAG, "OTA unavailable; continuing with saved AI connection");
+                return;
+            }
             retry_count++;
             if (retry_count >= MAX_RETRY) {
                 ESP_LOGE(TAG, "Too many retries, exit version check");
@@ -515,11 +521,11 @@ void Application::CheckNewVersion() {
                     break;
                 }
             }
-            retry_delay *= 2;  // Double the retry delay
+            // Retry delay stays bounded during startup.
             continue;
         }
         retry_count = 0;
-        retry_delay = 10;  // Reset retry delay
+        retry_delay = 2;  // Reset retry delay
 
         if (ota_->HasNewVersion()) {
             if (UpgradeFirmware(ota_->GetFirmwareUrl(), ota_->GetFirmwareVersion())) {
@@ -566,13 +572,26 @@ void Application::InitializeProtocol() {
 
     display->SetStatus(Lang::Strings::LOADING_PROTOCOL);
 
-    if (ota_->HasMqttConfig()) {
-        protocol_ = std::make_unique<MqttProtocol>();
-    } else if (ota_->HasWebsocketConfig()) {
-        protocol_ = std::make_unique<WebsocketProtocol>();
+    Settings connection("connection", true);
+    Settings mqtt("mqtt", false);
+    Settings websocket("websocket", false);
+    bool use_mqtt = ota_->HasMqttConfig();
+    if (use_mqtt || ota_->HasWebsocketConfig()) {
+        connection.SetString("transport", use_mqtt ? "mqtt" : "websocket");
     } else {
-        ESP_LOGW(TAG, "No protocol specified in the OTA config, using MQTT");
+        const auto saved = connection.GetString("transport");
+        // Older firmware did not store transport; retain its MQTT precedence.
+        use_mqtt = saved == "mqtt" ||
+                   (saved.empty() && !mqtt.GetString("endpoint").empty());
+        if (!use_mqtt && websocket.GetString("url").empty()) {
+            use_mqtt = true;
+        }
+        ESP_LOGW(TAG, "Using saved %s connection after OTA", use_mqtt ? "MQTT" : "WebSocket");
+    }
+    if (use_mqtt) {
         protocol_ = std::make_unique<MqttProtocol>();
+    } else {
+        protocol_ = std::make_unique<WebsocketProtocol>();
     }
 
     protocol_->OnConnected([this]() { DismissAlert(); });
