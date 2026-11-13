@@ -262,6 +262,7 @@ void Application::Run() {
                     break;
                 }
             }
+            CheckPhoneTalk();
         }
 
         if (bits & MAIN_EVENT_WAKE_WORD_DETECTED) {
@@ -285,6 +286,7 @@ void Application::Run() {
         }
 
         if (bits & MAIN_EVENT_CLOCK_TICK) {
+            CheckPhoneTalk();
             if (IsAlarmActive() && next_alarm_clip_us_ != 0 &&
                 esp_timer_get_time() >= next_alarm_clip_us_) {
                 next_alarm_clip_us_ = 0;
@@ -341,6 +343,8 @@ void Application::HandleNetworkConnectedEvent() {
 }
 
 void Application::HandleNetworkDisconnectedEvent() {
+    if (phone_session_)
+        CancelPhoneTalk(phone_session_);
     // Close current conversation when network disconnected
     auto state = GetDeviceState();
     if (state == kDeviceStateNotifying && !IsAlarmActive()) {
@@ -861,7 +865,98 @@ void Application::StartListening() { xEventGroupSetBits(event_group_, MAIN_EVENT
 
 void Application::StopListening() { xEventGroupSetBits(event_group_, MAIN_EVENT_STOP_LISTENING); }
 
+bool Application::StartControlListening() {
+    if (!protocol_ || phone_session_ || IsAlarmActive() || GetDeviceState() != kDeviceStateIdle)
+        return false;
+    if (protocol_->IsAudioChannelOpened()) {
+        SetListeningMode(GetDefaultListeningMode());
+    } else if (SetDeviceState(kDeviceStateConnecting)) {
+        Schedule([this]() { ContinueOpenAudioChannel(GetDefaultListeningMode()); });
+    } else {
+        return false;
+    }
+    return true;
+}
+
+bool Application::BeginPhoneTalk(uint32_t session) {
+    if (!session || phone_session_ || !protocol_ || IsAlarmActive() ||
+        GetDeviceState() != kDeviceStateIdle)
+        return false;
+
+    phone_session_ = session;
+    phone_deadline_us_ = esp_timer_get_time() + 15000000;
+    phone_limit_us_ = esp_timer_get_time() + 45000000;
+    audio_service_.EnableVoiceProcessing(false);
+    audio_service_.EnableWakeWordDetection(false);
+    audio_service_.SetPhoneInput(true);
+    if (!SetDeviceState(kDeviceStateConnecting)) {
+        ResetPhoneTalk();
+        audio_service_.EnableWakeWordDetection(true);
+        return false;
+    }
+    Schedule([this, session]() {
+        if (phone_session_ == session)
+            ContinueOpenAudioChannel(kListeningModeManualStop);
+    });
+    return true;
+}
+
+bool Application::IsPhoneTalkReady(uint32_t session) const {
+    return session && phone_session_ == session && phone_listening_ && !phone_finishing_ &&
+           GetDeviceState() == kDeviceStateListening;
+}
+
+bool Application::FeedPhoneTalk(uint32_t session, std::vector<int16_t>&& pcm) {
+    if (!IsPhoneTalkReady(session) || !audio_service_.PushPhoneAudio(std::move(pcm)))
+        return false;
+    phone_deadline_us_ = esp_timer_get_time() + 2500000;
+    return true;
+}
+
+bool Application::EndPhoneTalk(uint32_t session) {
+    if (phone_session_ != session || !session)
+        return false;
+    if (!IsPhoneTalkReady(session))
+        return CancelPhoneTalk(session);
+
+    phone_finishing_ = true;
+    phone_deadline_us_ = esp_timer_get_time() + 2500000;
+    CheckPhoneTalk();
+    return true;
+}
+
+bool Application::CancelPhoneTalk(uint32_t session) {
+    if (!session || phone_session_ != session)
+        return false;
+    ResetPhoneTalk();
+    if (GetDeviceState() == kDeviceStateListening && protocol_)
+        protocol_->SendStopListening();
+    if (GetDeviceState() == kDeviceStateListening || GetDeviceState() == kDeviceStateConnecting)
+        SetDeviceState(kDeviceStateIdle);
+    return true;
+}
+
+void Application::ResetPhoneTalk() {
+    phone_session_ = 0;
+    phone_listening_ = false;
+    phone_finishing_ = false;
+    audio_service_.SetPhoneInput(false);
+}
+
+void Application::CheckPhoneTalk() {
+    if (!phone_session_)
+        return;
+    const auto now = esp_timer_get_time();
+    if (phone_finishing_ && audio_service_.IsPhoneAudioDrained()) {
+        CancelPhoneTalk(phone_session_);
+    } else if (now >= phone_limit_us_ || now >= phone_deadline_us_) {
+        CancelPhoneTalk(phone_session_);
+    }
+}
+
 void Application::HandleToggleChatEvent() {
+    if (phone_session_)
+        return;
     if (IsAlarmActive())
         return;
     auto state = GetDeviceState();
@@ -910,6 +1005,10 @@ void Application::ContinueOpenAudioChannel(ListeningMode mode) {
     if (GetDeviceState() != kDeviceStateConnecting) {
         return;
     }
+    if (!protocol_) {
+        SetDeviceState(kDeviceStateIdle);
+        return;
+    }
 
     // Switch to performance mode before connecting to reduce latency
     auto& board = Board::GetInstance();
@@ -928,6 +1027,8 @@ void Application::ContinueOpenAudioChannel(ListeningMode mode) {
 }
 
 void Application::HandleStartListeningEvent() {
+    if (phone_session_)
+        return;
     if (IsAlarmActive())
         return;
     auto state = GetDeviceState();
@@ -966,6 +1067,10 @@ void Application::HandleStartListeningEvent() {
 }
 
 void Application::HandleStopListeningEvent() {
+    if (phone_session_) {
+        CancelPhoneTalk(phone_session_);
+        return;
+    }
     if (IsAlarmActive())
         return;
     auto state = GetDeviceState();
@@ -985,6 +1090,8 @@ void Application::HandleStopListeningEvent() {
 }
 
 void Application::HandleWakeWordDetectedEvent() {
+    if (phone_session_)
+        return;
     if (!protocol_) {
         if (GetDeviceState() == kDeviceStateNotifying)
             StopNotification();
@@ -1090,6 +1197,8 @@ void Application::ContinueWakeWordInvoke(const std::string& wake_word) {
 void Application::HandleStateChangedEvent() {
     DeviceState new_state = state_machine_.GetState();
     clock_ticks_ = 0;
+    if (phone_session_ && new_state != kDeviceStateConnecting && new_state != kDeviceStateListening)
+        ResetPhoneTalk();
     // Any state change invalidates a pending deferred listening start;
     // the Listening case below re-arms it when needed.
     pending_listening_start_ = false;
@@ -1240,6 +1349,11 @@ void Application::StartListeningAudio() {
 
     // Send the start listening command
     protocol_->SendStartListening(listening_mode_);
+    if (phone_session_) {
+        phone_listening_ = true;
+        phone_deadline_us_ = esp_timer_get_time() + 2500000;
+        return;
+    }
     audio_service_.EnableVoiceProcessing(true);
 
     ConfigureWakeWordForListening();
@@ -1264,6 +1378,8 @@ void Application::ConfigureWakeWordForListening() {
 void Application::EndConversation() {
     if (IsAlarmActive())
         return;
+    if (phone_session_)
+        CancelPhoneTalk(phone_session_);
     // Main-task operation: notify the peer before changing the local state.
     conversation_paused_ = true;
     pending_listening_start_ = false;
@@ -1584,6 +1700,8 @@ void Application::PlaySound(const std::string_view& sound) { audio_service_.Play
 
 void Application::ResetProtocol() {
     Schedule([this]() {
+        if (phone_session_)
+            CancelPhoneTalk(phone_session_);
         if (GetDeviceState() == kDeviceStateNotifying) {
             StopNotification();
         }

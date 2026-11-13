@@ -496,6 +496,7 @@ void AudioService::OpusCodecTask() {
         }
         /* Encode the audio to send queue */
         if (!audio_encode_queue_.empty()) {
+            encode_in_flight_ = true;
             auto task = std::move(audio_encode_queue_.front());
             audio_encode_queue_.pop_front();
             audio_queue_cv_.notify_all();
@@ -522,17 +523,13 @@ void AudioService::OpusCodecTask() {
                     packet->payload.resize(out.encoded_bytes);
 
                     if (task.type == kAudioTaskTypeEncodeToSendQueue) {
-                        {
-                            std::lock_guard<std::mutex> lock2(audio_queue_mutex_);
-                            /* Never let a full send queue stall encoding: stale realtime
-                             * audio is useless to the server, so drop the oldest packet. */
+                        std::lock_guard<std::mutex> lock2(audio_queue_mutex_);
+                        if (task.input_generation == input_generation_) {
+                            // Realtime audio must never stall the codec task.
                             if (audio_send_queue_.size() >= MAX_SEND_PACKETS_IN_QUEUE) {
                                 audio_send_queue_.pop_front();
                             }
                             audio_send_queue_.push_back(std::move(packet));
-                        }
-                        if (callbacks_.on_send_queue_available) {
-                            callbacks_.on_send_queue_available();
                         }
                     } else if (task.type == kAudioTaskTypeEncodeToTestingQueue) {
                         bool testing_queue_full = false;
@@ -553,6 +550,13 @@ void AudioService::OpusCodecTask() {
                          "Failed to encode audio: encoder not configured or invalid frame size "
                          "(got %u, expected %u)",
                          task.pcm.size(), encoder_frame_size_);
+            }
+            lock.lock();
+            encode_in_flight_ = false;
+            const bool notify = task.type == kAudioTaskTypeEncodeToSendQueue;
+            lock.unlock();
+            if (notify && callbacks_.on_send_queue_available) {
+                callbacks_.on_send_queue_available();
             }
             lock.lock();
         }
@@ -608,6 +612,10 @@ void AudioService::PushTaskToEncodeQueue(AudioTaskType type, std::vector<int16_t
         /* Push the task to the encode queue */
         std::unique_lock<std::mutex> lock(audio_queue_mutex_);
 
+        if (phone_input_ && type == kAudioTaskTypeEncodeToSendQueue)
+            return;
+        task.input_generation = input_generation_;
+
         /* If the task is to send queue, we need to set the timestamp */
         if (type == kAudioTaskTypeEncodeToSendQueue && !timestamp_queue_.empty()) {
             task.timestamp = timestamp_queue_.front();
@@ -636,6 +644,40 @@ void AudioService::PushTaskToEncodeQueue(AudioTaskType type, std::vector<int16_t
                      (unsigned long)dropped_total);
         }
     }
+}
+
+void AudioService::SetPhoneInput(bool enabled) {
+    std::lock_guard<std::mutex> lock(audio_queue_mutex_);
+    if (phone_input_ == enabled)
+        return;
+    phone_input_ = enabled;
+    ++input_generation_;
+    audio_encode_queue_.clear();
+    audio_send_queue_.clear();
+    timestamp_queue_.clear();
+    audio_queue_cv_.notify_all();
+    if (enabled)
+        xEventGroupSetBits(event_group_, AS_EVENT_AUDIO_INPUT_STOP_REQUEST);
+}
+
+bool AudioService::PushPhoneAudio(std::vector<int16_t>&& pcm) {
+    std::lock_guard<std::mutex> lock(audio_queue_mutex_);
+    if (!phone_input_ || service_stopped_.load() || pcm.size() != encoder_frame_size_ ||
+        audio_encode_queue_.size() >= MAX_ENCODE_TASKS_IN_QUEUE ||
+        audio_send_queue_.size() >= MAX_SEND_PACKETS_IN_QUEUE)
+        return false;
+
+    AudioTask task{.type = kAudioTaskTypeEncodeToSendQueue,
+                   .pcm = std::move(pcm),
+                   .input_generation = input_generation_};
+    audio_encode_queue_.push_back(std::move(task));
+    audio_queue_cv_.notify_all();
+    return true;
+}
+
+bool AudioService::IsPhoneAudioDrained() {
+    std::lock_guard<std::mutex> lock(audio_queue_mutex_);
+    return audio_encode_queue_.empty() && !encode_in_flight_ && audio_send_queue_.empty();
 }
 
 uint32_t AudioService::GetPlaybackGeneration() {

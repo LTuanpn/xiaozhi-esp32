@@ -1,0 +1,312 @@
+<!doctype html>
+<html lang="vi">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Điều khiển Jarvis</title>
+<style>
+:root{color-scheme:dark;--bg:#111;--card:#1b1b1b;--text:#fafafa;--muted:#aaa;--line:#424242;--error:#ffb4a8}
+*{box-sizing:border-box}body{margin:0;background:var(--bg);color:var(--text);font:1rem/1.5 system-ui,sans-serif}
+header,main{max-width:56rem;margin:auto;padding:1rem}header{display:flex;align-items:center;justify-content:space-between;gap:1rem;border-bottom:1px solid var(--line)}
+header strong{font-size:1.125rem}h1{font-size:clamp(1.8rem,6vw,2.6rem);letter-spacing:-.04em;margin:.25rem 0}h2{font-size:1.05rem;margin:0 0 .65rem}
+p{margin:.5rem 0;color:var(--muted)}.grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,21rem),1fr));gap:1rem}
+section{min-width:0;background:var(--card);border:1px solid var(--line);border-radius:.8rem;padding:1rem}
+button,input,select{font:inherit;border-radius:.45rem;min-height:2.65rem}button{border:1px solid var(--line);color:var(--text);background:var(--bg);padding:.4rem .8rem;cursor:pointer}
+button.primary{background:var(--text);color:var(--bg);font-weight:650}button:disabled{opacity:.5;cursor:default}
+input,select{border:1px solid var(--line);color:inherit;background:var(--bg);padding:.35rem .6rem;width:100%;min-width:0}
+input[type=range]{padding:0;accent-color:var(--text)}label{display:block;margin:.6rem 0 .25rem}.row{display:flex;flex-wrap:wrap;align-items:center;gap:.5rem;margin-top:.6rem}
+#feedback{min-height:1.5rem;overflow-wrap:anywhere}#feedback[data-error]{color:var(--error)}
+#talk{touch-action:none;user-select:none;-webkit-user-select:none}#talk[aria-pressed=true]{outline:2px solid var(--text);outline-offset:3px}
+:focus-visible{outline:2px solid var(--text);outline-offset:3px}[hidden]{display:none!important}
+</style>
+</head>
+<body>
+<header><strong>Jarvis</strong><span id="connection">Đang kiểm tra phiên…</span></header>
+<main>
+<h1>Điều khiển robot</h1>
+<p id="feedback" role="status" aria-live="polite"></p>
+<div class="grid" id="controls" hidden>
+  <section><h2>Âm thanh và màn hình</h2>
+    <label for="volume">Âm lượng <output id="volume-value"></output></label><input id="volume" type="range" min="0" max="100">
+    <div id="brightness-group"><label for="brightness">Độ sáng <output id="brightness-value"></output></label><input id="brightness" type="range" min="0" max="100"></div>
+    <div class="row"><button id="face">Hiện mặt</button><button id="standby">Về chờ</button><button id="listen">Nghe lệnh</button></div>
+  </section>
+  <section><h2>Mic điện thoại</h2><p id="mic-status">Kiểm tra quyền mic…</p>
+    <div class="row"><button id="mic-permission" type="button">Cho phép mic</button><button class="primary" id="talk" type="button" aria-pressed="false" disabled>Nhấn giữ để nói</button></div>
+  </section>
+  <section><h2>Hẹn giờ và GUARD</h2><p id="timer-status"></p>
+    <form id="timer"><label for="seconds">Số giây</label><input id="seconds" type="number" min="1" max="86400" value="60" required>
+      <label for="timer-label">Nhãn hẹn giờ</label><input id="timer-label" maxlength="60" value="Hết giờ rồi!">
+      <div class="row"><button class="primary">Đặt giờ</button><button type="button" id="cancel-timer">Hủy hẹn giờ</button></div>
+    </form><div class="row"><button id="guard" aria-pressed="false">Bật GUARD</button><span id="alarm"></span></div>
+  </section>
+  <section><h2>Biểu cảm</h2><label for="emotion">Biểu cảm trên TFT</label><select id="emotion"></select>
+    <div class="row"><button id="preview">Hiện biểu cảm</button></div>
+  </section>
+  <section><h2>Wi-Fi</h2><p id="network"></p><div class="row"><button id="wifi">Đổi Wi-Fi</button></div></section>
+  <section><h2>Cập nhật</h2><p id="version"></p>
+    <form id="ota"><label for="ota-url">URL kiểm tra OTA</label><input id="ota-url" type="password" maxlength="400" autocomplete="off" placeholder="https://…">
+      <div class="row"><button>Lưu URL</button><button id="reboot" type="button">Khởi động lại</button></div>
+    </form>
+    <form id="https"><label for="https-origin">Địa chỉ HTTPS cho QR và mic</label>
+      <input id="https-origin" type="url" maxlength="100" placeholder="https://jarvis.example.vn">
+      <div class="row"><button>Lưu địa chỉ HTTPS</button></div>
+    </form>
+  </section>
+</div>
+</main>
+<script>
+"use strict";
+const $ = id => document.getElementById(id);
+let session = sessionStorage.getItem("jarvis-session") || "";
+let guard = false, busy = false, pollBusy = false, audioContext, micGranted = false, turn;
+function note(text, error = false) {
+  $("feedback").textContent = text;
+  $("feedback").toggleAttribute("data-error", error);
+}
+async function request(path, options = {}) {
+  const headers = {...options.headers};
+  if (session) headers.Authorization = "Bearer " + session;
+  const reply = await fetch(path, {...options, headers, cache:"no-store", signal:AbortSignal.timeout(3500)});
+  const data = await reply.json();
+  if (reply.status === 401) {
+    session = "";
+    sessionStorage.removeItem("jarvis-session");
+    $("controls").hidden = true;
+  }
+  if (!reply.ok || data.error) throw new Error(data.error?.message || data.error || "Robot chưa phản hồi.");
+  return data;
+}
+async function readStatus() {
+  if (!session || busy || turn || pollBusy) return;
+  pollBusy = true;
+  try {
+    const state = await request("/api/status");
+    $("controls").hidden = false;
+    const states = {idle:"Đang chờ",connecting:"Đang kết nối",listening:"Đang nghe",speaking:"Đang nói",notifying:"Đang phát",upgrading:"Đang cập nhật"};
+    $("connection").textContent = states[state.state] || "Đã kết nối";
+    for (const [id, value] of [["volume",state.audio_speaker?.volume], ["brightness",state.screen?.brightness]]) {
+      if (value !== undefined && document.activeElement !== $(id)) $(id).value = value;
+      $(id+"-value").value = $(id).value + "%";
+    }
+    $("brightness-group").hidden = state.screen?.brightness === undefined;
+    $("network").textContent = state.network?.ssid || "Chưa kết nối Wi-Fi";
+    $("version").textContent = "Firmware " + (state.version || "—");
+    const origin = $("https-origin");
+    if (!origin.dataset.loaded) {
+      origin.value = state.https_origin || "";
+      origin.dataset.loaded = "true";
+    }
+    $("ota-url").placeholder = state.ota_configured ? "Đã lưu URL tùy chỉnh" : "https://…";
+    $("timer-status").textContent = state.timer_seconds ? state.timer_label + " · " + state.timer_seconds + " giây còn lại" : "Chưa có hẹn giờ";
+    guard = state.guard;
+    $("guard").textContent = guard ? "Tắt GUARD" : "Bật GUARD";
+    $("guard").setAttribute("aria-pressed", String(guard));
+    $("alarm").textContent = state.alarm ? "Đang báo động" : "";
+    $("talk").disabled = !micGranted || guard || state.alarm || state.state !== "idle";
+    if (!$("emotion").options.length && state.emotions) {
+      for (const name of state.emotions) $("emotion").add(new Option(name, name));
+    }
+  } catch (error) {
+    $("connection").textContent = "Mất kết nối";
+    note(error.message, true);
+  } finally { pollBusy = false; }
+}
+async function tool(name, args = {}, feedback = "Đã thực hiện.") {
+  if (busy || turn) return;
+  busy = true;
+  note("Đang gửi lệnh…");
+  try {
+    await request("/api/tool", {method:"POST", headers:{"Content-Type":"application/json"},
+      body:JSON.stringify({name,arguments:args})});
+    note(feedback);
+  } catch (error) { note(error.message, true); }
+  finally { busy = false; void readStatus(); }
+}
+for (const [id, name] of [["volume","self.audio_speaker.set_volume"], ["brightness","self.screen.set_brightness"]]) {
+  $(id).oninput = () => { $(id+"-value").value = $(id).value + "%"; };
+  $(id).onchange = () => tool(name,{[id]:Number($(id).value)});
+}
+$("face").onclick = () => tool("self.screen.set_standby",{enable:false});
+$("standby").onclick = () => tool("self.screen.set_standby",{enable:true});
+$("listen").onclick = () => tool("self.lan.start_listening");
+$("timer").onsubmit = event => {
+  event.preventDefault();
+  void tool("self.timer.set_countdown",{seconds:Number($("seconds").value),label:$("timer-label").value});
+};
+$("cancel-timer").onclick = () => tool("self.timer.set_countdown",{seconds:0});
+$("guard").onclick = () => tool("self.security.guard_mode",{enable:!guard});
+$("preview").onclick = () => tool("self.screen.set_emotion",{emotion:$("emotion").value,duration_seconds:8});
+$("wifi").onclick = () => {
+  if (confirm("Robot sẽ chuyển sang hotspot Xiaozhi để đổi Wi-Fi. Tiếp tục?"))
+    void tool("self.screen.show_qr",{},"Quét QR Wi-Fi mới trên robot.");
+};
+$("ota").onsubmit = event => {
+  event.preventDefault();
+  const url = $("ota-url").value.trim();
+  if (!/^https?:\/\//.test(url)) return note("Nhập URL HTTP hoặc HTTPS.",true);
+  if (confirm("Lưu URL kiểm tra OTA này vào robot?")) {
+    $("ota-url").value = "";
+    void tool("self.set_ota_url",{url},"Đã lưu URL. Có hiệu lực khi khởi động lại.");
+  }
+};
+$("https").onsubmit = event => {
+  event.preventDefault();
+  const origin = $("https-origin").value.trim().replace(/\/$/, "");
+  if (confirm("Dùng địa chỉ này khi tạo QR điều khiển lần sau?")) {
+    void tool("self.lan.set_https_origin",{origin},"Đã lưu. Mở QR mới trên robot để dùng địa chỉ này.");
+  }
+};
+$("reboot").onclick = () => {
+  if (confirm("Khởi động lại robot?")) void tool("self.reboot",{},"Robot đang khởi động lại.");
+};
+
+const micSupported = window.isSecureContext && navigator.mediaDevices?.getUserMedia && window.AudioWorkletNode;
+$("mic-permission").disabled = !micSupported;
+$("mic-status").textContent = micSupported ? "Cấp quyền một lần, sau đó nhấn giữ để nói qua loa robot." :
+  "Mic điện thoại cần mở trang qua HTTPS có chứng chỉ tin cậy.";
+$("mic-permission").onclick = async () => {
+  $("mic-permission").disabled = true;
+  try {
+    if (!audioContext) {
+      const context = new AudioContext();
+      try {
+        await context.resume();
+        await context.audioWorklet.addModule("/lan_mic.js");
+        audioContext = context;
+      } catch (error) { await context.close(); throw error; }
+    }
+    const stream = await navigator.mediaDevices.getUserMedia({audio:true});
+    stream.getTracks().forEach(track => track.stop());
+    micGranted = true;
+    $("mic-status").textContent = "Sẵn sàng. Chờ nút chuyển sang Đang thu rồi nói.";
+    void readStatus();
+  } catch (error) { note("Không mở được mic: " + error.message,true); }
+  finally { $("mic-permission").disabled = false; }
+};
+function phone(action, current, body) {
+  return request("/api/phone/" + action,{method:"POST",headers:{"X-Phone-Turn":String(current.id)},body});
+}
+function closeMic(current) {
+  current.stream?.getTracks().forEach(track => track.stop());
+  current.node?.disconnect();
+  current.input?.disconnect();
+  current.silent?.disconnect();
+}
+async function stopTalk(cancel = false) {
+  const current = turn;
+  if (!current || current.released) return;
+  current.released = true;
+  $("talk").setAttribute("aria-pressed","false");
+  $("talk").textContent = "Đang kết thúc…";
+  try {
+    current.stream?.getTracks().forEach(track => track.stop());
+    if (!cancel && current.node && !current.failed) {
+      await new Promise(resolve => {
+        const timeout = setTimeout(resolve,150);
+        current.finishFlush = () => { clearTimeout(timeout); resolve(); };
+        current.node.port.postMessage("flush");
+      });
+      current.finishFlush = null;
+    }
+    closeMic(current);
+    await current.started;
+    if (current.began) {
+      if (!cancel) await current.queue;
+      const {ok} = await phone(cancel || current.failed ? "cancel" : "end",current);
+      if (!ok && !cancel && !current.failed) throw new Error("Lượt nói đã hết hạn.");
+    }
+    if (!current.failed) note(cancel ? "Đã hủy lượt nói." : "Đã gửi lượt nói.");
+  } catch (error) { note(error.message,true); }
+  finally {
+    turn = null;
+    $("talk").textContent = "Nhấn giữ để nói";
+    void readStatus();
+  }
+}
+function startTalk() {
+  if (turn || busy || pollBusy || $("talk").disabled) return;
+  const current = {id:crypto.getRandomValues(new Uint32Array(1))[0] || 1, queue:Promise.resolve(), pending:0};
+  turn = current;
+  $("talk").setAttribute("aria-pressed","true");
+  $("talk").textContent = "Đang mở mic…";
+  current.started = (async () => {
+    try {
+      await audioContext.resume();
+      current.stream = await navigator.mediaDevices.getUserMedia({audio:{channelCount:1,echoCancellation:true,noiseSuppression:true}});
+      if (current.released) { closeMic(current); return; }
+      current.began = (await phone("begin",current)).ok;
+      if (!current.began) throw new Error("Robot đang bận hoặc GUARD đang bật.");
+      for (let i=0; i<40 && !current.released; i++) {
+        if ((await phone("ready",current)).ok) {
+          if (current.released) return;
+          current.node = new AudioWorkletNode(audioContext,"lan-mic");
+          current.input = audioContext.createMediaStreamSource(current.stream);
+          current.silent = audioContext.createGain();
+          current.silent.gain.value = 0;
+          current.input.connect(current.node).connect(current.silent).connect(audioContext.destination);
+          current.node.port.onmessage = event => {
+            if (event.data === "flushed") {
+              current.finishFlush?.();
+              return;
+            }
+            if ((current.released && !current.finishFlush) || current.failed) return;
+            if (current.pending >= 4) {
+              current.failed = true;
+              note("Mạng chậm. Lượt nói đã dừng.",true);
+              void stopTalk(true);
+              return;
+            }
+            current.pending++;
+            current.queue = current.queue.then(async () => {
+              if (current.failed) return;
+              if (!(await phone("audio",current,event.data)).ok) throw new Error("Robot không nhận được audio.");
+            }).catch(error => {
+              current.failed = true;
+              note(error.message,true);
+              void stopTalk(true);
+            }).finally(() => { current.pending--; });
+          };
+          $("talk").textContent = "Đang thu · nhả để gửi";
+          return;
+        }
+        await new Promise(resolve => setTimeout(resolve,250));
+      }
+      if (!current.released) throw new Error("Kết nối AI phản hồi chậm.");
+    } catch (error) {
+      current.failed = true;
+      note(error.message,true);
+      setTimeout(() => { if (turn === current) void stopTalk(true); },0);
+    }
+  })();
+}
+const button = $("talk");
+button.onpointerdown = event => { if (event.button === 0) { button.setPointerCapture(event.pointerId); startTalk(); } };
+button.onpointerup = () => void stopTalk();
+button.onpointercancel = button.onlostpointercapture = () => void stopTalk(true);
+button.oncontextmenu = event => event.preventDefault();
+button.onkeydown = event => { if (event.code === "Space" || event.code === "Enter") { event.preventDefault(); if (!event.repeat) startTalk(); } };
+button.onkeyup = event => { if (event.code === "Space" || event.code === "Enter") { event.preventDefault(); void stopTalk(); } };
+document.addEventListener("visibilitychange", () => { if (document.hidden) void stopTalk(true); });
+window.addEventListener("pagehide", () => {
+  if (!turn?.began) return;
+  closeMic(turn);
+  void fetch("/api/phone/cancel",{method:"POST",headers:{Authorization:"Bearer "+session,"X-Phone-Turn":String(turn.id)},keepalive:true}).catch(() => {});
+});
+(async () => {
+  try {
+    const pair = new URLSearchParams(location.hash.slice(1)).get("pair");
+    if (pair) {
+      history.replaceState(null,"",location.pathname);
+      const response = await request("/api/pair",{method:"POST",body:pair});
+      session = response.session;
+      sessionStorage.setItem("jarvis-session",session);
+    }
+    if (!session) return note("Nói “Jarvis, mở trang điều khiển” rồi quét QR trên robot.");
+    await readStatus();
+    setInterval(readStatus,2500);
+  } catch (error) { note(error.message,true); }
+})();
+</script>
+</body>
+</html>

@@ -8,6 +8,9 @@
 #include "config.h"
 #include "mcp_server.h"
 #include "lamp_controller.h"
+#include "lan_control.h"
+#include "settings.h"
+#include <esp_app_desc.h>
 #include "led/single_led.h"
 #include "assets/lang_config.h"
 
@@ -70,6 +73,7 @@ static const gc9a01_lcd_init_cmd_t gc9107_lcd_init_cmds[] = {
 class CompactWifiBoardLCD : public WifiBoard {
 private:
     Button boot_button_;
+    LanControl lan_control_;
     PocketLcdDisplay* display_ = nullptr;
     esp_lcd_panel_handle_t panel_ = nullptr;
 
@@ -87,6 +91,35 @@ private:
     int guard_noise_level_ = 0;
     int guard_hits_ = 0;
     int workout_remaining_sec_ = 0;
+
+    cJSON* ControlStatus() {
+        auto& app = Application::GetInstance();
+        auto& audio = app.GetAudioService();
+        CJsonUniquePtr status(cJSON_Parse(GetDeviceStatusJson().c_str()));
+        if (!status)
+            return nullptr;
+        cJSON_AddStringToObject(status.get(), "version", esp_app_get_description()->version);
+        cJSON_AddStringToObject(status.get(), "state",
+                                DeviceStateMachine::GetStateName(app.GetDeviceState()));
+        cJSON_AddBoolToObject(status.get(), "wake_word", audio.IsWakeWordRunning());
+        cJSON_AddBoolToObject(status.get(), "guard", guard_mode_active_);
+        cJSON_AddBoolToObject(status.get(), "alarm", app.IsAlarmActive());
+        cJSON_AddBoolToObject(status.get(), "standby", display_ && display_->IsStandbyClockActive());
+        const int64_t left = countdown_deadline_us_ - esp_timer_get_time();
+        cJSON_AddNumberToObject(status.get(), "timer_seconds", left > 0 ? (left + 999999) / 1000000 : 0);
+        cJSON_AddStringToObject(status.get(), "timer_label", countdown_label_.c_str());
+        Settings wifi("wifi");
+        cJSON_AddBoolToObject(status.get(), "ota_configured", !wifi.GetString("ota_url").empty());
+        Settings lan("lan_control");
+        cJSON_AddStringToObject(status.get(), "https_origin", lan.GetString("https_origin").c_str());
+        if (auto* emotions = cJSON_AddArrayToObject(status.get(), "emotions")) {
+            for (const auto name : PocketLcdDisplay::ManualEmotions()) {
+                if (auto* item = cJSON_CreateString(name.data()))
+                    cJSON_AddItemToArray(emotions, item);
+            }
+        }
+        return status.release();
+    }
 
     bool ShowProvisioningQr(int duration_ms) override {
         auto& wifi = WifiManager::GetInstance();
@@ -652,6 +685,54 @@ private:
                               : "Đã đánh thức robot trở lại trạng thái sẵn sàng";
             }
         );
+
+        mcp_server.AddTool(
+            "self.screen.open_lan_control",
+            "Mở QR ghép cặp bảng điều khiển Jarvis qua Wi-Fi hiện tại. Dùng khi người dùng nói "
+            "'mở trang điều khiển'. Đọc kết quả, không đọc mã ghép cặp.",
+            PropertyList(), [this](const PropertyList&) -> ToolResult {
+                auto& wifi = WifiManager::GetInstance();
+                if (!display_ || !wifi.IsConnected() || wifi.IsConfigMode())
+                    return std::unexpected("Robot cần kết nối Wi-Fi trước.");
+                const auto ip = wifi.GetIpAddress();
+                if (ip.empty() || ip == "0.0.0.0")
+                    return std::unexpected("Robot chưa có IP.");
+                Settings settings("lan_control");
+                const auto origin = settings.GetString("https_origin");
+                const auto url = lan_control_.Pair(ip, origin, [this]() { return ControlStatus(); });
+                if (url.empty() || !display_->TryShowQrCode(url, "DIEU KHIEN JARVIS", 120000))
+                    return std::unexpected("Không thể mở QR điều khiển.");
+                return std::string("Quét QR trong 2 phút bằng điện thoại cùng Wi-Fi.");
+            });
+
+        mcp_server.AddUserOnlyTool(
+            "self.lan.set_https_origin", "Set the HTTPS reverse proxy origin used by the control QR.",
+            PropertyList({Property("origin", kPropertyTypeString)}),
+            [](const PropertyList& properties) -> ToolResult {
+                const auto origin = properties["origin"].value<std::string>();
+                if (!origin.empty()) {
+                    if (!origin.starts_with("https://") || origin.size() > 100 ||
+                        origin.size() <= 8 ||
+                        !std::all_of(origin.begin() + 8, origin.end(), [](unsigned char c) {
+                            return std::isalnum(c) || c == '.' || c == '-' || c == ':';
+                        }))
+                        return std::unexpected("Nhập HTTPS origin, ví dụ https://jarvis.example.vn.");
+                }
+                Settings settings("lan_control", true);
+                settings.SetString("https_origin", origin);
+                return true;
+            });
+
+        mcp_server.AddUserOnlyTool(
+            "self.lan.start_listening", "Start listening from the built-in microphone.",
+            PropertyList(), [this](const PropertyList&) -> ToolResult {
+                auto& app = Application::GetInstance();
+                if (guard_mode_active_ || !app.StartControlListening())
+                    return std::unexpected("Robot đang bận.");
+                if (display_)
+                    display_->HideStandbyClock(true);
+                return true;
+            });
 
         mcp_server.AddTool(
             "self.screen.show_qr",

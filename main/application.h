@@ -108,6 +108,14 @@ public:
      */
     void StopListening();
 
+    // Phone input is controlled on the application task. Zero means no session.
+    bool StartControlListening();
+    bool BeginPhoneTalk(uint32_t session);
+    bool FeedPhoneTalk(uint32_t session, std::vector<int16_t>&& pcm);
+    bool EndPhoneTalk(uint32_t session);
+    bool CancelPhoneTalk(uint32_t session);
+    bool IsPhoneTalkReady(uint32_t session) const;
+
     void Reboot();
     void WakeWordInvoke(const std::string& wake_word);
     bool UpgradeFirmware(const std::string& url, const std::string& version = "");
@@ -165,6 +173,13 @@ private:
     bool assets_version_checked_ = false;
     bool play_popup_on_listening_ = false;  // Flag to play popup sound after state changes to listening
     bool pending_listening_start_ = false;  // Waiting for playback to drain before starting listening (auto mode)
+    uint32_t phone_session_ = 0;
+    bool phone_finishing_ = false;
+    bool phone_listening_ = false;
+    int64_t phone_deadline_us_ = 0;
+    int64_t phone_limit_us_ = 0;
+    void CheckPhoneTalk();
+    void ResetPhoneTalk();
     int clock_ticks_ = 0;
     TaskHandle_t activation_task_handle_ = nullptr;
 

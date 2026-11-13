@@ -1168,6 +1168,12 @@ if(CONFIG_IDF_TARGET_ESP32S3)
 endif()
 
 set(MAIN_PRIV_REQUIRES_EXTRA "")
+set(BOARD_WEB_FILES "")
+if(CONFIG_BOARD_TYPE_BREAD_COMPACT_WIFI_LCD)
+    list(APPEND MAIN_PRIV_REQUIRES_EXTRA esp_http_server)
+    set(BOARD_WEB_FILES "boards/${BOARD_DIR}/lan_control.html" "boards/${BOARD_DIR}/lan_mic.js")
+endif()
+
 if(CONFIG_XIAOZHI_NETWORK_ETHERNET AND CONFIG_XIAOZHI_ETH_PHY_IP101)
     list(APPEND MAIN_PRIV_REQUIRES_EXTRA espressif__ip101)
 endif()
@@ -1194,7 +1200,7 @@ if(CONFIG_BOARD_TYPE_ESP32_P4_FUNCTION_EV_BOARD)
     )
 endif()
 idf_component_register(SRCS ${SOURCES}
-                    EMBED_FILES ${LANG_SOUNDS} ${COMMON_SOUNDS}
+                    EMBED_FILES ${LANG_SOUNDS} ${COMMON_SOUNDS} ${BOARD_WEB_FILES}
                     INCLUDE_DIRS ${INCLUDE_DIRS}
                     WHOLE_ARCHIVE
                     PRIV_REQUIRES

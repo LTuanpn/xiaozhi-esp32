@@ -4,7 +4,9 @@
 #include "display/lcd_display.h"
 
 #include <lvgl.h>
+#include <span>
 #include <string>
+#include <string_view>
 
 extern const lv_font_t lv_font_ultra_digits_64;
 
@@ -20,6 +22,7 @@ public:
     void ShowNotification(const char* notification, int duration_ms = 3000) override;
     void ShowNotification(const std::string& notification, int duration_ms = 3000) override;
     bool SetEmotion(const char* emotion) override;
+    static std::span<const std::string_view> ManualEmotions();
     bool SetManualEmotion(const std::string& emotion, int duration_ms = 8000);
     bool TryShowQrCode(const std::string& text, const std::string& title, int duration_ms);
     void SetChatMessage(const char* role, const char* content) override;

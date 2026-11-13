@@ -100,6 +100,7 @@ struct AudioTask {
     AudioTaskType type;
     std::vector<int16_t> pcm;
     uint32_t timestamp = 0;
+    uint32_t input_generation = 0;
     uint32_t playback_id = 0;
     uint32_t media_position_ms = 0;
 };
@@ -142,6 +143,9 @@ public:
     void EnableVoiceProcessing(bool enable);
     void EnableAudioTesting(bool enable);
     void EnableDeviceAec(bool enable);
+    void SetPhoneInput(bool enabled);
+    bool PushPhoneAudio(std::vector<int16_t>&& pcm);
+    bool IsPhoneAudioDrained();
 
     void SetCallbacks(AudioServiceCallbacks& callbacks);
 
@@ -196,6 +200,9 @@ private:
         audio_testing_queue_;
     FixedQueue<AudioTask, MAX_ENCODE_TASKS_IN_QUEUE> audio_encode_queue_;
     FixedQueue<AudioTask, MAX_PLAYBACK_TASKS_IN_QUEUE> audio_playback_queue_;
+    bool phone_input_ = false;
+    bool encode_in_flight_ = false;
+    uint32_t input_generation_ = 0;
     bool decode_in_flight_ = false;
     bool output_in_flight_ = false;
     bool playback_drained_notified_ = true;
