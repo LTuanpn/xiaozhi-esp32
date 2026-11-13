@@ -141,6 +141,28 @@ void McpServer::AddUserOnlyTools() {
                         return true;
                     });
 
+    AddUserOnlyTool(
+        "self.set_ota_url",
+        "Save the OTA check endpoint. Takes effect on the next reboot; does not install firmware.",
+        PropertyList({Property("url", kPropertyTypeString, "HTTP(S) OTA check URL")}),
+        [](const PropertyList& properties) -> ReturnValue {
+            const auto url = properties["url"].value<std::string>();
+            const size_t prefix = url.starts_with("https://")  ? 8
+                                  : url.starts_with("http://") ? 7
+                                                               : 0;
+            const auto authority_end = url.find_first_of("/?#", prefix);
+            const auto authority = url.substr(prefix, authority_end - prefix);
+            if (prefix == 0 || url.size() > 1024 || authority.empty() ||
+                authority.find('@') != std::string::npos || url.find('#') != std::string::npos ||
+                std::any_of(url.begin(), url.end(),
+                            [](unsigned char c) { return c <= 32 || c == 127; })) {
+                throw std::runtime_error("Invalid HTTP(S) OTA URL");
+            }
+            Settings settings("wifi", true);
+            settings.SetString("ota_url", url);
+            return true;
+        });
+
     // Firmware upgrade
     AddUserOnlyTool(
         "self.upgrade_firmware",

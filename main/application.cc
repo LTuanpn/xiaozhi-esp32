@@ -581,8 +581,7 @@ void Application::InitializeProtocol() {
     } else {
         const auto saved = connection.GetString("transport");
         // Older firmware did not store transport; retain its MQTT precedence.
-        use_mqtt = saved == "mqtt" ||
-                   (saved.empty() && !mqtt.GetString("endpoint").empty());
+        use_mqtt = saved == "mqtt" || (saved.empty() && !mqtt.GetString("endpoint").empty());
         if (!use_mqtt && websocket.GetString("url").empty()) {
             use_mqtt = true;
         }
