@@ -120,10 +120,11 @@ public:
     AudioService& GetAudioService() { return audio_service_; }
     bool StartNotification(std::string audio_url, std::vector<NotifySubtitle> subtitles = {});
     // Call on main task. Embedded sound must outlive playback.
-    bool StartLocalNotification(std::string_view sound);
+    bool StartLocalAlarm(std::vector<std::string_view> clips);
+    bool IsAlarmActive() const { return !alarm_clips_.empty(); }
     void EndConversation();
     void StopNotification();
-    
+
     /**
      * Reset protocol resources (thread-safe)
      * Can be called from any task to release resources allocated after network connected
@@ -149,6 +150,9 @@ private:
     AudioService audio_service_;
     NotifyPlayer notify_player_;
     uint32_t notification_playback_id_ = 0;
+    std::vector<std::string_view> alarm_clips_;
+    size_t alarm_clip_index_ = 0;
+    int64_t next_alarm_clip_us_ = 0;
     std::unique_ptr<Ota> ota_;
 
     std::function<void(const std::string&)> mcp_broadcast_callback_;
@@ -183,6 +187,8 @@ private:
     void HideStartupWakeWordHint();
     bool StartPlayback(std::string audio_url, std::vector<NotifySubtitle> subtitles,
                        std::string_view local_audio);
+    bool QueueNotificationClip(std::string audio_url, std::vector<NotifySubtitle> subtitles,
+                               std::string_view local_audio);
     void HandleNotificationFinished(uint32_t playback_id, bool success);
 
     // Activation task (runs in background)

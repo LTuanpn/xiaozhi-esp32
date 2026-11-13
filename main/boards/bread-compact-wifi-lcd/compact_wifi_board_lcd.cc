@@ -1,6 +1,5 @@
 #include "wifi_board.h"
 #include <wifi_manager.h>
-#include <ssid_manager.h>
 #include "codecs/no_audio_codec.h"
 #include "pocket_lcd_display.h"
 #include "system_reset.h"
@@ -89,20 +88,36 @@ private:
     int guard_hits_ = 0;
     int workout_remaining_sec_ = 0;
 
-    static std::string EscapeWifiField(const std::string& value) {
-        std::string escaped;
-        for (const char c : value) {
-            if (c == '\\' || c == ';' || c == ',' || c == ':' || c == '"')
-                escaped += '\\';
-            escaped += c;
+    ToolResult ShowConfigQr(int duration) {
+#ifdef CONFIG_USE_HOTSPOT_WIFI_PROVISIONING
+        auto& wifi = WifiManager::GetInstance();
+        if (wifi.IsConfigMode()) {
+            if (!display_ || !display_->TryShowQrCode(wifi.GetApWebUrl(), wifi.GetApSsid(),
+                                                     duration * 1000)) {
+                return std::unexpected("Không thể hiển thị QR cấu hình.");
+            }
+            return std::string("Kết nối Wi-Fi của robot rồi quét QR để mở trang cấu hình.");
         }
-        return escaped;
+
+        auto& app = Application::GetInstance();
+        if (app.IsAlarmActive())
+            return std::unexpected("Gọi Jarvis để xác nhận báo động trước khi mở cấu hình.");
+        app.Schedule([this]() { EnterWifiConfigMode(); });
+        return std::string("Robot sẽ mở Wi-Fi Xiaozhi. Kết nối mạng hiện trên màn hình rồi quét QR.");
+#else
+        return std::unexpected("Bản firmware này không hỗ trợ cấu hình Wi-Fi bằng hotspot.");
+#endif
     }
 
     void RaiseAlarm(bool guard) {
         auto& app = Application::GetInstance();
-        const bool started = app.StartLocalNotification(guard ? Lang::Sounds::OGG_GUARD_ALERT_VI
-                                                              : Lang::Sounds::OGG_TIMER_ALERT_VI);
+        const bool started = guard
+            ? app.StartLocalAlarm({Lang::Sounds::OGG_GUARD_ALERT_VI,
+                                   Lang::Sounds::OGG_GUARD_REMINDER_2_VI,
+                                   Lang::Sounds::OGG_GUARD_REMINDER_3_VI})
+            : app.StartLocalAlarm({Lang::Sounds::OGG_TIMER_ALERT_VI,
+                                   Lang::Sounds::OGG_TIMER_REMINDER_2_VI,
+                                   Lang::Sounds::OGG_TIMER_REMINDER_3_VI});
         if (display_) {
             display_->SetManualEmotion(guard ? "furious" : "thunder", 15000);
             display_->ShowNotification(
@@ -277,15 +292,15 @@ private:
             }
         );
 
-        // 2. TOOL GHIM GHI CHÚ / HIỂN THỊ IP, WIFI, MẬT KHẨU, MÃ QR
+        // 2. TOOL GHIM GHI CHÚ / HIỂN THỊ IP, WIFI, MÃ QR
         mcp_server.AddTool(
             "self.screen.pin_memo",
-            "Ghim ghi chú lên màn hình. ĐẶC BIỆT: Khi người dùng hỏi hoặc muốn xem IP, WiFi, mật khẩu hoặc mã QR cấu hình, hãy gọi tool này với text='ip', 'wifi' hoặc 'qr' để phần cứng tự động trích xuất thông tin thật và hiển thị lên màn hình đồng thời trả về kết quả cho bạn.",
+            "Ghim ghi chú lên màn hình. ĐẶC BIỆT: Khi người dùng hỏi hoặc muốn xem IP, WiFi hoặc mã QR cấu hình, hãy gọi tool này với text='ip', 'wifi' hoặc 'qr' để phần cứng tự động trích xuất thông tin thật và hiển thị lên màn hình đồng thời trả về kết quả cho bạn.",
             PropertyList({
                 Property("text", kPropertyTypeString, ""),
                 Property("duration_seconds", kPropertyTypeInteger, 600, 10, 3600)
             }),
-            [this](const PropertyList& properties) -> ReturnValue {
+            [this](const PropertyList& properties) -> ToolResult {
                 std::string text = properties["text"].value<std::string>();
                 int duration = properties["duration_seconds"].value<int>();
 
@@ -312,66 +327,20 @@ private:
 
                 // TRƯỜNG HỢP 1: Yêu cầu hiển thị Mã QR
                 if (lower_text.find("qr") != std::string::npos) {
-                    auto& wifi = WifiManager::GetInstance();
-                    std::string qr_payload;
-                    std::string title;
-                    if (wifi.IsConfigMode()) {
-                        qr_payload = "http://192.168.4.1";
-                        title = "QUET CAU HINH WIFI";
-                    } else {
-                        std::string ssid = wifi.GetSsid();
-                        std::string ip = wifi.GetIpAddress();
-                        std::string pwd = "";
-                        auto& ssid_mgr = SsidManager::GetInstance();
-                        for (const auto& item : ssid_mgr.GetSsidList()) {
-                            if (item.ssid == ssid) {
-                                pwd = item.password;
-                                break;
-                            }
-                        }
-                        if (!ssid.empty()) {
-                            if (pwd.empty()) {
-                                qr_payload = "WIFI:T:nopass;S:" + EscapeWifiField(ssid) + ";;";
-                            } else {
-                                qr_payload = "WIFI:T:WPA;S:" + EscapeWifiField(ssid) +
-                                             ";P:" + EscapeWifiField(pwd) + ";;";
-                            }
-                            title = "WF: " + ssid + " | IP: " + (ip.empty() ? "N/A" : ip);
-                        } else {
-                            qr_payload = ip.empty() ? "http://192.168.4.1" : ("http://" + ip);
-                            title = "QUET MA TRUY CAP";
-                        }
-                    }
-                    if (display_ != nullptr) {
-                        if (!display_->TryShowQrCode(qr_payload, title, duration * 1000))
-                            return "Không thể tạo QR: nội dung quá dài hoặc thiếu bộ nhớ.";
-                    }
-                    return "Đã hiển thị QR. Quét bằng camera điện thoại.";
+                    return ShowConfigQr(duration);
                 }
 
-                // TRƯỜNG HỢP 2: Yêu cầu thông tin IP / WiFi / Mật khẩu
+                // TRƯỜNG HỢP 2: Yêu cầu thông tin IP / WiFi
                 if (lower_text.find("ip") != std::string::npos || lower_text.find("wifi") != std::string::npos ||
-                    lower_text.find("mat_khau") != std::string::npos || lower_text.find("mật khẩu") != std::string::npos ||
-                    lower_text.find("password") != std::string::npos || lower_text.find("mang") != std::string::npos ||
+                    lower_text.find("mang") != std::string::npos ||
                     lower_text.find("mạng") != std::string::npos || text.empty()) {
                     auto& wifi = WifiManager::GetInstance();
                     std::string ssid = wifi.GetSsid();
                     std::string ip = wifi.GetIpAddress();
                     int rssi = wifi.GetRssi();
-                    std::string pwd = "(Khong co mat khau)";
-
-                    auto& ssid_mgr = SsidManager::GetInstance();
-                    for (const auto& item : ssid_mgr.GetSsidList()) {
-                        if (item.ssid == ssid && !item.password.empty()) {
-                            pwd = item.password;
-                            break;
-                        }
-                    }
-
                     if (display_ != nullptr) {
                         std::string info_disp = "[WIFI] IP: " + (ip.empty() ? "Chua co IP" : ip) +
-                                                " | WF: " + (ssid.empty() ? "Chua ket noi" : ssid) +
-                                                " | MK: " + pwd;
+                                                " | WF: " + (ssid.empty() ? "Chua ket noi" : ssid);
                         display_->ShowNotification(info_disp.c_str(), duration * 1000);
                         display_->SetEmotion("idea");
                     }
@@ -427,6 +396,20 @@ private:
             }
         );
 
+        mcp_server.AddUserOnlyTool(
+            "self.audio.get_mic_status", "Inspect the current microphone and wake word state.",
+            PropertyList(), [](const PropertyList&) -> ReturnValue {
+                auto& app = Application::GetInstance();
+                auto& audio = app.GetAudioService();
+                auto* status = cJSON_CreateObject();
+                cJSON_AddNumberToObject(status, "state", app.GetDeviceState());
+                cJSON_AddBoolToObject(status, "wake_word", audio.IsWakeWordRunning());
+                cJSON_AddBoolToObject(status, "voice_processing", audio.IsAudioProcessorRunning());
+                cJSON_AddNumberToObject(status, "input_level", audio.GetInputLevel());
+                cJSON_AddBoolToObject(status, "alarm", app.IsAlarmActive());
+                return status;
+            });
+
         // 3.2. TOOL DỪNG PHÁT ÂM THANH / NHẠC TRÊN ROBOT
         mcp_server.AddTool(
             "self.audio.stop_playback",
@@ -436,6 +419,8 @@ private:
                 ESP_LOGI("Board", "self.audio.stop_playback");
                 auto& app = Application::GetInstance();
                 app.Schedule([this, &app]() {
+                    if (app.IsAlarmActive())
+                        return;
                     app.StopNotification();
                     if (display_ != nullptr) {
                         display_->SetEmotion("neutral");
@@ -650,71 +635,35 @@ private:
             }
         );
 
-        // TOOL HIỂN THỊ MÃ QR CẤU HÌNH / WEB
         mcp_server.AddTool(
             "self.screen.show_qr",
-            "Hiển thị mã QR lên màn hình LCD để người dùng quét kết nối WiFi hoặc truy cập trang web. Không cần truyền tham số url nếu người dùng chỉ yêu cầu mở mã QR cấu hình/WiFi.",
+            "Mở hotspot cấu hình Wi-Fi và hiển thị QR dẫn tới trang cấu hình nếu url rỗng. "
+            "Chỉ truyền url khi người dùng đưa một địa chỉ web cụ thể.",
             PropertyList({
                 Property("url", kPropertyTypeString, ""),
                 Property("duration_seconds", kPropertyTypeInteger, 60, 10, 600)
             }),
-            [this](const PropertyList& properties) -> ReturnValue {
-                std::string url = properties["url"].value<std::string>();
-                int duration = properties["duration_seconds"].value<int>();
-                std::string title = "QUET MA QR";
-
-                std::string lower_url = url;
-                std::transform(lower_url.begin(), lower_url.end(), lower_url.begin(),
-                               [](unsigned char c) { return static_cast<char>(std::tolower(c)); });
-
-                // Nếu url rỗng hoặc LLM tự điền từ khóa 'wifi', 'qr', 'config', '192.168.4.1'... thì tự động lấy QR Wi-Fi thật
-                bool is_generic_qr_request = url.empty() ||
-                    lower_url == "qr" || lower_url == "wifi" || lower_url == "ip" || lower_url == "config" ||
-                    lower_url.find("192.168.4.1") != std::string::npos ||
-                    (lower_url.rfind("http://", 0) != 0 && lower_url.rfind("https://", 0) != 0 && lower_url.rfind("wifi:", 0) != 0);
-
-                if (is_generic_qr_request) {
-                    auto& wifi = WifiManager::GetInstance();
-                    if (wifi.IsConfigMode()) {
-                        url = "http://192.168.4.1";
-                        title = "QUET CAU HINH WIFI";
-                    } else {
-                        std::string ssid = wifi.GetSsid();
-                        std::string ip = wifi.GetIpAddress();
-                        std::string pwd = "";
-                        auto& ssid_mgr = SsidManager::GetInstance();
-                        for (const auto& item : ssid_mgr.GetSsidList()) {
-                            if (item.ssid == ssid) {
-                                pwd = item.password;
-                                break;
-                            }
-                        }
-                        if (!ssid.empty()) {
-                            if (pwd.empty()) {
-                                url = "WIFI:T:nopass;S:" + EscapeWifiField(ssid) + ";;";
-                            } else {
-                                url = "WIFI:T:WPA;S:" + EscapeWifiField(ssid) +
-                                      ";P:" + EscapeWifiField(pwd) + ";;";
-                            }
-                            title = "WF: " + ssid + " | IP: " + (ip.empty() ? "N/A" : ip);
-                        } else {
-                            url = ip.empty() ? "http://192.168.4.1" : ("http://" + ip);
-                            title = "QUET MA TRUY CAP";
-                        }
-                    }
+            [this](const PropertyList& properties) -> ToolResult {
+                const auto url = properties["url"].value<std::string>();
+                const int duration = properties["duration_seconds"].value<int>();
+                if (url.empty() || url == "config" || url == "wifi" || url == "qr" ||
+                    url == "http://192.168.4.1" || url == "http://192.168.4.1/") {
+                    return ShowConfigQr(duration);
                 }
-                if (display_ != nullptr) {
-                    if (!display_->TryShowQrCode(url, title, duration * 1000))
-                        return "Không thể tạo QR: nội dung quá dài hoặc thiếu bộ nhớ.";
+                if (!url.starts_with("https://") && !url.starts_with("http://")) {
+                    return std::unexpected("QR trang web cần địa chỉ HTTP hoặc HTTPS.");
                 }
-                return "Đã hiển thị QR. Quét bằng camera điện thoại.";
+                if (!display_ || !display_->TryShowQrCode(url, "QUET MA QR", duration * 1000)) {
+                    return std::unexpected("Không thể hiển thị QR.");
+                }
+                return std::string("Đã hiển thị QR trang web.");
             }
         );
         mcp_server.AddTool(
             "self.screen.set_emotion",
             "Đổi biểu cảm TFT khi người dùng trực tiếp yêu cầu. Không gọi mỗi lượt trò chuyện. "
             "Tên thường dùng: happy, sad, angry, furious, side_eye, facepalm, smug, love, wink, "
-            "neutral.",
+            "neutral. Dùng shy cho ngại hoặc ngượng ngùng, zen cho thiền hoặc tĩnh tâm.",
             PropertyList({Property("emotion", kPropertyTypeString),
                           Property("duration_seconds", kPropertyTypeInteger, 8, 1, 15)}),
             [this](const PropertyList& properties) -> ToolResult {

@@ -186,7 +186,9 @@ void WifiBoard::StartWifiConfigMode() {
         Application::GetInstance().Alert(Lang::Strings::WIFI_CONFIG_MODE, hint.c_str(), "gear", Lang::Sounds::OGG_WIFICONFIG);
         auto disp = Board::GetInstance().GetDisplay();
         if (disp != nullptr) {
-            disp->ShowQrCode(wifi_manager.GetApWebUrl(), "WIFI CONFIG AP", 180000);
+            std::string title = "Wi-Fi: ";
+            title += wifi_manager.GetApSsid();
+            disp->ShowQrCode(wifi_manager.GetApWebUrl(), title, 180000);
         }
     });
 #elif CONFIG_USE_ESP_BLUFI_WIFI_PROVISIONING

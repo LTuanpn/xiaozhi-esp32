@@ -200,10 +200,10 @@ void Application::Run() {
     while (true) {
         auto bits = xEventGroupWaitBits(event_group_, ALL_EVENTS, pdTRUE, pdFALSE, portMAX_DELAY);
 
-        if (bits & MAIN_EVENT_ERROR) {
-            if (GetDeviceState() == kDeviceStateNotifying) {
-                StopNotification();
-            }
+        if ((bits & MAIN_EVENT_ERROR) && GetDeviceState() == kDeviceStateNotifying) {
+            ESP_LOGW(TAG, "Conversation error during local playback; keeping playback active");
+            last_error_message_.clear();
+        } else if (bits & MAIN_EVENT_ERROR) {
             SetDeviceState(kDeviceStateIdle);
             Alert(Lang::Strings::ERROR, last_error_message_.c_str(), "cancel",
                   Lang::Sounds::OGG_EXCLAMATION);
@@ -285,6 +285,13 @@ void Application::Run() {
         }
 
         if (bits & MAIN_EVENT_CLOCK_TICK) {
+            if (IsAlarmActive() && next_alarm_clip_us_ != 0 &&
+                esp_timer_get_time() >= next_alarm_clip_us_) {
+                next_alarm_clip_us_ = 0;
+                if (!QueueNotificationClip({}, {}, alarm_clips_[alarm_clip_index_])) {
+                    next_alarm_clip_us_ = esp_timer_get_time() + 3000000;
+                }
+            }
             clock_ticks_++;
             auto display = Board::GetInstance().GetDisplay();
             display->UpdateStatusBar();
@@ -336,7 +343,7 @@ void Application::HandleNetworkConnectedEvent() {
 void Application::HandleNetworkDisconnectedEvent() {
     // Close current conversation when network disconnected
     auto state = GetDeviceState();
-    if (state == kDeviceStateNotifying) {
+    if (state == kDeviceStateNotifying && !IsAlarmActive()) {
         StopNotification();
     }
     if (state == kDeviceStateConnecting || state == kDeviceStateListening ||
@@ -623,8 +630,9 @@ void Application::InitializeProtocol() {
 
     protocol_->OnAudioChannelClosed([this, &board]() {
         Schedule([this, &board]() {
-            if (GetDeviceState() == kDeviceStateNotifying) {
-                ESP_LOGI(TAG, "Audio channel closed while notifying, keeping music stream active");
+            if (GetDeviceState() == kDeviceStateNotifying ||
+                (protocol_ && protocol_->IsAudioChannelOpened())) {
+                ESP_LOGI(TAG, "Ignoring close event while another audio session is active");
                 return;
             }
             board.SetPowerSaveLevel(PowerSaveLevel::LOW_POWER);
@@ -854,6 +862,8 @@ void Application::StartListening() { xEventGroupSetBits(event_group_, MAIN_EVENT
 void Application::StopListening() { xEventGroupSetBits(event_group_, MAIN_EVENT_STOP_LISTENING); }
 
 void Application::HandleToggleChatEvent() {
+    if (IsAlarmActive())
+        return;
     auto state = GetDeviceState();
 
     if (state == kDeviceStateNotifying || notify_player_.IsActive()) {
@@ -918,6 +928,8 @@ void Application::ContinueOpenAudioChannel(ListeningMode mode) {
 }
 
 void Application::HandleStartListeningEvent() {
+    if (IsAlarmActive())
+        return;
     auto state = GetDeviceState();
 
     if (state == kDeviceStateNotifying || notify_player_.IsActive()) {
@@ -954,6 +966,8 @@ void Application::HandleStartListeningEvent() {
 }
 
 void Application::HandleStopListeningEvent() {
+    if (IsAlarmActive())
+        return;
     auto state = GetDeviceState();
 
     if (state == kDeviceStateNotifying || notify_player_.IsActive()) {
@@ -972,6 +986,10 @@ void Application::HandleStopListeningEvent() {
 
 void Application::HandleWakeWordDetectedEvent() {
     if (!protocol_) {
+        if (GetDeviceState() == kDeviceStateNotifying)
+            StopNotification();
+        if (GetDeviceState() == kDeviceStateIdle)
+            audio_service_.EnableWakeWordDetection(true);
         return;
     }
 
@@ -1244,6 +1262,8 @@ void Application::ConfigureWakeWordForListening() {
 }
 
 void Application::EndConversation() {
+    if (IsAlarmActive())
+        return;
     // Main-task operation: notify the peer before changing the local state.
     conversation_paused_ = true;
     pending_listening_start_ = false;
@@ -1254,22 +1274,27 @@ void Application::EndConversation() {
         if (GetDeviceState() == kDeviceStateSpeaking)
             AbortSpeaking(kAbortReasonNone);
     }
-    if (notify_player_.IsActive())
+    if (GetDeviceState() == kDeviceStateNotifying || notify_player_.IsActive())
         StopNotification();
     audio_service_.ResetDecoder();
     SetDeviceState(kDeviceStateIdle);
 }
 
 bool Application::StartNotification(std::string audio_url, std::vector<NotifySubtitle> subtitles) {
-    if (audio_url.rfind("http://", 0) != 0 && audio_url.rfind("https://", 0) != 0)
+    if (IsAlarmActive() ||
+        (!audio_url.starts_with("http://") && !audio_url.starts_with("https://")))
         return false;
     return StartPlayback(std::move(audio_url), std::move(subtitles), {});
 }
 
-bool Application::StartLocalNotification(std::string_view sound) {
-    if (sound.empty())
+bool Application::StartLocalAlarm(std::vector<std::string_view> clips) {
+    if (clips.empty() || IsAlarmActive())
         return false;
-    return StartPlayback({}, {}, sound);
+    if (!StartPlayback({}, {}, clips.front()))
+        return false;
+    alarm_clips_ = std::move(clips);
+    alarm_clip_index_ = 0;
+    return true;
 }
 
 bool Application::StartPlayback(std::string audio_url, std::vector<NotifySubtitle> subtitles,
@@ -1292,6 +1317,16 @@ bool Application::StartPlayback(std::string audio_url, std::vector<NotifySubtitl
         return false;
     }
 
+    if (!QueueNotificationClip(std::move(audio_url), std::move(subtitles), local_audio)) {
+        StopNotification();
+        return false;
+    }
+    return true;
+}
+
+bool Application::QueueNotificationClip(std::string audio_url,
+                                        std::vector<NotifySubtitle> subtitles,
+                                        std::string_view local_audio) {
     audio_service_.ResetDecoder();
     uint32_t playback_id = ++notification_playback_id_;
     if (playback_id == 0) {
@@ -1314,12 +1349,13 @@ bool Application::StartPlayback(std::string audio_url, std::vector<NotifySubtitl
 
     if (!started) {
         ESP_LOGE(TAG, "Failed to start notification playback");
-        StopNotification();
     }
     return started;
 }
 
 void Application::StopNotification() {
+    alarm_clips_.clear();
+    next_alarm_clip_us_ = 0;
     notify_player_.Stop();
     audio_service_.ResetDecoder();
     auto& board = Board::GetInstance();
@@ -1336,7 +1372,18 @@ void Application::HandleNotificationFinished(uint32_t playback_id, bool success)
     }
     ESP_LOGI(TAG, "Notification playback %lu %s", static_cast<unsigned long>(playback_id),
              success ? "completed" : "failed");
+    if (IsAlarmActive()) {
+        // Keep WakeNet listening in silence between the siren and the next reminder.
+        ++alarm_clip_index_;
+        if (alarm_clip_index_ >= alarm_clips_.size())
+            alarm_clip_index_ = alarm_clips_.size() > 1 ? 1 : 0;
+        next_alarm_clip_us_ = esp_timer_get_time() + 3000000;
+        return;
+    }
     StopNotification();
+    if (!success) {
+        Board::GetInstance().GetDisplay()->ShowNotification("Audio stream unavailable");
+    }
 }
 
 void Application::Schedule(std::function<void()>&& callback) {

@@ -223,6 +223,8 @@ bool AudioService::ReadAudioData(std::vector<int16_t>& data, int sample_rate, in
         esp_timer_stop(audio_power_timer_);
         esp_timer_start_periodic(audio_power_timer_, AUDIO_POWER_CHECK_INTERVAL_MS * 1000);
         codec_->EnableInput(true);
+        // Warm up only when the hardware was off, not when switching from WakeNet to speech.
+        vTaskDelay(pdMS_TO_TICKS(120));
     }
 
     if (codec_->input_sample_rate() != sample_rate) {
@@ -302,11 +304,6 @@ void AudioService::AudioInputTask() {
                 // Do not process the stale active bits returned by waitBits().
                 continue;
             }
-        }
-
-        if (audio_input_need_warmup_.exchange(false)) {
-            vTaskDelay(pdMS_TO_TICKS(120));
-            continue;
         }
 
         /* Used for audio testing in NetworkConfiguring mode by clicking the BOOT button */
@@ -761,7 +758,6 @@ void AudioService::EnableVoiceProcessing(bool enable) {
             return;
         }
         ResetDecoder();
-        audio_input_need_warmup_ = true;
         {
             std::lock_guard<std::mutex> lock(input_resampler_mutex_);
             if (input_resampler_ != nullptr) {

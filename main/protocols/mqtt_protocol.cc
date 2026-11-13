@@ -134,8 +134,8 @@ bool MqttProtocol::StartMqttClient(bool report_error) {
                      cJSON_IsString(session_id) ? session_id->valuestring : "null");
             if (cJSON_IsString(session_id) && session_id_ == session_id->valuestring) {
                 auto alive = alive_;  // Capture alive flag
-                Application::GetInstance().Schedule([this, alive]() {
-                    if (*alive) {
+                Application::GetInstance().Schedule([this, alive, session = session_id_]() {
+                    if (*alive && session_id_ == session) {
                         // Server initiated goodbye, don't send goodbye back to avoid ping-pong
                         CloseAudioChannel(false);
                     }
