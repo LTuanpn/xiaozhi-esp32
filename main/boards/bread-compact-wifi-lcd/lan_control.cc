@@ -101,7 +101,7 @@ bool Allowed(std::string_view name) {
 
 std::string LanControl::Pair(const std::string& ip, const std::string& origin, Status status) {
     if (!server_) {
-        auto config = HTTPD_DEFAULT_CONFIG();
+        httpd_config_t config = HTTPD_DEFAULT_CONFIG();
         config.server_port = kPort;
         config.ctrl_port = 32770;
         config.max_open_sockets = 3;
