@@ -6,6 +6,7 @@
 #include <freertos/task.h>
 #include <esp_timer.h>
 
+#include <atomic>
 #include <string>
 #include <mutex>
 #include <deque>
@@ -108,8 +109,8 @@ public:
      */
     void StopListening();
 
-    // Phone input is controlled on the application task. Zero means no session.
     bool StartControlListening();
+    // Phone input mutations run on the application task.
     bool BeginPhoneTalk(uint32_t session);
     bool FeedPhoneTalk(uint32_t session, std::vector<int16_t>&& pcm);
     bool EndPhoneTalk(uint32_t session);
@@ -175,7 +176,7 @@ private:
     bool pending_listening_start_ = false;  // Waiting for playback to drain before starting listening (auto mode)
     uint32_t phone_session_ = 0;
     bool phone_finishing_ = false;
-    bool phone_listening_ = false;
+    std::atomic<uint32_t> phone_ready_session_{0};
     int64_t phone_deadline_us_ = 0;
     int64_t phone_limit_us_ = 0;
     void CheckPhoneTalk();

@@ -206,17 +206,19 @@ esp_err_t LanControl::HandleRequest(httpd_req_t* req) {
         if (!cJSON_IsString(name) || !Allowed(name->valuestring) || !cJSON_IsObject(args))
             return Error(req, "400 Bad Request", "Thao tác không được phép.");
         const std::string_view tool(name->valuestring);
-        if (tool == "self.screen.show_qr") {
-            // This entry point only starts the existing Wi-Fi setup portal.
-            call.reset(cJSON_Parse("{\"name\":\"self.screen.show_qr\",\"arguments\":{}}"));
-        }
+        CJsonUniquePtr params(cJSON_CreateObject());
+        // The LAN Wi-Fi button can only open the existing setup portal.
+        CJsonUniquePtr arguments(tool == "self.screen.show_qr" ? cJSON_CreateObject()
+                                                               : cJSON_Duplicate(args, true));
         CJsonUniquePtr rpc(cJSON_CreateObject());
-        if (!rpc || !call)
+        if (!rpc || !params || !arguments ||
+            !cJSON_AddStringToObject(params.get(), "name", name->valuestring))
             return Error(req, "503 Service Unavailable", "Robot đang bận.");
+        cJSON_AddItemToObject(params.get(), "arguments", arguments.release());
         cJSON_AddStringToObject(rpc.get(), "jsonrpc", "2.0");
         cJSON_AddNumberToObject(rpc.get(), "id", 1);
         cJSON_AddStringToObject(rpc.get(), "method", "tools/call");
-        cJSON_AddItemToObject(rpc.get(), "params", call.release());
+        cJSON_AddItemToObject(rpc.get(), "params", params.release());
         McpServer::GetInstance().ParseMessage(
             rpc.get(), [reply](const std::string& value) { reply->Finish(value); });
     } else if (req->method == HTTP_POST && uri.starts_with("/api/phone/")) {
@@ -240,6 +242,9 @@ esp_err_t LanControl::HandleRequest(httpd_req_t* req) {
                                         action != "cancel")) {
             return Error(req, "400 Bad Request", "Thao tác mic không hợp lệ.");
         }
+        if (action == "ready")
+            return Send(req, "200 OK",
+                        app.IsPhoneTalkReady(id) ? "{\"ok\":true}" : "{\"ok\":false}");
         app.Schedule([this, reply, action, id, pcm = std::move(pcm)]() mutable {
             if (reply->expired)
                 return;
@@ -250,9 +255,7 @@ esp_err_t LanControl::HandleRequest(httpd_req_t* req) {
                 ok = state &&
                      !cJSON_IsTrue(cJSON_GetObjectItemCaseSensitive(state.get(), "guard")) &&
                      app.BeginPhoneTalk(id);
-            } else if (action == "ready")
-                ok = app.IsPhoneTalkReady(id);
-            else if (action == "audio")
+            } else if (action == "audio")
                 ok = app.FeedPhoneTalk(id, std::move(pcm));
             else if (action == "end")
                 ok = app.EndPhoneTalk(id);

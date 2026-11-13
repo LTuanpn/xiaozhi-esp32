@@ -902,12 +902,12 @@ bool Application::BeginPhoneTalk(uint32_t session) {
 }
 
 bool Application::IsPhoneTalkReady(uint32_t session) const {
-    return session && phone_session_ == session && phone_listening_ && !phone_finishing_ &&
-           GetDeviceState() == kDeviceStateListening;
+    return session && phone_ready_session_.load() == session;
 }
 
 bool Application::FeedPhoneTalk(uint32_t session, std::vector<int16_t>&& pcm) {
-    if (!IsPhoneTalkReady(session) || !audio_service_.PushPhoneAudio(std::move(pcm)))
+    if (!IsPhoneTalkReady(session) || GetDeviceState() != kDeviceStateListening ||
+        !audio_service_.PushPhoneAudio(std::move(pcm)))
         return false;
     phone_deadline_us_ = esp_timer_get_time() + 2500000;
     return true;
@@ -920,6 +920,7 @@ bool Application::EndPhoneTalk(uint32_t session) {
         return CancelPhoneTalk(session);
 
     phone_finishing_ = true;
+    phone_ready_session_.store(0);
     phone_deadline_us_ = esp_timer_get_time() + 2500000;
     CheckPhoneTalk();
     return true;
@@ -938,7 +939,7 @@ bool Application::CancelPhoneTalk(uint32_t session) {
 
 void Application::ResetPhoneTalk() {
     phone_session_ = 0;
-    phone_listening_ = false;
+    phone_ready_session_.store(0);
     phone_finishing_ = false;
     audio_service_.SetPhoneInput(false);
 }
@@ -1350,8 +1351,8 @@ void Application::StartListeningAudio() {
     // Send the start listening command
     protocol_->SendStartListening(listening_mode_);
     if (phone_session_) {
-        phone_listening_ = true;
         phone_deadline_us_ = esp_timer_get_time() + 2500000;
+        phone_ready_session_.store(phone_session_);
         return;
     }
     audio_service_.EnableVoiceProcessing(true);

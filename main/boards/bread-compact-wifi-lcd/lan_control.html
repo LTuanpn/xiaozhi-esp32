@@ -109,6 +109,7 @@ async function readStatus() {
     }
   } catch (error) {
     $("connection").textContent = "Mất kết nối";
+    $("talk").disabled = true;
     note(error.message, true);
   } finally { pollBusy = false; }
 }
@@ -213,10 +214,11 @@ async function stopTalk(cancel = false) {
     await current.started;
     if (current.began) {
       if (!cancel) await current.queue;
-      const {ok} = await phone(cancel || current.failed ? "cancel" : "end",current);
-      if (!ok && !cancel && !current.failed) throw new Error("Lượt nói đã hết hạn.");
+      const send = !cancel && !current.failed && current.node && current.hadAudio;
+      const {ok} = await phone(send ? "end" : "cancel",current);
+      if (!ok && send) throw new Error("Lượt nói đã hết hạn.");
     }
-    if (!current.failed) note(cancel ? "Đã hủy lượt nói." : "Đã gửi lượt nói.");
+    if (!current.failed) note(cancel || !current.hadAudio ? "Đã hủy lượt nói." : "Đã gửi lượt nói.");
   } catch (error) { note(error.message,true); }
   finally {
     turn = null;
@@ -237,7 +239,8 @@ function startTalk() {
       if (current.released) { closeMic(current); return; }
       current.began = (await phone("begin",current)).ok;
       if (!current.began) throw new Error("Robot đang bận hoặc GUARD đang bật.");
-      for (let i=0; i<40 && !current.released; i++) {
+      const readyBy = performance.now() + 14000;
+      while (!current.released && performance.now() < readyBy) {
         if ((await phone("ready",current)).ok) {
           if (current.released) return;
           current.node = new AudioWorkletNode(audioContext,"lan-mic");
@@ -261,6 +264,7 @@ function startTalk() {
             current.queue = current.queue.then(async () => {
               if (current.failed) return;
               if (!(await phone("audio",current,event.data)).ok) throw new Error("Robot không nhận được audio.");
+              current.hadAudio = true;
             }).catch(error => {
               current.failed = true;
               note(error.message,true);
