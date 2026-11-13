@@ -31,6 +31,8 @@ protected:
      */
     void StartWifiConfigMode();
 
+    virtual bool ShowProvisioningQr(int duration_ms) { return false; }
+
     /**
      * WiFi connection timeout callback
      */

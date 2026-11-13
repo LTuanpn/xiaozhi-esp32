@@ -25,3 +25,15 @@
 - Dùng lại 2,32 giây chuông Timer và 3,19 giây còi GUARD trước lời nhắc thứ hai và thứ ba. Lặp cả ba câu, có khoảng yên sau mỗi lượt. Xác minh Ogg Opus và log qua nhiều lượt.
 - Giọng Cloud cần API TTS theo giọng của agent. Giữ bản tiếng Việt offline cho đến khi có giao diện tích hợp đã xác minh.
 - Build biến thể TFT, sao lưu NVS, nạp ứng dụng qua COM5 và kiểm tra trang LAN từ máy khác với ESP32.
+
+
+- CI 43413054504 đạt host tests và 5 cấu hình. Bản c527c59 đã nạp qua COM5.
+- Sáu đoạn dùng cùng giọng NamMinh, mỗi loại ba câu. Tách tiếng chuông/còi đầy đủ trước lời, bỏ từ đánh thức trong cả sáu câu. Kiểm tra prefix, khoảng yên và phần lời ở cả sáu file.
+- HTTP trang trạng thái LAN trả 200, WakeNet bật trong lúc hiện QR. Chưa có xác nhận quét QR từ điện thoại.
+- Lượt thử Timer thứ nhất nhận Jarvis và chuyển sang nghe lệnh. Lượt thứ hai phát xong năm đoạn, báo động vẫn bật. Kết thúc bài thử bằng reboot rồi mở lại QR.
+
+## Chọn đúng bản Tây Thi và QR kết nối hotspot
+
+- Ưu tiên kênh nghệ sĩ khớp khi tiêu đề khớp, trừ điểm bản phối hoặc đăng lại nếu người dùng không yêu cầu. Giữ bước hỏi lại khi nhiều ứng viên thực sự ngang nhau. Kiểm thử danh sách Tây Thi lấy từ YouTube, các truy vấn mơ hồ và lệnh phát thật.
+- Khi yêu cầu QR cấu hình, mở hotspot rồi tạo QR Wi-Fi từ SSID của chính robot. Giữ captive portal gốc. Thay trang trạng thái LAN cũ và loại bỏ HTTP server chỉ phục vụ trang đó.
+- Build, kiểm tra mã QR và captive portal trên ESP32, rồi đưa robot về Wi-Fi đã lưu.
