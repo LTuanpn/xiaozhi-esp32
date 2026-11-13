@@ -13,6 +13,8 @@
 
 #include <driver/i2c_master.h>
 #include <driver/spi_common.h>
+#include <esp_app_desc.h>
+#include <esp_http_server.h>
 #include <esp_lcd_panel_io.h>
 #include <esp_lcd_panel_ops.h>
 #include <esp_lcd_panel_vendor.h>
@@ -88,25 +90,90 @@ private:
     int guard_hits_ = 0;
     int workout_remaining_sec_ = 0;
 
+    static constexpr int kStatusPort = 8080;
+    httpd_handle_t status_server_ = nullptr;
+
+    static esp_err_t SendStatusPage(httpd_req_t* request) {
+        auto& app = Application::GetInstance();
+        const auto state = app.GetDeviceState();
+        const auto& audio = app.GetAudioService();
+        const char* status = DeviceStateMachine::GetStateName(state);
+
+        char page[1800];
+        const int length = snprintf(
+            page, sizeof(page),
+            "<!doctype html><html lang=vi><meta charset=utf-8>"
+            "<meta name=viewport content='width=device-width,initial-scale=1'>"
+            "<title>Trạng thái Jarvis</title>"
+            "<style>:root{color-scheme:light dark}body{font:1rem system-ui;margin:2rem auto;"
+            "padding:0 1.25rem;max-width:32rem}dt{font-weight:600;margin-top:1rem}"
+            "dd{margin:.25rem 0 0}button{font:inherit;padding:.5rem .8rem}</style>"
+            "<h1>Trạng thái Jarvis</h1><dl><dt>Firmware</dt><dd>%.31s</dd>"
+            "<dt>Trạng thái</dt><dd>%s</dd><dt>WakeNet · Jarvis</dt><dd>%s</dd>"
+            "<dt>Nghe lệnh</dt><dd>%s</dd><dt>Mức tín hiệu mic</dt><dd>%u / 100</dd>"
+            "</dl><form method=get><button>Làm mới</button></form></html>",
+            esp_app_get_description()->version, status,
+            audio.IsWakeWordRunning() ? "Đang dò từ đánh thức" : "Đang tạm dừng",
+            audio.IsAudioProcessorRunning() ? "Đang nghe" : "Đang chờ",
+            static_cast<unsigned>(audio.GetInputLevel()));
+        if (length < 0 || static_cast<size_t>(length) >= sizeof(page)) {
+            return httpd_resp_send_err(request, HTTPD_500_INTERNAL_SERVER_ERROR,
+                                       "Status unavailable");
+        }
+        httpd_resp_set_type(request, "text/html; charset=utf-8");
+        httpd_resp_set_hdr(request, "Cache-Control", "no-store");
+        httpd_resp_set_hdr(request, "X-Content-Type-Options", "nosniff");
+        httpd_resp_set_hdr(request, "Connection", "close");
+        return httpd_resp_send(request, page, length);
+    }
+
+    bool StartStatusServer() {
+        if (status_server_) {
+            return true;
+        }
+        httpd_config_t config = HTTPD_DEFAULT_CONFIG();
+        config.server_port = kStatusPort;
+        config.ctrl_port = 32770;
+        config.max_open_sockets = 2;
+        config.recv_wait_timeout = 2;
+        config.send_wait_timeout = 2;
+        config.lru_purge_enable = true;
+
+        if (httpd_start(&status_server_, &config) != ESP_OK) {
+            return false;
+        }
+        httpd_uri_t page{};
+        page.uri = "/";
+        page.method = HTTP_GET;
+        page.handler = SendStatusPage;
+        if (httpd_register_uri_handler(status_server_, &page) != ESP_OK) {
+            httpd_stop(status_server_);
+            status_server_ = nullptr;
+            return false;
+        }
+        return true;
+    }
+
     ToolResult ShowConfigQr(int duration) {
-#ifdef CONFIG_USE_HOTSPOT_WIFI_PROVISIONING
         auto& wifi = WifiManager::GetInstance();
         if (wifi.IsConfigMode()) {
-            if (!display_ || !display_->TryShowQrCode(wifi.GetApWebUrl(), wifi.GetApSsid(),
-                                                     duration * 1000)) {
-                return std::unexpected("Không thể hiển thị QR cấu hình.");
-            }
-            return std::string("Kết nối Wi-Fi của robot rồi quét QR để mở trang cấu hình.");
+            return std::string("Điện thoại kết nối hotspot Xiaozhi sẽ tự mở trang cấu hình.");
+        }
+        const auto ip = wifi.GetIpAddress();
+        if (!wifi.IsConnected() || ip.empty() || ip == "0.0.0.0") {
+            return std::unexpected("Robot chưa có địa chỉ Wi-Fi để mở trang trạng thái.");
+        }
+        if (!StartStatusServer()) {
+            return std::unexpected("Không thể mở trang trạng thái trên robot.");
         }
 
-        auto& app = Application::GetInstance();
-        if (app.IsAlarmActive())
-            return std::unexpected("Gọi Jarvis để xác nhận báo động trước khi mở cấu hình.");
-        app.Schedule([this]() { EnterWifiConfigMode(); });
-        return std::string("Robot sẽ mở Wi-Fi Xiaozhi. Kết nối mạng hiện trên màn hình rồi quét QR.");
-#else
-        return std::unexpected("Bản firmware này không hỗ trợ cấu hình Wi-Fi bằng hotspot.");
-#endif
+        const std::string url = "http://" + ip + ":" + std::to_string(kStatusPort) + "/";
+        if (!display_ || !display_->TryShowQrCode(url, "KIEM TRA ROBOT", duration * 1000)) {
+            return std::unexpected("Không thể hiển thị QR trang trạng thái.");
+        }
+        return std::string(
+                   "Đã mở QR trang trạng thái. Quét bằng điện thoại đang dùng cùng Wi-Fi: ") +
+               url;
     }
 
     void RaiseAlarm(bool guard) {
@@ -435,7 +502,7 @@ private:
             "self.security.guard_mode",
             "Bật hoặc tắt chế độ canh gác phòng (Sentry Mode). Khi bật, robot sẽ quét âm thanh "
             "trong phòng, sau 6 giây ổn định sẽ theo dõi tiếng động; khi vượt ngưỡng sẽ báo bằng "
-            "còi và lời nói rồi tự tắt.",
+            "còi và lời nhắc lặp lại đến khi người dùng gọi Jarvis.",
             PropertyList({Property("enable", kPropertyTypeBoolean, true)}),
             [this](const PropertyList& properties) -> ReturnValue {
                 guard_mode_active_ = properties["enable"].value<bool>();
@@ -637,7 +704,7 @@ private:
 
         mcp_server.AddTool(
             "self.screen.show_qr",
-            "Mở hotspot cấu hình Wi-Fi và hiển thị QR dẫn tới trang cấu hình nếu url rỗng. "
+            "Hiển thị QR dẫn tới trang trạng thái của robot trên Wi-Fi hiện tại nếu url rỗng. "
             "Chỉ truyền url khi người dùng đưa một địa chỉ web cụ thể.",
             PropertyList({
                 Property("url", kPropertyTypeString, ""),

@@ -1376,7 +1376,7 @@ void Application::HandleNotificationFinished(uint32_t playback_id, bool success)
         // Keep WakeNet listening in silence between the siren and the next reminder.
         ++alarm_clip_index_;
         if (alarm_clip_index_ >= alarm_clips_.size())
-            alarm_clip_index_ = alarm_clips_.size() > 1 ? 1 : 0;
+            alarm_clip_index_ = 0;
         next_alarm_clip_us_ = esp_timer_get_time() + 3000000;
         return;
     }

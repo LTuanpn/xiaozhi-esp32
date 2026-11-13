@@ -142,7 +142,7 @@ int main(int argc, char** argv) {
                 str(ROOT / 'main/notify/notify_player.cc'),
                 str(ROOT / 'main/audio/demuxer/ogg_demuxer.cc'), '-o', str(executable)]
             subprocess.run(command, check=True, capture_output=True, timeout=180)
-            for asset in ('timer_alert_vi.ogg', 'guard_alert_vi.ogg'):
+            for asset in sorted(p.name for p in (ROOT / 'main/assets/common').glob('*_vi.ogg')):
                 with self.subTest(asset=asset):
                     subprocess.run([str(executable), str(ROOT / 'main/assets/common' / asset)],
                                    check=True, capture_output=True, timeout=15)
