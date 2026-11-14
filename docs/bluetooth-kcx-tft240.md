@@ -26,6 +26,8 @@ Biến thể `bread-compact-wifi-lcd-240x240-kcx` giữ nguyên màn, mic, loa, 
 
 Mic giữ GPIO4 WS, GPIO5 SCK và GPIO6 SD. Màn hình, USB/COM và nguồn MAX98357A dùng sơ đồ hiện có. Kiểm tra GPIO8–12 thực sự được đưa ra header và chưa dùng trên module thực tế. Với breakout GY-PCM5102, đối chiếu chân VIN, jumper FMT (I²S), XSMT (unmute) và SCK theo sơ đồ đúng revision. Nếu dùng chế độ PLL ba dây của PCM5102A, kéo SCK theo datasheet và cấu hình của breakout. Đo line out/line in và điều chỉnh volume để tránh clipping. Nếu không có load switch, không dùng tính năng bật tắt nguồn như thiết kế này.
 
+Với KCX v1.7, tài liệu nhà sản xuất nêu đầu vào tối đa 2 Vpp, thấp hơn mức toàn thang 2,1 Vrms của PCM5102A. Dùng bộ chia áp phù hợp ở mỗi kênh trước khi nối line in, kiểm tra mức bằng oscilloscope. Tài liệu KCX cũng chỉ định tụ lọc 100 µF gần nguồn và độ trễ truyền khoảng 250–300 ms cho revision đó.
+
 ## Firmware, trang LAN và lệnh giọng nói
 
 - Build **`bread-compact-wifi-lcd-240x240-kcx`**, nhúng version 2.5.7. Fleet dùng tên biến thể để tránh gán nhầm bản. Robot đang dùng biến thể chuẩn cần chuyển sang KCX một lần. Sau khi có phần cứng, ưu tiên nạp app qua USB vào slot đang boot đã xác minh, hoặc cập nhật app qua kênh quản trị trực tiếp khi đã kiểm tra đúng ảnh. Bảng phân vùng tương thích và phải giữ NVS. Các lần OTA tiếp theo trên biến thể KCX dùng file đúng tên.
@@ -40,5 +42,11 @@ Mic giữ GPIO4 WS, GPIO5 SCK và GPIO6 SD. Màn hình, USB/COM và nguồn MAX9
 3. Qua LAN thử bật và tắt nguồn. Kiểm tra UART probe và phản hồi chế độ TX/analog. Quét loa ở pairing mode, thử khi có hai loa trùng tên, chọn MAC, xác nhận LINK và nối lại loa đã lưu. Đo xem có cấp nguồn ngược qua UART lúc off không.
 4. Phát giọng và nhạc ở cả bốn cấu hình local/Bluetooth, thử đổi ngõ khi đang phát và tắt loa giữa bài. Kiểm tra âm lượng, tiếng bụp, mất tiếng do chuyển DMA và độ trễ Bluetooth. Timer và GUARD phải vẫn phát ở loa robot.
 5. Kiểm tra WakeNet, nhận lệnh dừng, ngắt nhạc và kết nối lại Wi-Fi. Đối chiếu OTA và danh sách gói Studio sau khi Fleet nhận biến thể mới. Firmware build thành công chỉ xác nhận phần mềm biên dịch.
+
+## Ảnh thử nghiệm và kết quả phần mềm
+
+- [GitHub Release `v2.5.7-kcx-test`](https://github.com/LTuanpn/xiaozhi-esp32/releases/tag/v2.5.7-kcx-test) gồm `bread-compact-wifi-lcd-240x240-kcx.bin`, 3.003.552 byte. SHA-256 `6170b1b0c932fccc694049adb34f5a8b3ca01a8c352d592bd1076cbe2aa4a841`.
+- [GitHub Actions](https://github.com/LTuanpn/xiaozhi-esp32/actions/runs/43578693400) build biến thể KCX bằng ESP-IDF 6.1. Ảnh qua kiểm tra checksum và bảng phân vùng trùng bản 2.5.6. Fleet nhận diện file phát hành. Trang LAN đã qua thử nghiệm trình duyệt với trạng thái Bluetooth giả lập. Music MCP qua 31 bài test trên máy local.
+- Robot đang ở 2.5.6 bản TFT chuẩn. Chưa đổi bản, chưa nạp assets và chưa thử phần cứng KCX/PCM5102. Khi chạy lần đầu, kiểm tra giọng nói qua MCP Cloud. Quy tắc tool Bluetooth nằm trong `mcp_music_server/xiaozhi-cloud-rules.md` để dùng nếu cấu hình Cloud cần cập nhật.
 
 Tài liệu kỹ thuật. [PCM5102A của TI](https://www.ti.com/lit/ds/symlink/pcm5102a.pdf). [GPIO ESP32-S3 của Espressif](https://docs.espressif.com/projects/esp-idf/en/v6.0/esp32s3/api-reference/peripherals/gpio.html). [Sơ đồ và datasheet KCX](https://offer-product.oss-cn-beijing.aliyuncs.com/product/offer/attachment/3498289377/file/subPdf_781037_345702_20240326-095838418.pdf). [Mã kiểm tra KCX v1.7 và ghi chú UART](https://github.com/Mark-MDO47/BluetoothAudioTransmitter_KCX_BT_EMITTER/tree/KCX_BT_EMITTER_V1.7).
