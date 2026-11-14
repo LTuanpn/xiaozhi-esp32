@@ -662,15 +662,26 @@ void AudioService::SetPhoneInput(bool enabled) {
 
 bool AudioService::PushPhoneAudio(std::vector<int16_t>&& pcm) {
     std::lock_guard<std::mutex> lock(audio_queue_mutex_);
-    if (!phone_input_ || service_stopped_.load() || pcm.size() != encoder_frame_size_ ||
-        audio_encode_queue_.size() >= MAX_ENCODE_TASKS_IN_QUEUE ||
-        audio_send_queue_.size() >= MAX_SEND_PACKETS_IN_QUEUE)
+    if (!phone_input_ || service_stopped_.load() || !encoder_frame_size_ || pcm.empty() ||
+        pcm.size() % encoder_frame_size_ != 0)
         return false;
 
-    AudioTask task{.type = kAudioTaskTypeEncodeToSendQueue,
-                   .pcm = std::move(pcm),
-                   .input_generation = input_generation_};
-    audio_encode_queue_.push_back(std::move(task));
+    const size_t frame_count = pcm.size() / encoder_frame_size_;
+    if (audio_encode_queue_.size() + frame_count > MAX_ENCODE_TASKS_IN_QUEUE ||
+        audio_send_queue_.size() + frame_count > MAX_SEND_PACKETS_IN_QUEUE)
+        return false;
+
+    if (frame_count == 1) {
+        audio_encode_queue_.push_back({.type = kAudioTaskTypeEncodeToSendQueue,
+                                       .pcm = std::move(pcm),
+                                       .input_generation = input_generation_});
+    } else {
+        for (auto start = pcm.begin(); start != pcm.end(); start += encoder_frame_size_) {
+            audio_encode_queue_.push_back({.type = kAudioTaskTypeEncodeToSendQueue,
+                                           .pcm = {start, start + encoder_frame_size_},
+                                           .input_generation = input_generation_});
+        }
+    }
     audio_queue_cv_.notify_all();
     return true;
 }

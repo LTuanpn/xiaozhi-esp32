@@ -234,10 +234,11 @@ esp_err_t LanControl::HandleRequest(httpd_req_t* req) {
         std::vector<int16_t> pcm;
         if (action == "audio") {
             std::string body;
-            if (!ReadBody(req, body, kFrameBytes) || body.size() != kFrameBytes)
+            if (!ReadBody(req, body, 2 * kFrameBytes) || body.empty() ||
+                body.size() % kFrameBytes != 0)
                 return Error(req, "400 Bad Request", "Khung PCM không hợp lệ.");
-            pcm.resize(kFrameBytes / sizeof(int16_t));
-            memcpy(pcm.data(), body.data(), kFrameBytes);
+            pcm.resize(body.size() / sizeof(int16_t));
+            memcpy(pcm.data(), body.data(), body.size());
         } else if (req->content_len || (action != "begin" && action != "ready" && action != "end" &&
                                         action != "cancel")) {
             return Error(req, "400 Bad Request", "Thao tác mic không hợp lệ.");

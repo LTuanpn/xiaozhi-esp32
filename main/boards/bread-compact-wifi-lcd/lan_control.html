@@ -194,6 +194,20 @@ function closeMic(current) {
   current.input?.disconnect();
   current.silent?.disconnect();
 }
+function queueAudio(current) {
+  if (!current.frames.length || current.failed) return;
+  const frames = current.frames.splice(0,2);
+  current.queue = current.queue.then(async () => {
+    if (current.failed) return;
+    const batch = new Blob(frames,{type:"application/octet-stream"});
+    if (!(await phone("audio",current,batch)).ok) throw new Error("Robot không nhận được audio.");
+    current.hadAudio = true;
+  }).catch(error => {
+    current.failed = true;
+    note(error.message,true);
+    void stopTalk(true);
+  }).finally(() => { current.pending -= frames.length; });
+}
 async function stopTalk(cancel = false) {
   const current = turn;
   if (!current || current.released) return;
@@ -213,7 +227,10 @@ async function stopTalk(cancel = false) {
     closeMic(current);
     await current.started;
     if (current.began) {
-      if (!cancel) await current.queue;
+      if (!cancel) {
+        queueAudio(current);
+        await current.queue;
+      }
       const send = !cancel && !current.failed && current.node && current.hadAudio;
       const {ok} = await phone(send ? "end" : "cancel",current);
       if (!ok && send) throw new Error("Lượt nói đã hết hạn.");
@@ -228,7 +245,7 @@ async function stopTalk(cancel = false) {
 }
 function startTalk() {
   if (turn || busy || pollBusy || $("talk").disabled) return;
-  const current = {id:crypto.getRandomValues(new Uint32Array(1))[0] || 1, queue:Promise.resolve(), pending:0};
+  const current = {id:crypto.getRandomValues(new Uint32Array(1))[0] || 1, queue:Promise.resolve(), frames:[], pending:0};
   turn = current;
   $("talk").setAttribute("aria-pressed","true");
   $("talk").textContent = "Đang mở mic…";
@@ -254,22 +271,15 @@ function startTalk() {
               return;
             }
             if ((current.released && !current.finishFlush) || current.failed) return;
-            if (current.pending >= 4) {
+            if (current.pending >= 8) {
               current.failed = true;
               note("Mạng chậm. Lượt nói đã dừng.",true);
               void stopTalk(true);
               return;
             }
             current.pending++;
-            current.queue = current.queue.then(async () => {
-              if (current.failed) return;
-              if (!(await phone("audio",current,event.data)).ok) throw new Error("Robot không nhận được audio.");
-              current.hadAudio = true;
-            }).catch(error => {
-              current.failed = true;
-              note(error.message,true);
-              void stopTalk(true);
-            }).finally(() => { current.pending--; });
+            current.frames.push(event.data);
+            if (current.frames.length === 2) queueAudio(current);
           };
           $("talk").textContent = "Đang thu · nhả để gửi";
           return;
