@@ -132,8 +132,8 @@ PocketLcdDisplay::PocketLcdDisplay(esp_lcd_panel_io_handle_t panel_io, esp_lcd_p
 }
 
 PocketLcdDisplay::~PocketLcdDisplay() {
+    DisplayLockGuard lock(this);
     if (frame_timer_ != nullptr) {
-        DisplayLockGuard lock(this);
         lv_timer_delete(frame_timer_);
         frame_timer_ = nullptr;
     }
@@ -141,6 +141,7 @@ PocketLcdDisplay::~PocketLcdDisplay() {
         heap_caps_free(qr_cbuf_);
         qr_cbuf_ = nullptr;
     }
+    expression_pack_.Destroy();
 }
 
 void PocketLcdDisplay::ReloadExpressions(bool load) {

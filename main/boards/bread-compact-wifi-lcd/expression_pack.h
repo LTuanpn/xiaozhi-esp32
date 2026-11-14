@@ -15,6 +15,7 @@ public:
     static bool Download(const std::string& url, const std::string& digest);
 
     ~ExpressionPack();
+    void Destroy();
     void Load();
     void Reset();
     void Draw(lv_obj_t* parent, std::string_view name);

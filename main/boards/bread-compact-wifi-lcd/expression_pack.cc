@@ -143,7 +143,14 @@ bool ExpressionPack::Download(const std::string& url, const std::string& digest)
 }
 
 ExpressionPack::~ExpressionPack() {
+    // The owner releases the LVGL object under the display lock.
     Reset();
+}
+
+void ExpressionPack::Destroy() {
+    if (canvas_)
+        lv_obj_delete(canvas_);
+    canvas_ = nullptr;
     heap_caps_free(pixels_);
     heap_caps_free(indices_);
     heap_caps_free(delta_);
@@ -217,7 +224,9 @@ void ExpressionPack::Draw(lv_obj_t* parent, std::string_view name) {
             inflater_ = heap_caps_malloc(sizeof(tinfl_decompressor), MALLOC_CAP_SPIRAM);
         if (!indices_ || !delta_ || !pixels_ || !inflater_)
             return;
-        canvas_ = lv_canvas_create(parent);
+        // Keep the full 240×240 background beneath status and subtitle overlays.
+        canvas_ = lv_canvas_create(lv_obj_get_parent(parent));
+        lv_obj_move_to_index(canvas_, lv_obj_get_index(parent) + 1);
         lv_obj_remove_flag(canvas_, LV_OBJ_FLAG_SCROLLABLE);
         lv_canvas_set_buffer(canvas_, pixels_, kSide, kSide, LV_COLOR_FORMAT_RGB565);
     }
