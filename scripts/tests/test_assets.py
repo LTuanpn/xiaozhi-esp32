@@ -224,6 +224,7 @@ class AssetsTest(unittest.TestCase):
                 struct Network { std::unique_ptr<Http> CreateHttp(int) { std::abort(); } };
                 class Board {
                 public:
+                    size_t ReservedAssetsTail() const { return 0; }
                     Display* display = nullptr;
                     static Board& GetInstance() { static Board board; return board; }
                     Display* GetDisplay() { return display; }
