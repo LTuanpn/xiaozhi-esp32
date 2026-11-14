@@ -1,5 +1,7 @@
 #pragma once
 
+#include "sdkconfig.h"
+
 #ifdef CONFIG_BREAD_COMPACT_LCD_KCX
 
 #include <cJSON.h>
