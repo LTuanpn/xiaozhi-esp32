@@ -822,12 +822,15 @@ private:
                                         display->HideStandbyClock(true);
                                     } else if (std::strcmp(buf, "face_perf") == 0) {
                                         display->LogFacePerformance();
-                                    } else if (std::strncmp(buf, "play ", 5) == 0) {
-                                        std::string play_url = buf + 5;
-                                        display->SetEmotion("music");
+                                    } else if (std::strncmp(buf, "play ", 5) == 0 ||
+                                               std::strncmp(buf, "speak ", 6) == 0) {
+                                        const bool music = buf[0] == 'p';
+                                        std::string play_url = buf + (music ? 5 : 6);
+                                        if (music)
+                                            display->SetEmotion("music");
                                         auto& app = Application::GetInstance();
-                                        app.Schedule([&app, play_url]() {
-                                            app.StartNotification(play_url, {}, true);
+                                        app.Schedule([&app, play_url, music]() {
+                                            app.StartNotification(play_url, {}, music);
                                         });
                                     } else {
                                         const char* cmd = buf;
