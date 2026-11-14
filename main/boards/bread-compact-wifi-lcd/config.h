@@ -4,7 +4,8 @@
 #include <driver/gpio.h>
 
 #define AUDIO_INPUT_SAMPLE_RATE  16000
-#define AUDIO_OUTPUT_SAMPLE_RATE 24000
+// The MAX98357A does not support a 24 kHz LRCLK.
+#define AUDIO_OUTPUT_SAMPLE_RATE 48000
 
 // 如果使用 Duplex I2S 模式，请注释下面一行
 #define AUDIO_I2S_METHOD_SIMPLEX
