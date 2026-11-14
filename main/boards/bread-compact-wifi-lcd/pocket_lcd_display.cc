@@ -405,13 +405,15 @@ void PocketLcdDisplay::SetupUI() {
     lv_obj_add_flag(mouth_highlight_, LV_OBJ_FLAG_HIDDEN);
     resting_mouth_ = lv_arc_create(lv_display_get_layer_top(display_));
     lv_obj_remove_style_all(resting_mouth_);
-    lv_obj_remove_flag(resting_mouth_, LV_OBJ_FLAG_CLICKABLE | LV_OBJ_FLAG_SCROLLABLE);
+    lv_obj_remove_flag(resting_mouth_, LV_OBJ_FLAG_CLICKABLE);
+    lv_obj_remove_flag(resting_mouth_, LV_OBJ_FLAG_SCROLLABLE);
     lv_obj_set_style_arc_opa(resting_mouth_, LV_OPA_COVER, LV_PART_MAIN);
     lv_obj_set_style_arc_rounded(resting_mouth_, true, LV_PART_MAIN);
     lv_obj_add_flag(resting_mouth_, LV_OBJ_FLAG_HIDDEN);
     resting_tongue_ = lv_obj_create(resting_mouth_);
     lv_obj_remove_style_all(resting_tongue_);
-    lv_obj_remove_flag(resting_tongue_, LV_OBJ_FLAG_CLICKABLE | LV_OBJ_FLAG_SCROLLABLE);
+    lv_obj_remove_flag(resting_tongue_, LV_OBJ_FLAG_CLICKABLE);
+    lv_obj_remove_flag(resting_tongue_, LV_OBJ_FLAG_SCROLLABLE);
     lv_obj_set_size(resting_tongue_, 16, 10);
     lv_obj_set_style_radius(resting_tongue_, LV_RADIUS_CIRCLE, 0);
     lv_obj_set_style_bg_color(resting_tongue_, lv_color_hex(0xF66B8F), 0);
