@@ -8,6 +8,7 @@
 #include <wifi_manager.h>
 #include <esp_wifi.h>
 #include "board.h"
+#include "settings.h"
 
 #include <esp_err.h>
 #include <esp_log.h>
@@ -139,6 +140,8 @@ PocketLcdDisplay::~PocketLcdDisplay() {
         lv_timer_delete(visual_timer_);
     if (speaking_mouth_)
         lv_obj_delete(speaking_mouth_);
+    if (resting_mouth_)
+        lv_obj_delete(resting_mouth_);
     if (frame_timer_ != nullptr) {
         lv_timer_delete(frame_timer_);
         frame_timer_ = nullptr;
@@ -400,6 +403,15 @@ void PocketLcdDisplay::SetupUI() {
     lv_obj_set_style_radius(mouth_highlight_, LV_RADIUS_CIRCLE, 0);
     lv_obj_set_style_bg_opa(mouth_highlight_, LV_OPA_70, 0);
     lv_obj_add_flag(mouth_highlight_, LV_OBJ_FLAG_HIDDEN);
+    resting_mouth_ = lv_arc_create(lv_display_get_layer_top(display_));
+    lv_obj_remove_style_all(resting_mouth_);
+    lv_obj_remove_flag(resting_mouth_, LV_OBJ_FLAG_CLICKABLE | LV_OBJ_FLAG_SCROLLABLE);
+    lv_obj_set_style_arc_opa(resting_mouth_, LV_OPA_COVER, LV_PART_MAIN);
+    lv_obj_set_style_arc_rounded(resting_mouth_, true, LV_PART_MAIN);
+    lv_obj_add_flag(resting_mouth_, LV_OBJ_FLAG_HIDDEN);
+    default_emotion_ = Settings("face").GetString("default_emotion");
+    if (std::ranges::find(ManualEmotions(), default_emotion_) == ManualEmotions().end())
+        default_emotion_.clear();
     lv_display_add_event_cb(display_, OnDisplayFlush, LV_EVENT_FLUSH_FINISH, this);
 
     // 13. Start Animation Frame Timer (20 FPS)
@@ -608,6 +620,49 @@ std::span<const std::string_view> PocketLcdDisplay::ManualEmotions() {
                                                  "low_battery",
                                                  "zen_meditation"};
     return names;
+}
+
+bool PocketLcdDisplay::SetDefaultEmotion(const std::string& emotion) {
+    const bool reset = emotion == "auto";
+    if (!reset && std::ranges::find(ManualEmotions(), emotion) == ManualEmotions().end())
+        return false;
+    DisplayLockGuard lock(this);
+    if (!lock)
+        return false;
+    const std::string value = reset ? "" : emotion;
+    if (value == default_emotion_)
+        return true;
+    Settings settings("face", true);
+    if (reset)
+        settings.EraseKey("default_emotion");
+    else
+        settings.SetString("default_emotion", value);
+    default_emotion_ = value;
+    last_active_tick_ = animation_tick_;
+    if (!manual_standby_locked_ && !qr_until_tick_)
+        HideStandbyClock(true);
+    if (reset) {
+        const auto state = Application::GetInstance().GetDeviceState();
+        if (state == kDeviceStateIdle)
+            SetFaceMode(FaceMode::kNeutral);
+        else if (state == kDeviceStateListening)
+            SetFaceMode(FaceMode::kListening);
+    }
+    return true;
+}
+
+std::string PocketLcdDisplay::DefaultEmotion() {
+    DisplayLockGuard lock(this);
+    return lock ? default_emotion_ : "";
+}
+
+bool PocketLcdDisplay::UsesDefaultEmotion() const {
+    if (default_emotion_.empty() || standby_active_ || qr_until_tick_)
+        return false;
+    auto& app = Application::GetInstance();
+    const auto state = app.GetDeviceState();
+    return !app.IsAlarmActive() && esp_timer_get_time() >= manual_emotion_until_us_ &&
+           (state == kDeviceStateIdle || state == kDeviceStateListening);
 }
 
 bool PocketLcdDisplay::SetEmotion(const char* emotion) {
@@ -832,6 +887,8 @@ void PocketLcdDisplay::SetFaceMode(FaceMode mode) {
 std::string_view PocketLcdDisplay::ActiveExpressionName() const {
     if (esp_timer_get_time() < manual_emotion_until_us_)
         return expression_name_;
+    if (UsesDefaultEmotion())
+        return default_emotion_;
     if (face_mode_ == FaceMode::kNeutral && is_speaking_)
         return "happy";
     static constexpr std::string_view names[] = {
@@ -1320,7 +1377,7 @@ void PocketLcdDisplay::UpdateAnimationFrame() {
             }
             last_active_tick_ = animation_tick_;
         } else {
-            if (!standby_active_ && (qr_until_tick_ == 0 || animation_tick_ >= qr_until_tick_) &&
+            if (default_emotion_.empty() && !standby_active_ && (qr_until_tick_ == 0 || animation_tick_ >= qr_until_tick_) &&
                 (animation_tick_ - last_active_tick_ >= kStandbyTimeoutTicks)) {
                 ShowStandbyClock(false);
                 return;
@@ -1442,6 +1499,8 @@ void PocketLcdDisplay::UpdateAnimationFrame() {
 
     if (expression_visible_ && !qr_until_tick_ && !standby_active_ && !app.IsAlarmActive())
         return;
+    if (UsesDefaultEmotion())
+        SetFaceMode(FaceModeFromEmotion(default_emotion_.c_str()));
 
     // 4. Natural Blinking with Double-Blink Realism
     bool blink = false;
@@ -3037,17 +3096,45 @@ void PocketLcdDisplay::UpdateVisualFrame() {
         expression_visible_ = false;
     }
 
-    const bool baked_mouth = face_mode_ == FaceMode::kEcstaticLaugh ||
-                            (expression_visible_ && (face_mode_ == FaceMode::kShockedJawdrop ||
-                                                     face_mode_ == FaceMode::kTongueOut));
-    if (!face_visible || baked_mouth) {
+    auto name = ActiveExpressionName();
+    const bool drawn_mouth = name == "happy" || name == "sad" || name == "cry" ||
+        name == "shy" || name == "excited" || name == "pout" || name == "scared" ||
+        name == "surprised" || name == "party" || name == "party_celebrate";
+    const auto shape = expression_pack_.RestMouth();
+    const bool baked_mouth = name == "laugh" ||
+        (expression_visible_ && (name == "jawdrop" || name == "shocked_jawdrop" ||
+                                  name == "tongue" || name == "tongue_out" ||
+                                  (drawn_mouth && !shape)));
+    const auto motion = face_visible && !baked_mouth ? app.GetAudioService().GetVoiceMotion() : 0;
+    const auto rest = face_visible && !baked_mouth && (motion & 255) < 3
+                          ? (shape == 79 ? (drawn_mouth ? 1 : 0) : shape) : 0;
+    if (!rest) {
+        if (!lv_obj_has_flag(resting_mouth_, LV_OBJ_FLAG_HIDDEN))
+            lv_obj_add_flag(resting_mouth_, LV_OBJ_FLAG_HIDDEN);
+        rest_shape_ = 0;
+    } else {
+        const auto color = lv_color_hex(expression_pack_.MouthAccent());
+        if (rest_shape_ != rest || lv_color_to_int(lv_obj_get_style_arc_color(resting_mouth_, LV_PART_MAIN)) != lv_color_to_int(color)) {
+            const bool small = rest == 3 || rest == 4;
+            lv_obj_set_size(resting_mouth_, small ? 14 : 26, small ? 14 : 22);
+            lv_obj_set_pos(resting_mouth_, small ? 113 : 107, rest == 2 ? 165 : 152 + (small ? 8 : 0));
+            lv_obj_set_style_arc_width(resting_mouth_, rest == 1 ? 3 : 2, LV_PART_MAIN);
+            lv_obj_set_style_arc_color(resting_mouth_, color, LV_PART_MAIN);
+            const int start = rest == 2 ? 195 : rest == 3 ? 0 : 8;
+            const int end = rest == 2 ? 345 : rest == 3 ? 360 : 172;
+            lv_arc_set_bg_angles(resting_mouth_, start, end);
+            lv_obj_remove_flag(resting_mouth_, LV_OBJ_FLAG_HIDDEN);
+            rest_shape_ = rest;
+        }
+    }
+    if ((motion & 255) < 3) {
         mouth_width_ = mouth_height_ = 0;
         if (!lv_obj_has_flag(speaking_mouth_, LV_OBJ_FLAG_HIDDEN))
             lv_obj_add_flag(speaking_mouth_, LV_OBJ_FLAG_HIDDEN);
     } else {
-        UpdateSpeakingMouth(app.GetAudioService().GetVoiceMotion());
+        UpdateSpeakingMouth(motion);
     }
-    const bool fast = expression_pack_.fps() > 20 || app.GetAudioService().GetVoiceMotion() || mouth_height_ > 3;
+    const bool fast = expression_pack_.fps() > 20 || mouth_height_ > 0;
     const uint32_t period = fast ? 8 : expression_visible_ ? 16 : kAnimationPeriodMs;
     if (visual_period_ms_ != period) {
         visual_period_ms_ = period;
@@ -3069,15 +3156,9 @@ void PocketLcdDisplay::OnDisplayFlush(lv_event_t* event) {
 void PocketLcdDisplay::UpdateSpeakingMouth(uint16_t motion) {
     const int level = motion & 255;
     const int brightness = motion >> 8;
-    const bool rest_mouth = expression_pack_.HasDynamicMouth() &&
-        (face_mode_ == FaceMode::kSmileGentle || face_mode_ == FaceMode::kSadEmpathy ||
-         face_mode_ == FaceMode::kSadCrying || face_mode_ == FaceMode::kCryingStream ||
-         face_mode_ == FaceMode::kShy || face_mode_ == FaceMode::kPout ||
-         face_mode_ == FaceMode::kSurprised || face_mode_ == FaceMode::kScared ||
-         face_mode_ == FaceMode::kExcited || face_mode_ == FaceMode::kPartyCelebrate);
-    const int opening = level < 3 ? (rest_mouth ? 3 : 0) : std::clamp(2 + level / 5, 4, 15);
+    const int opening = std::clamp(2 + level / 5, 4, 15);
     const int height = EaseLid(mouth_height_, opening);
-    const int target_width = level < 3 ? 18 : std::clamp(20 + brightness / 4 - opening / 3, 17, 43);
+    const int target_width = std::clamp(20 + brightness / 4 - opening / 3, 17, 43);
     const int width = height == 0 ? 0 : EaseLid(mouth_width_ ? mouth_width_ : target_width, target_width);
     if (height) {
         const auto accent = expression_pack_.MouthAccent();
@@ -3351,6 +3432,10 @@ void PocketLcdDisplay::ShowStandbyClock() {
 void PocketLcdDisplay::ShowStandbyClock(bool manual_lock) {
     DisplayLockGuard lock(this);
     if (!lock) return;
+    if (!manual_lock && !default_emotion_.empty()) {
+        HideStandbyClock(true);
+        return;
+    }
 
     if (manual_lock) {
         standby_lock_until_tick_ = animation_tick_ + 100; // Bảo vệ 5 giây chống các sự kiện kết thúc câu của AI

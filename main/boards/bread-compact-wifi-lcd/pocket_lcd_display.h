@@ -25,6 +25,8 @@ public:
     bool SetEmotion(const char* emotion) override;
     static std::span<const std::string_view> ManualEmotions();
     bool SetManualEmotion(const std::string& emotion, int duration_ms = 8000);
+    bool SetDefaultEmotion(const std::string& emotion);
+    std::string DefaultEmotion();
     bool TryShowQrCode(const std::string& text, const std::string& title, int duration_ms);
     void SetChatMessage(const char* role, const char* content) override;
     void ClearChatMessages() override;
@@ -142,6 +144,10 @@ private:
 
     lv_obj_t* face_layer_ = nullptr;
     lv_obj_t* speaking_mouth_ = nullptr;
+    lv_obj_t* resting_mouth_ = nullptr;
+    uint8_t rest_shape_ = 0;
+    std::string default_emotion_;
+    bool UsesDefaultEmotion() const;
     lv_obj_t* mouth_highlight_ = nullptr;
     uint32_t mouth_accent_ = 0;
     ExpressionPack expression_pack_;

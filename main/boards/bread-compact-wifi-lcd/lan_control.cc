@@ -92,6 +92,7 @@ bool Allowed(std::string_view name) {
     static constexpr std::string_view tools[] = {
         "self.audio_speaker.set_volume", "self.screen.set_brightness", "self.timer.set_countdown",
         "self.security.guard_mode",      "self.screen.set_emotion",    "self.screen.set_standby",
+        "self.screen.set_default_emotion",
         "self.screen.show_qr",           "self.set_ota_url",           "self.reboot",
         "self.lan.start_listening",      "self.lan.set_https_origin",
 #ifdef CONFIG_BREAD_COMPACT_LCD_KCX

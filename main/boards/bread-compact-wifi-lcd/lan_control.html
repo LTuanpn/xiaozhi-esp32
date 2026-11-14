@@ -44,6 +44,8 @@ input[type=range]{padding:0;accent-color:var(--text)}label{display:block;margin:
     <label for="expression-seconds">Số giây mỗi biểu cảm</label>
     <input id="expression-seconds" type="number" min="1" max="15" value="3" required>
     <div class="row"><button id="preview">Hiện biểu cảm</button><button id="preview-all">Chạy lần lượt</button></div>
+    <p id="default-emotion-status"></p>
+    <div class="row"><button id="default-emotion">Đặt làm mặc định</button><button id="reset-emotion">Về chế độ bình thường</button></div>
   </section>
   <section><h2>Wi-Fi</h2><p id="network"></p><div class="row"><button id="wifi">Đổi Wi-Fi</button></div></section>
   <section id="bluetooth" hidden><h2>Loa Bluetooth</h2>
@@ -130,6 +132,10 @@ async function readStatus() {
     if (!$("emotion").options.length && state.emotions) {
       for (const name of state.emotions) $("emotion").add(new Option(name, name));
     }
+    $("default-emotion-status").textContent = state.default_emotion
+      ? "Biểu cảm khi chờ và lắng nghe: " + state.default_emotion
+      : "Đang dùng biểu cảm tự động.";
+    $("reset-emotion").disabled = !state.default_emotion;
   } catch (error) {
     $("connection").textContent = "Mất kết nối";
     $("talk").disabled = true;
@@ -154,6 +160,10 @@ for (const [id, name] of [["volume","self.audio_speaker.set_volume"], ["brightne
 }
 $("face").onclick = () => tool("self.screen.set_standby",{enable:false},"Đã hiển thị khuôn mặt.");
 $("standby").onclick = () => tool("self.screen.set_standby",{enable:true});
+$("default-emotion").onclick = () => tool("self.screen.set_default_emotion",
+  {emotion:$("emotion").value},"Đã lưu biểu cảm mặc định.");
+$("reset-emotion").onclick = () => tool("self.screen.set_default_emotion",
+  {emotion:"auto"},"Đã về chế độ bình thường.");
 $("listen").onclick = () => tool("self.lan.start_listening");
 $("timer").onsubmit = event => {
   event.preventDefault();

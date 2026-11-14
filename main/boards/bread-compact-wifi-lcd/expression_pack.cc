@@ -215,11 +215,11 @@ uint32_t ExpressionPack::MouthAccent() const {
            ((((word >> 5) & 63) * 255 / 63) << 8) | ((word & 31) * 255 / 31);
 }
 
-bool ExpressionPack::HasDynamicMouth() const {
+uint8_t ExpressionPack::RestMouth() const {
     if (!clip_)
         return false;
     const auto* marker = image_ + Read32(clip_ + 36) + kPaletteSize - 4;
-    return marker[0] == 'M' && marker[1] == 'O';
+    return marker[0] == 'M' ? marker[1] : 0;
 }
 
 bool ExpressionPack::Draw(lv_obj_t* parent, std::string_view name) {

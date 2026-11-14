@@ -109,6 +109,8 @@ private:
         cJSON_AddBoolToObject(status.get(), "guard", guard_mode_active_);
         cJSON_AddBoolToObject(status.get(), "alarm", app.IsAlarmActive());
         cJSON_AddBoolToObject(status.get(), "standby", display_ && display_->IsStandbyClockActive());
+        if (display_)
+            cJSON_AddStringToObject(status.get(), "default_emotion", display_->DefaultEmotion().c_str());
 #ifdef CONFIG_BREAD_COMPACT_LCD_KCX
         cJSON_AddItemToObject(status.get(), "bluetooth", kcx_.Status());
 #endif
@@ -774,6 +776,15 @@ private:
                                      properties["duration_seconds"].value<int>() * 1000)) {
                     return std::unexpected("Biểu cảm không hợp lệ hoặc màn hình chưa sẵn sàng");
                 }
+                return ReturnValue(true);
+            });
+        mcp_server.AddTool("self.screen.set_default_emotion",
+            "Lưu biểu cảm mặc định khi robot chờ hoặc lắng nghe. Dùng tên biểu cảm như happy, sad, shy, neutral. "
+            "Khi người dùng yêu cầu hủy mặt mặc định hoặc về chế độ bình thường, truyền emotion=auto.",
+            PropertyList({Property("emotion", kPropertyTypeString)}),
+            [this](const PropertyList& properties) -> ToolResult {
+                if (!display_ || !display_->SetDefaultEmotion(properties["emotion"].value<std::string>()))
+                    return std::unexpected("Chọn tên biểu cảm hợp lệ hoặc auto.");
                 return ReturnValue(true);
             });
     }
