@@ -409,6 +409,14 @@ void PocketLcdDisplay::SetupUI() {
     lv_obj_set_style_arc_opa(resting_mouth_, LV_OPA_COVER, LV_PART_MAIN);
     lv_obj_set_style_arc_rounded(resting_mouth_, true, LV_PART_MAIN);
     lv_obj_add_flag(resting_mouth_, LV_OBJ_FLAG_HIDDEN);
+    resting_tongue_ = lv_obj_create(resting_mouth_);
+    lv_obj_remove_style_all(resting_tongue_);
+    lv_obj_remove_flag(resting_tongue_, LV_OBJ_FLAG_CLICKABLE | LV_OBJ_FLAG_SCROLLABLE);
+    lv_obj_set_size(resting_tongue_, 16, 10);
+    lv_obj_set_style_radius(resting_tongue_, LV_RADIUS_CIRCLE, 0);
+    lv_obj_set_style_bg_color(resting_tongue_, lv_color_hex(0xF66B8F), 0);
+    lv_obj_set_style_bg_opa(resting_tongue_, LV_OPA_COVER, 0);
+    lv_obj_add_flag(resting_tongue_, LV_OBJ_FLAG_HIDDEN);
     default_emotion_ = Settings("face").GetString("default_emotion");
     if (std::ranges::find(ManualEmotions(), default_emotion_) == ManualEmotions().end())
         default_emotion_.clear();
@@ -3101,10 +3109,11 @@ void PocketLcdDisplay::UpdateVisualFrame() {
         name == "shy" || name == "excited" || name == "pout" || name == "scared" ||
         name == "surprised" || name == "party" || name == "party_celebrate";
     const auto shape = expression_pack_.RestMouth();
+    const bool special_mouth = name == "jawdrop" || name == "shocked_jawdrop" ||
+                               name == "tongue" || name == "tongue_out";
     const bool baked_mouth = name == "laugh" ||
-        (expression_visible_ && (name == "jawdrop" || name == "shocked_jawdrop" ||
-                                  name == "tongue" || name == "tongue_out" ||
-                                  (drawn_mouth && !shape)));
+        (expression_visible_ && ((special_mouth && (shape == 0 || shape == 79)) ||
+                                 (drawn_mouth && !shape)));
     const auto motion = face_visible && !baked_mouth ? app.GetAudioService().GetVoiceMotion() : 0;
     const auto rest = face_visible && !baked_mouth && (motion & 255) < 3
                           ? (shape == 79 ? (drawn_mouth ? 1 : 0) : shape) : 0;
@@ -3116,13 +3125,21 @@ void PocketLcdDisplay::UpdateVisualFrame() {
         const auto color = lv_color_hex(expression_pack_.MouthAccent());
         if (rest_shape_ != rest || lv_color_to_int(lv_obj_get_style_arc_color(resting_mouth_, LV_PART_MAIN)) != lv_color_to_int(color)) {
             const bool small = rest == 3 || rest == 4;
-            lv_obj_set_size(resting_mouth_, small ? 14 : 26, small ? 14 : 22);
-            lv_obj_set_pos(resting_mouth_, small ? 113 : 107, rest == 2 ? 165 : 152 + (small ? 8 : 0));
+            const bool ring = rest == 3 || rest == 5;
+            const int width = rest == 6 ? 36 : rest == 5 ? 19 : small ? 14 : 26;
+            lv_obj_set_size(resting_mouth_, width, rest == 5 ? 30 : small ? 14 : 22);
+            lv_obj_set_pos(resting_mouth_, (240 - width) / 2, rest == 2 ? 165 : ring ? 160 : small ? 160 : 152);
             lv_obj_set_style_arc_width(resting_mouth_, rest == 1 ? 3 : 2, LV_PART_MAIN);
             lv_obj_set_style_arc_color(resting_mouth_, color, LV_PART_MAIN);
-            const int start = rest == 2 ? 195 : rest == 3 ? 0 : 8;
-            const int end = rest == 2 ? 345 : rest == 3 ? 360 : 172;
+            const int start = rest == 2 ? 195 : ring ? 0 : 8;
+            const int end = rest == 2 ? 345 : ring ? 360 : 172;
             lv_arc_set_bg_angles(resting_mouth_, start, end);
+            if (rest == 6) {
+                lv_obj_set_pos(resting_tongue_, 12, 12);
+                lv_obj_remove_flag(resting_tongue_, LV_OBJ_FLAG_HIDDEN);
+            } else {
+                lv_obj_add_flag(resting_tongue_, LV_OBJ_FLAG_HIDDEN);
+            }
             lv_obj_remove_flag(resting_mouth_, LV_OBJ_FLAG_HIDDEN);
             rest_shape_ = rest;
         }

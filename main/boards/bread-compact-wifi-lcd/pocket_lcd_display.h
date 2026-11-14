@@ -145,6 +145,7 @@ private:
     lv_obj_t* face_layer_ = nullptr;
     lv_obj_t* speaking_mouth_ = nullptr;
     lv_obj_t* resting_mouth_ = nullptr;
+    lv_obj_t* resting_tongue_ = nullptr;
     uint8_t rest_shape_ = 0;
     std::string default_emotion_;
     bool UsesDefaultEmotion() const;
