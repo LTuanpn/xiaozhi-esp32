@@ -377,6 +377,7 @@ void AudioService::AudioOutputTask() {
         }
 
         output_level_.store(ComputePcmLevel(task.pcm), std::memory_order_relaxed);
+        codec_->SelectOutput(task.output_kind);
         codec_->OutputData(task.pcm);
 
         /* Update the last output time */
@@ -437,6 +438,7 @@ void AudioService::OpusCodecTask() {
             task.timestamp = packet->timestamp;
             task.playback_id = packet->playback_id;
             task.media_position_ms = packet->media_position_ms;
+            task.output_kind = packet->output_kind;
 
             SetDecodeSampleRate(packet->sample_rate, packet->frame_duration);
             bool decoded = false;
@@ -874,6 +876,7 @@ void AudioService::PlaySound(const std::string_view& ogg) {
             auto packet = std::make_unique<AudioStreamPacket>();
             packet->sample_rate = sample_rate;
             packet->frame_duration = frame_duration_ms;
+            packet->output_kind = AudioOutputKind::System;
             packet->payload.resize(size);
             std::memcpy(packet->payload.data(), data, size);
             PushPacketToDecodeQueue(std::move(packet), true);

@@ -29,7 +29,7 @@ NotifyPlayer::~NotifyPlayer() { Stop(); }
 
 bool NotifyPlayer::Start(std::string audio_url, std::vector<NotifySubtitle> subtitles,
                          uint32_t playback_id, SubtitleCallback subtitle_callback,
-                         FinishedCallback finished_callback, std::string_view local_audio) {
+                         FinishedCallback finished_callback, std::string_view local_audio, bool music) {
     if (playback_id == 0 || (local_audio.empty() && !IsSupportedUrl(audio_url))) {
         return false;
     }
@@ -47,6 +47,7 @@ bool NotifyPlayer::Start(std::string audio_url, std::vector<NotifySubtitle> subt
         }
         audio_url_ = std::move(audio_url);
         local_audio_ = local_audio;
+        music_ = music;
         audio_generation_ = audio_service_.GetPlaybackGeneration();
         create_worker = !worker_running_;
         subtitles_ = std::move(subtitles);
@@ -183,10 +184,12 @@ void NotifyPlayer::WorkerTask() {
         uint32_t playback_id = 0;
         uint32_t audio_generation = 0;
         std::string_view local_audio;
+        bool music;
         {
             std::lock_guard<std::mutex> lock(mutex_);
             audio_url = audio_url_;
             local_audio = local_audio_;
+            music = music_;
             audio_generation = audio_generation_;
             playback_id = playback_id_;
         }
@@ -195,7 +198,9 @@ void NotifyPlayer::WorkerTask() {
         auto demuxer = std::make_unique<OggDemuxer>();
         uint32_t media_position_ms = 0;
         bool packet_error = false;
-        demuxer->OnPacket([this, playback_id, audio_generation, &media_position_ms, &packet_error](
+        const auto output_kind = !local_audio.empty() ? AudioOutputKind::System :
+                                 music ? AudioOutputKind::Music : AudioOutputKind::Voice;
+        demuxer->OnPacket([this, playback_id, audio_generation, output_kind, &media_position_ms, &packet_error](
                               const uint8_t* data, int rate, int duration_ms, size_t size) {
             if (packet_error || IsCancelled(playback_id)) {
                 packet_error = true;
@@ -206,6 +211,7 @@ void NotifyPlayer::WorkerTask() {
             packet->frame_duration = duration_ms;
             packet->playback_id = playback_id;
             packet->media_position_ms = media_position_ms;
+            packet->output_kind = output_kind;
             packet->payload.assign(data, data + size);
             {
                 std::lock_guard<std::mutex> lock(mutex_);

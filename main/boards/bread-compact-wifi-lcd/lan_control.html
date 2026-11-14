@@ -46,6 +46,19 @@ input[type=range]{padding:0;accent-color:var(--text)}label{display:block;margin:
     <div class="row"><button id="preview">Hiện biểu cảm</button><button id="preview-all">Chạy lần lượt</button></div>
   </section>
   <section><h2>Wi-Fi</h2><p id="network"></p><div class="row"><button id="wifi">Đổi Wi-Fi</button></div></section>
+  <section id="bluetooth" hidden><h2>Loa Bluetooth</h2>
+    <p id="bt-status" role="status"></p>
+    <div class="row"><button id="bt-power">Bật Bluetooth</button><button id="bt-scan">Tìm loa</button>
+      <button id="bt-disconnect">Ngắt kết nối</button></div>
+    <label for="bt-device">Loa tìm thấy</label><select id="bt-device"></select>
+    <label for="bt-address">Tên loa hoặc địa chỉ MAC</label>
+    <input id="bt-address" maxlength="70" autocomplete="off" placeholder="Để trống để nối lại loa đã lưu">
+    <div class="row"><button id="bt-connect">Kết nối</button></div>
+    <label for="bt-voice">Giọng robot</label>
+    <select id="bt-voice"><option value="local">Loa robot</option><option value="bluetooth">Bluetooth</option></select>
+    <label for="bt-music">Nhạc</label>
+    <select id="bt-music"><option value="local">Loa robot</option><option value="bluetooth">Bluetooth</option></select>
+  </section>
   <section><h2>Cập nhật</h2><p id="version"></p>
     <form id="ota"><label for="ota-url">URL kiểm tra OTA</label><input id="ota-url" type="password" maxlength="1024" autocomplete="off" spellcheck="false" placeholder="https://…">
       <div class="row"><button id="save-ota" disabled>Lưu URL</button><button id="toggle-ota" type="button" aria-controls="ota-url">Hiện URL</button><button id="reboot" type="button">Khởi động lại</button></div>
@@ -98,6 +111,7 @@ async function readStatus() {
     }
     $("brightness-group").hidden = state.screen?.brightness === undefined;
     $("network").textContent = state.network?.ssid || "Chưa kết nối Wi-Fi";
+    renderBluetooth(state.bluetooth);
     $("version").textContent = "Firmware " + (state.version || "—");
     const origin = $("https-origin");
     if (!origin.dataset.loaded) {
@@ -196,6 +210,39 @@ $("wifi").onclick = () => {
   if (confirm("Robot sẽ chuyển sang hotspot Xiaozhi để đổi Wi-Fi. Tiếp tục?"))
     void tool("self.screen.show_qr",{},"Quét QR Wi-Fi mới trên robot.");
 };
+let bluetooth;
+function renderBluetooth(state) {
+  bluetooth = state;
+  $("bluetooth").hidden = !state;
+  if (!state) return;
+  const labels = {off:"Đã tắt",starting:"Đang kiểm tra module",ready:"Sẵn sàng",scanning:"Đang tìm loa",
+    connecting:"Đang kết nối",connected:"Đã kết nối",no_devices:"Chưa tìm thấy loa",
+    not_confirmed:"Chưa xác nhận được loa",no_module:"KCX chưa phản hồi qua UART",
+    receiver_mode:"KCX đang ở chế độ nhận",command_unsupported:"KCX từ chối lệnh UART",uart_error:"Lỗi UART"};
+  $("bt-status").textContent = (labels[state.state] || "Đang kiểm tra") + (state.connected ? " · " + state.mac : "");
+  $("bt-power").textContent = state.enabled ? "Tắt Bluetooth" : "Bật Bluetooth";
+  $("bt-scan").disabled = $("bt-connect").disabled =
+    !state.enabled || !state.module_ready || ["scanning","connecting"].includes(state.state);
+  $("bt-disconnect").disabled = !state.enabled || !state.module_ready;
+  const devices = $("bt-device");
+  const signature = JSON.stringify(state.devices || []);
+  if (devices.dataset.signature !== signature) {
+    const selected = devices.value;
+    devices.replaceChildren(new Option("Chọn loa đã tìm thấy",""),
+      ...(state.devices || []).map(item => new Option(item.name ? item.name + " · " + item.mac : item.mac,item.mac)));
+    devices.value = Array.from(devices.options).some(option => option.value === selected) ? selected : "";
+    devices.dataset.signature = signature;
+  }
+  $("bt-voice").value = state.voice ? "bluetooth" : "local";
+  $("bt-music").value = state.music ? "bluetooth" : "local";
+}
+$("bt-power").onclick = () => tool("self.bluetooth.power",{enable:!bluetooth?.enabled},"Đã gửi lệnh nguồn Bluetooth.");
+$("bt-scan").onclick = () => tool("self.bluetooth.device",{action:"scan"},"Đang tìm loa Bluetooth.");
+$("bt-disconnect").onclick = () => tool("self.bluetooth.device",{action:"disconnect"},"Đã gửi lệnh ngắt kết nối.");
+$("bt-connect").onclick = () => tool("self.bluetooth.device",
+  {action:"connect",target:$("bt-address").value.trim() || $("bt-device").value},"Đã gửi lệnh kết nối. Xem trạng thái loa.");
+$("bt-voice").onchange = () => tool("self.bluetooth.route",{voice:$("bt-voice").value});
+$("bt-music").onchange = () => tool("self.bluetooth.route",{music:$("bt-music").value});
 otaInput.oninput = updateOtaButton;
 $("toggle-ota").onclick = () => {
   const show = otaInput.type === "password";

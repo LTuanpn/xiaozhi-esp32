@@ -7,12 +7,15 @@
 #include <string>
 #include <vector>
 
+enum class AudioOutputKind { Voice, Music, System };
+
 struct AudioStreamPacket {
     int sample_rate = 0;
     int frame_duration = 0;
     uint32_t timestamp = 0;
     uint32_t playback_id = 0;
     uint32_t media_position_ms = 0;
+    AudioOutputKind output_kind = AudioOutputKind::Voice;
     std::vector<uint8_t> payload;
 };
 

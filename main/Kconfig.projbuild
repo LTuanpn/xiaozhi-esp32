@@ -856,6 +856,11 @@ choice DISPLAY_LCD_TYPE
         bool "Custom LCD (自定义屏幕参数)"
 endchoice
 
+config BREAD_COMPACT_LCD_KCX
+    bool "PCM5102 and KCX audio transmitter expansion"
+    depends on BOARD_TYPE_BREAD_COMPACT_WIFI_LCD && LCD_ST7789_240X240 && IDF_TARGET_ESP32S3
+    default n
+
 choice WK_BOARD_TYPE
     depends on BOARD_TYPE_WK_ESP32S3_DEV
     prompt "BOARD_TYPE_WK_ESP32S3_DEV"

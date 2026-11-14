@@ -9,6 +9,7 @@
 #include "mcp_server.h"
 #include "lamp_controller.h"
 #include "lan_control.h"
+#include "kcx_audio.h"
 #include "settings.h"
 #include <esp_app_desc.h>
 #include "led/single_led.h"
@@ -74,6 +75,9 @@ class CompactWifiBoardLCD : public WifiBoard {
 private:
     Button boot_button_;
     LanControl lan_control_;
+#ifdef CONFIG_BREAD_COMPACT_LCD_KCX
+    KcxAudio kcx_;
+#endif
     PocketLcdDisplay* display_ = nullptr;
     esp_lcd_panel_handle_t panel_ = nullptr;
 
@@ -105,6 +109,9 @@ private:
         cJSON_AddBoolToObject(status.get(), "guard", guard_mode_active_);
         cJSON_AddBoolToObject(status.get(), "alarm", app.IsAlarmActive());
         cJSON_AddBoolToObject(status.get(), "standby", display_ && display_->IsStandbyClockActive());
+#ifdef CONFIG_BREAD_COMPACT_LCD_KCX
+        cJSON_AddItemToObject(status.get(), "bluetooth", kcx_.Status());
+#endif
         const int64_t left = countdown_deadline_us_ - esp_timer_get_time();
         cJSON_AddNumberToObject(status.get(), "timer_seconds", left > 0 ? (left + 999999) / 1000000 : 0);
         cJSON_AddStringToObject(status.get(), "timer_label", countdown_label_.c_str());
@@ -438,7 +445,7 @@ private:
                     return "Lỗi: url không được để trống";
                 }
                 auto& app = Application::GetInstance();
-                const bool accepted = app.StartNotification(url, {});
+                const bool accepted = app.StartNotification(url, {}, true);
                 if (accepted && display_)
                     display_->SetEmotion("music");
                 return accepted ? "Đã tiếp nhận luồng nhạc; đang kết nối."
@@ -818,7 +825,7 @@ private:
                                         display->SetEmotion("music");
                                         auto& app = Application::GetInstance();
                                         app.Schedule([&app, play_url]() {
-                                            app.StartNotification(play_url, {});
+                                            app.StartNotification(play_url, {}, true);
                                         });
                                     } else {
                                         const char* cmd = buf;
@@ -878,6 +885,51 @@ public:
         InitializeLcdDisplay();
         InitializeButtons();
         InitializeTools();
+#ifdef CONFIG_BREAD_COMPACT_LCD_KCX
+        GetAudioCodec();  // Initialize power, LINK and the saved preferences before tools are used.
+        auto& mcp = McpServer::GetInstance();
+        mcp.AddTool("self.bluetooth.status",
+                    "Đọc trạng thái loa Bluetooth và danh sách thiết bị mới quét. Chỉ xác nhận kết nối khi connected=true. Kiểm tra lại khi thao tác trước đang chạy.",
+                    PropertyList(), [this](const PropertyList&) -> ReturnValue {
+                        return kcx_.Status();
+                    });
+        mcp.AddTool("self.bluetooth.power", "Bật hoặc tắt nguồn bộ phát Bluetooth KCX.",
+                    PropertyList({Property("enable", kPropertyTypeBoolean)}),
+                    [this](const PropertyList& args) -> ToolResult {
+                        if (!kcx_.Power(args["enable"].value<bool>()))
+                            return std::unexpected("Không khởi động được worker Bluetooth.");
+                        return std::string("Đã nhận lệnh nguồn. Kiểm tra self.bluetooth.status để xác nhận.");
+                    });
+        mcp.AddTool("self.bluetooth.device",
+                    "Điều khiển loa Bluetooth. action là scan, connect hoặc disconnect. target là MAC, tên trùng duy nhất trong kết quả quét, hoặc rỗng để nối lại loa từng xác nhận. Chỉ báo đã kết nối sau khi status.connected=true.",
+                    PropertyList({Property("action", kPropertyTypeString),
+                                  Property("target", kPropertyTypeString, "")}),
+                    [this](const PropertyList& args) -> ToolResult {
+                        if (!kcx_.Request(args["action"].value<std::string>(),
+                                          args["target"].value<std::string>()))
+                            return std::unexpected("Kiểm tra trạng thái Bluetooth hoặc chọn đúng tên hay MAC của loa.");
+                        return std::string("Đã nhận yêu cầu. Dùng self.bluetooth.status để xem kết quả.");
+                    });
+        mcp.AddTool("self.bluetooth.route",
+                    "Chọn loa Bluetooth riêng cho giọng robot hoặc nhạc. Truyền voice và music, mỗi mục là bluetooth, local hoặc keep. Khi mất loa Bluetooth, robot dùng loa tích hợp.",
+                    PropertyList({Property("voice", kPropertyTypeString, "keep"),
+                                  Property("music", kPropertyTypeString, "keep")}),
+                    [this](const PropertyList& args) -> ToolResult {
+                        const auto voice = args["voice"].value<std::string>();
+                        const auto music = args["music"].value<std::string>();
+                        const auto valid = [](const std::string& value) {
+                            return value == "local" || value == "bluetooth" || value == "keep";
+                        };
+                        if (!valid(voice) || !valid(music))
+                            return std::unexpected("Chọn local, bluetooth hoặc keep.");
+                        CJsonUniquePtr state(kcx_.Status());
+                        kcx_.SetRoutes(voice == "bluetooth" || (voice == "keep" &&
+                            cJSON_IsTrue(cJSON_GetObjectItemCaseSensitive(state.get(), "voice"))),
+                            music == "bluetooth" || (music == "keep" &&
+                            cJSON_IsTrue(cJSON_GetObjectItemCaseSensitive(state.get(), "music"))));
+                        return std::string("Đã lưu đường âm thanh. Kiểm tra trạng thái để biết loa đang kết nối.");
+                    });
+#endif
         InitializeSerialCli();
         if (DISPLAY_BACKLIGHT_PIN != GPIO_NUM_NC) {
             GetBacklight()->RestoreBrightness();
@@ -890,7 +942,9 @@ public:
     }
 
     virtual AudioCodec* GetAudioCodec() override {
-#ifdef AUDIO_I2S_METHOD_SIMPLEX
+#ifdef CONFIG_BREAD_COMPACT_LCD_KCX
+        static KcxCodec audio_codec(kcx_);
+#elif defined(AUDIO_I2S_METHOD_SIMPLEX)
         static NoAudioCodecSimplex audio_codec(AUDIO_INPUT_SAMPLE_RATE, AUDIO_OUTPUT_SAMPLE_RATE,
             AUDIO_I2S_SPK_GPIO_BCLK, AUDIO_I2S_SPK_GPIO_LRCK, AUDIO_I2S_SPK_GPIO_DOUT, AUDIO_I2S_MIC_GPIO_SCK, AUDIO_I2S_MIC_GPIO_WS, AUDIO_I2S_MIC_GPIO_DIN);
 #else

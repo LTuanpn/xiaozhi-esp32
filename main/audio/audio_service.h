@@ -103,6 +103,7 @@ struct AudioTask {
     uint32_t input_generation = 0;
     uint32_t playback_id = 0;
     uint32_t media_position_ms = 0;
+    AudioOutputKind output_kind = AudioOutputKind::Voice;
 };
 
 struct DebugStatistics {

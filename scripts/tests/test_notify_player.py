@@ -32,8 +32,10 @@ inline void vTaskDelete(void*) {}
 #include <memory>
 #include <optional>
 #include <vector>
+enum class AudioOutputKind { Voice, Music, System };
 struct AudioStreamPacket {
     int sample_rate, frame_duration; uint32_t playback_id, media_position_ms;
+    AudioOutputKind output_kind = AudioOutputKind::Voice;
     std::vector<uint8_t> payload;
 };
 class AudioService {

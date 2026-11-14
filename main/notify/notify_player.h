@@ -28,7 +28,7 @@ public:
 
     bool Start(std::string audio_url, std::vector<NotifySubtitle> subtitles, uint32_t playback_id,
                SubtitleCallback subtitle_callback, FinishedCallback finished_callback,
-               std::string_view local_audio = {});
+               std::string_view local_audio = {}, bool music = false);
     void Stop();
     void OnPlaybackProgress(uint32_t playback_id, uint32_t media_position_ms);
     void OnPlaybackDrained();
@@ -41,6 +41,7 @@ private:
     std::string audio_url_;
     // Local audio must have static storage (embedded Ogg asset).
     std::string_view local_audio_;
+    bool music_ = false;
     uint32_t audio_generation_ = 0;
     std::vector<NotifySubtitle> subtitles_;
     std::string displayed_text_;

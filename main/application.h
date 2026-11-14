@@ -127,7 +127,8 @@ public:
     AecMode GetAecMode() const { return aec_mode_; }
     void PlaySound(const std::string_view& sound);
     AudioService& GetAudioService() { return audio_service_; }
-    bool StartNotification(std::string audio_url, std::vector<NotifySubtitle> subtitles = {});
+    bool StartNotification(std::string audio_url, std::vector<NotifySubtitle> subtitles = {},
+                           bool music = false);
     // Call on main task. Embedded sound must outlive playback.
     bool StartLocalAlarm(std::vector<std::string_view> clips);
     bool IsAlarmActive() const { return !alarm_clips_.empty(); }
@@ -202,9 +203,9 @@ private:
     void ShowStartupWakeWordHint();
     void HideStartupWakeWordHint();
     bool StartPlayback(std::string audio_url, std::vector<NotifySubtitle> subtitles,
-                       std::string_view local_audio);
+                       std::string_view local_audio, bool music = false);
     bool QueueNotificationClip(std::string audio_url, std::vector<NotifySubtitle> subtitles,
-                               std::string_view local_audio);
+                               std::string_view local_audio, bool music = false);
     void HandleNotificationFinished(uint32_t playback_id, bool success);
 
     // Activation task (runs in background)

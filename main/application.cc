@@ -1400,11 +1400,12 @@ void Application::EndConversation() {
     SetDeviceState(kDeviceStateIdle);
 }
 
-bool Application::StartNotification(std::string audio_url, std::vector<NotifySubtitle> subtitles) {
+bool Application::StartNotification(std::string audio_url, std::vector<NotifySubtitle> subtitles,
+                                    bool music) {
     if (IsAlarmActive() ||
         (!audio_url.starts_with("http://") && !audio_url.starts_with("https://")))
         return false;
-    return StartPlayback(std::move(audio_url), std::move(subtitles), {});
+    return StartPlayback(std::move(audio_url), std::move(subtitles), {}, music);
 }
 
 bool Application::StartLocalAlarm(std::vector<std::string_view> clips) {
@@ -1418,7 +1419,7 @@ bool Application::StartLocalAlarm(std::vector<std::string_view> clips) {
 }
 
 bool Application::StartPlayback(std::string audio_url, std::vector<NotifySubtitle> subtitles,
-                                std::string_view local_audio) {
+                                std::string_view local_audio, bool music) {
     EndConversation();
     if (GetDeviceState() != kDeviceStateIdle)
         return false;
@@ -1437,7 +1438,7 @@ bool Application::StartPlayback(std::string audio_url, std::vector<NotifySubtitl
         return false;
     }
 
-    if (!QueueNotificationClip(std::move(audio_url), std::move(subtitles), local_audio)) {
+    if (!QueueNotificationClip(std::move(audio_url), std::move(subtitles), local_audio, music)) {
         StopNotification();
         return false;
     }
@@ -1446,7 +1447,7 @@ bool Application::StartPlayback(std::string audio_url, std::vector<NotifySubtitl
 
 bool Application::QueueNotificationClip(std::string audio_url,
                                         std::vector<NotifySubtitle> subtitles,
-                                        std::string_view local_audio) {
+                                        std::string_view local_audio, bool music) {
     audio_service_.ResetDecoder();
     uint32_t playback_id = ++notification_playback_id_;
     if (playback_id == 0) {
@@ -1465,7 +1466,7 @@ bool Application::QueueNotificationClip(std::string audio_url,
         [this](uint32_t id, bool success) {
             Schedule([this, id, success]() { HandleNotificationFinished(id, success); });
         },
-        local_audio);
+        local_audio, music);
 
     if (!started) {
         ESP_LOGE(TAG, "Failed to start notification playback");

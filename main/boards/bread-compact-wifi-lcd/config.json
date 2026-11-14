@@ -13,6 +13,17 @@
             ]
         },
         {
+            "name": "bread-compact-wifi-lcd-240x240-kcx",
+            "sdkconfig_append": [
+                "CONFIG_LCD_ST7789_240X240=y",
+                "CONFIG_BREAD_COMPACT_LCD_KCX=y",
+                "CONFIG_LV_FONT_MONTSERRAT_20=y",
+                "CONFIG_LV_FONT_MONTSERRAT_24=y",
+                "CONFIG_LV_FONT_MONTSERRAT_32=y",
+                "CONFIG_LV_FONT_MONTSERRAT_48=y"
+            ]
+        },
+        {
             "name": "bread-compact-wifi-lcd-240x320",
             "sdkconfig_append": [
                 "CONFIG_LCD_ST7789_240X320=y",

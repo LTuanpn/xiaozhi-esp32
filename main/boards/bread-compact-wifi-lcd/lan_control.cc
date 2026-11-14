@@ -94,6 +94,9 @@ bool Allowed(std::string_view name) {
         "self.security.guard_mode",      "self.screen.set_emotion",    "self.screen.set_standby",
         "self.screen.show_qr",           "self.set_ota_url",           "self.reboot",
         "self.lan.start_listening",      "self.lan.set_https_origin",
+#ifdef CONFIG_BREAD_COMPACT_LCD_KCX
+        "self.bluetooth.status", "self.bluetooth.power", "self.bluetooth.device", "self.bluetooth.route",
+#endif
     };
     return std::find(std::begin(tools), std::end(tools), name) != std::end(tools);
 }
