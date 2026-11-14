@@ -38,7 +38,6 @@ private:
     std::atomic_bool enabled_{false}, linked_{false}, voice_{false}, music_{false};
     std::mutex mutex_;
     TaskHandle_t worker_ = nullptr;
-    bool uart_ready_ = false;
     std::string pending_, wanted_, confirmed_, discovered_mac_, saved_;
     std::string state_ = "off";
     std::vector<Device> devices_;
@@ -47,7 +46,8 @@ private:
     bool saw_link_down_ = false;
     bool present_ = false;
     bool reconnect_on_start_ = false;
-    int baud_ = 115200;
+    unsigned probe_profile_ = 0;
+    bool uart_crlf_ = true;
 };
 
 class KcxCodec : public NoAudioCodecSimplex {

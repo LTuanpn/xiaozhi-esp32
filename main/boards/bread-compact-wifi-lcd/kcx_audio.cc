@@ -14,6 +14,7 @@
 
 namespace {
 constexpr auto kUart = UART_NUM_1;
+constexpr int kProbeRates[] = {115200, 9600, 115200, 9600};
 
 std::string Mac(std::string_view text) {
     if (text.starts_with("0x") || text.starts_with("0X"))
@@ -151,7 +152,8 @@ cJSON* KcxAudio::Status() {
 
 void KcxAudio::Transmit(const std::string& command) {
     uart_write_bytes(kUart, command.data(), command.size());
-    uart_write_bytes(kUart, "\r\n", 2);
+    if (uart_crlf_)
+        uart_write_bytes(kUart, "\r\n", 2);
 }
 
 void KcxAudio::ConfigurePower(bool enabled) {
@@ -172,14 +174,14 @@ void KcxAudio::ReadLine(std::string_view line) {
         present_ = true;
         if (state_ == "starting" || state_ == "no_module")
             state_ = "ready";
-        if (first) {
+        if (first && uart_crlf_)
             Transmit("AT+BT_MODE?");
-            Transmit("AT+CHANNEL=1");
-        }
         return;
     }
-    if (line.starts_with("OK+BT_EMITTER"))
+    if (line.starts_with("OK+BT_EMITTER")) {
+        Transmit("AT+CHANNEL=1");
         return;
+    }
     if (line.starts_with("OK+BT_RECEIVER")) {
         present_ = false;
         linked_ = false;
@@ -187,14 +189,21 @@ void KcxAudio::ReadLine(std::string_view line) {
         return;
     }
     if (state_ == "scanning") {
-        if (line.starts_with("MacAdd:") || line.starts_with("MacDdd:")) {
-            discovered_mac_ = ExtractMac(line);
-            const auto name_at = line.find("Name:");
+        auto address_at = line.find("MacAdd:");
+        if (address_at == std::string_view::npos)
+            address_at = line.find("MacDdd:");
+        if (address_at == std::string_view::npos)
+            address_at = line.find("MACADD:");
+        if (address_at != std::string_view::npos) {
+            discovered_mac_ = ExtractMac(line.substr(address_at));
+            auto name_at = line.find("Name:", address_at);
+            if (name_at == std::string_view::npos)
+                name_at = line.find("NAME:", address_at);
             if (name_at == std::string_view::npos)
                 return;
             line = line.substr(name_at);
         }
-        if (line.starts_with("Name:") && !discovered_mac_.empty()) {
+        if ((line.starts_with("Name:") || line.starts_with("NAME:")) && !discovered_mac_.empty()) {
             const auto name = Trim(line.substr(5)).substr(0, 70);
             auto existing = std::find_if(devices_.begin(), devices_.end(), [this](const Device& d) {
                 return d.mac == discovered_mac_;
@@ -246,16 +255,17 @@ void KcxAudio::Run() {
                 present_ = false;
                 linked_ = false;
                 reconnect_on_start_ = active_power_ && !saved_.empty();
-                baud_ = 9600;  // First probe will switch to the factory default.
+                probe_profile_ = 0;
                 line.clear();
                 uart_flush_input(kUart);
-                deadline_ = now + 4500000;
+                deadline_ = now + 5600000;
                 probe = now + 650000;
             }
             if (uart_ok && active_power_) {
                 if (!present_ && state_ != "receiver_mode" && now >= probe) {
-                    baud_ = baud_ == 115200 ? 9600 : 115200;
-                    uart_set_baudrate(kUart, baud_);
+                    uart_set_baudrate(kUart, kProbeRates[probe_profile_]);
+                    uart_crlf_ = probe_profile_ < 2;
+                    probe_profile_ = (probe_profile_ + 1) % std::size(kProbeRates);
                     Transmit("AT+");
                     probe = now + 1200000;
                     if (now >= deadline_)
@@ -287,7 +297,7 @@ void KcxAudio::Run() {
                         else
                             Transmit("AT+CONADD=0x" + wanted_);
                         state_ = "connecting";
-                        deadline_ = now + 16000000;
+                        deadline_ = now + 45000000;
                     } else {
                         Transmit("AT+DISCON");
                         state_ = "ready";
