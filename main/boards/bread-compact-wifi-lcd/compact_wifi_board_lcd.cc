@@ -820,6 +820,8 @@ private:
                                         display->ShowStandbyClock(true);
                                     } else if (std::strcmp(buf, "wake") == 0) {
                                         display->HideStandbyClock(true);
+                                    } else if (std::strcmp(buf, "face_perf") == 0) {
+                                        display->LogFacePerformance();
                                     } else if (std::strncmp(buf, "play ", 5) == 0) {
                                         std::string play_url = buf + 5;
                                         display->SetEmotion("music");

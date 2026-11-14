@@ -43,6 +43,7 @@ public:
     void ReloadExpressions(bool load);
     std::string ExpressionDigest();
     std::string_view ActiveExpressionName() const;
+    void LogFacePerformance();
     bool IsStandbyClockActive() const override { return standby_active_; }
     void UnlockBootStandby() { boot_standby_locked_ = false; manual_standby_locked_ = false; }
     bool IsBootStandbyLocked() const { return boot_standby_locked_ || manual_standby_locked_; }
@@ -140,6 +141,7 @@ private:
     uint32_t NextRandom();
 
     lv_obj_t* face_layer_ = nullptr;
+    lv_obj_t* speaking_mouth_ = nullptr;
     ExpressionPack expression_pack_;
     std::string expression_name_ = "neutral";
     lv_obj_t* chat_line_ = nullptr;
@@ -203,6 +205,15 @@ private:
     bool is_speaking_ = false;
 
     lv_timer_t* frame_timer_ = nullptr;
+    lv_timer_t* visual_timer_ = nullptr;
+    static void OnDisplayFlush(lv_event_t* event);
+    uint32_t face_refreshes_ = 0;
+    bool expression_visible_ = false;
+    bool fast_refresh_ = false;
+    int mouth_width_ = 0;
+    int mouth_height_ = 0;
+    void UpdateVisualFrame();
+    void UpdateSpeakingMouth(uint16_t motion);
     int64_t manual_emotion_until_us_ = 0;
     FaceMode manual_emotion_mode_ = FaceMode::kNeutral;
     int64_t countdown_deadline_us_ = 0;

@@ -202,6 +202,10 @@ void ExpressionPack::Hide() {
     requested_.clear();
 }
 
+unsigned ExpressionPack::fps() const {
+    return clip_ ? Read16(clip_ + 32) : 0;
+}
+
 bool ExpressionPack::Draw(lv_obj_t* parent, std::string_view name) {
     if (!image_ || name.empty()) {
         Hide();
@@ -224,6 +228,7 @@ bool ExpressionPack::Draw(lv_obj_t* parent, std::string_view name) {
         requested_ = name;
         start_us_ = esp_timer_get_time();
         frame_ = -1;
+        cycle_ = -1;
     }
     if (!canvas_) {
         if (!indices_)
@@ -242,11 +247,12 @@ bool ExpressionPack::Draw(lv_obj_t* parent, std::string_view name) {
         lv_obj_remove_flag(canvas_, LV_OBJ_FLAG_SCROLLABLE);
         lv_canvas_set_buffer(canvas_, pixels_, kSide, kSide, LV_COLOR_FORMAT_RGB565);
     }
+    const auto now = esp_timer_get_time();
     const int count = Read16(clip_ + 34);
-    const int64_t elapsed = (esp_timer_get_time() - start_us_) * Read16(clip_ + 32) / 1000000;
+    const int64_t elapsed = (now - start_us_) * Read16(clip_ + 32) / 1000000;
     const int target = elapsed % count;
-    if (elapsed >= count || frame_ > target) {
-        start_us_ = esp_timer_get_time() - target * 1000000LL / Read16(clip_ + 32);
+    if (cycle_ != elapsed / count) {
+        cycle_ = elapsed / count;
         frame_ = -1;
     }
     if (frame_ == target)
@@ -273,11 +279,33 @@ bool ExpressionPack::Draw(lv_obj_t* parent, std::string_view name) {
         for (size_t i = 0; i < kPixels; ++i)
             indices_[i] ^= delta_[i];
     }
-    for (size_t i = 0; i < kPixels; ++i) {
-        const auto* rgb = palette + 2 * indices_[i];
-        pixels_[i] = (rgb[0] << 8) | rgb[1];
+    const bool first = lv_obj_has_flag(canvas_, LV_OBJ_FLAG_HIDDEN) || frames_drawn_ == 0;
+    lv_area_t dirty{kSide, kSide, -1, -1};
+    for (int y = 0; y < kSide; ++y) {
+        auto* row = pixels_ + y * kSide;
+        const auto* colors = indices_ + y * kSide;
+        for (int x = 0; x < kSide; ++x) {
+            const auto* rgb = palette + 2 * colors[x];
+            const uint16_t pixel = (rgb[0] << 8) | rgb[1];
+            if (first || row[x] != pixel) {
+                row[x] = pixel;
+                dirty.x1 = std::min(dirty.x1, x);
+                dirty.x2 = std::max(dirty.x2, x);
+                dirty.y1 = std::min(dirty.y1, y);
+                dirty.y2 = y;
+            }
+        }
     }
-    lv_obj_remove_flag(canvas_, LV_OBJ_FLAG_HIDDEN);
-    lv_obj_invalidate(canvas_);
+    if (first)
+        lv_obj_remove_flag(canvas_, LV_OBJ_FLAG_HIDDEN);
+    if (dirty.y2 >= 0) {
+        lv_area_t coords{};
+        lv_obj_get_coords(canvas_, &coords);
+        lv_area_move(&dirty, coords.x1, coords.y1);
+        lv_obj_invalidate_area(canvas_, &dirty);
+        ++frames_drawn_;
+        pixels_sent_ += lv_area_get_size(&dirty);
+    }
+    draw_us_ += esp_timer_get_time() - now;
     return true;
 }

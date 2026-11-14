@@ -129,6 +129,7 @@ public:
     bool IsVoiceDetected() const { return voice_detected_; }
     uint8_t GetInputLevel() const { return input_level_.load(std::memory_order_relaxed); }
     uint8_t GetOutputLevel() const { return output_level_.load(std::memory_order_relaxed); }
+    uint16_t GetVoiceMotion() const { return voice_motion_.load(std::memory_order_relaxed); }
     bool IsIdle();
     bool IsPlaybackIdle();
     bool IsWakeWordRunning() const {
@@ -215,6 +216,7 @@ private:
     bool voice_detected_ = false;
     std::atomic<uint8_t> input_level_{0};
     std::atomic<uint8_t> output_level_{0};
+    std::atomic<uint16_t> voice_motion_{0};
 #if CONFIG_USE_DEVICE_AEC
     bool device_aec_enabled_ = true;
 #else

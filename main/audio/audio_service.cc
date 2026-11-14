@@ -24,6 +24,24 @@ uint8_t ComputePcmLevel(const std::vector<int16_t>& pcm) {
     int32_t norm = (peak - 300) * 100 / 13700;
     return static_cast<uint8_t>(std::min<int32_t>(100, norm));
 }
+
+#ifdef CONFIG_BOARD_TYPE_BREAD_COMPACT_WIFI_LCD
+uint16_t ComputeVoiceMotion(const std::vector<int16_t>& pcm, uint8_t level, int sample_rate) {
+    const size_t lag = std::max(1, sample_rate / 12000);
+    if (level == 0 || pcm.size() <= lag)
+        return 0;
+    // Short-lag difference supplies a cheap brightness cue for lip width.
+    // Sample at most about 64 pairs and publish both controls atomically.
+    const size_t step = std::max<size_t>(1, pcm.size() / 64);
+    uint32_t energy = 0, difference = 0;
+    for (size_t i = lag; i < pcm.size(); i += step) {
+        energy += std::abs(static_cast<int>(pcm[i]));
+        difference += std::abs(static_cast<int>(pcm[i]) - pcm[i - lag]);
+    }
+    const uint16_t brightness = static_cast<uint16_t>(std::min(100U, difference * 72 / (energy + 1)));
+    return level | (brightness << 8);
+}
+#endif
 }  // namespace
 
 #define RATE_CVT_CFG(_src_rate, _dest_rate, _channel)                                        \
@@ -199,6 +217,7 @@ void AudioService::Stop() {
     service_stopped_.store(true);
     input_level_.store(0, std::memory_order_relaxed);
     output_level_.store(0, std::memory_order_relaxed);
+    voice_motion_.store(0, std::memory_order_relaxed);
     xEventGroupSetBits(event_group_, AS_EVENT_AUDIO_TESTING_RUNNING | AS_EVENT_WAKE_WORD_RUNNING |
                                          AS_EVENT_AUDIO_PROCESSOR_RUNNING);
 
@@ -376,8 +395,15 @@ void AudioService::AudioOutputTask() {
             callbacks_.on_playback_progress(task.playback_id, task.media_position_ms);
         }
 
-        output_level_.store(ComputePcmLevel(task.pcm), std::memory_order_relaxed);
         codec_->SelectOutput(task.output_kind);
+        const auto level = ComputePcmLevel(task.pcm);
+        output_level_.store(level, std::memory_order_relaxed);
+#ifdef CONFIG_BOARD_TYPE_BREAD_COMPACT_WIFI_LCD
+        voice_motion_.store(task.output_kind == AudioOutputKind::Voice
+                                 ? ComputeVoiceMotion(task.pcm, level, codec_->output_sample_rate())
+                                 : 0,
+                             std::memory_order_relaxed);
+#endif
         codec_->OutputData(task.pcm);
 
         /* Update the last output time */
@@ -399,6 +425,7 @@ void AudioService::AudioOutputTask() {
         notify_drained = MarkPlaybackDrainedLocked();
         if (notify_drained) {
             output_level_.store(0, std::memory_order_relaxed);
+            voice_motion_.store(0, std::memory_order_relaxed);
         }
         audio_queue_cv_.notify_all();
         lock.unlock();
@@ -910,6 +937,7 @@ void AudioService::ResetDecoder() {
         audio_playback_queue_.clear();
         audio_testing_queue_.clear();
         output_level_.store(0, std::memory_order_relaxed);
+        voice_motion_.store(0, std::memory_order_relaxed);
         notify_drained = MarkPlaybackDrainedLocked();
         audio_queue_cv_.notify_all();
     }

@@ -21,6 +21,10 @@ public:
     bool Draw(lv_obj_t* parent, std::string_view name);
     void Hide();
     const std::string& digest() const { return digest_; }
+    uint32_t frames_drawn() const { return frames_drawn_; }
+    uint32_t pixels_sent() const { return pixels_sent_; }
+    uint64_t draw_us() const { return draw_us_; }
+    unsigned fps() const;
 
 private:
     const uint8_t* image_ = nullptr;
@@ -36,4 +40,8 @@ private:
     std::string requested_;
     int frame_ = -1;
     int64_t start_us_ = 0;
+    int64_t cycle_ = -1;
+    uint32_t frames_drawn_ = 0;
+    uint32_t pixels_sent_ = 0;
+    uint64_t draw_us_ = 0;
 };

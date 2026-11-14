@@ -133,6 +133,12 @@ PocketLcdDisplay::PocketLcdDisplay(esp_lcd_panel_io_handle_t panel_io, esp_lcd_p
 
 PocketLcdDisplay::~PocketLcdDisplay() {
     DisplayLockGuard lock(this);
+    if (visual_timer_)
+        lv_display_remove_event_cb_with_user_data(display_, OnDisplayFlush, this);
+    if (visual_timer_)
+        lv_timer_delete(visual_timer_);
+    if (speaking_mouth_)
+        lv_obj_delete(speaking_mouth_);
     if (frame_timer_ != nullptr) {
         lv_timer_delete(frame_timer_);
         frame_timer_ = nullptr;
@@ -380,12 +386,27 @@ void PocketLcdDisplay::SetupUI() {
     if (width_ == 240 && height_ == 240)
         expression_pack_.Load();
 
+    speaking_mouth_ = lv_obj_create(lv_display_get_layer_top(display_));
+    PrepareShape(speaking_mouth_);
+    lv_obj_remove_flag(speaking_mouth_, LV_OBJ_FLAG_CLICKABLE);
+    lv_obj_set_style_radius(speaking_mouth_, LV_RADIUS_CIRCLE, 0);
+    lv_obj_set_style_border_color(speaking_mouth_, lv_color_hex(0x81E8FF), 0);
+    lv_obj_set_style_border_width(speaking_mouth_, 2, 0);
+    lv_obj_set_style_bg_color(speaking_mouth_, lv_color_hex(0x071521), 0);
+    lv_obj_set_style_bg_opa(speaking_mouth_, LV_OPA_COVER, 0);
+    lv_obj_add_flag(speaking_mouth_, LV_OBJ_FLAG_HIDDEN);
+    lv_display_add_event_cb(display_, OnDisplayFlush, LV_EVENT_FLUSH_FINISH, this);
+
     // 13. Start Animation Frame Timer (20 FPS)
     frame_timer_ = lv_timer_create(
         [](lv_timer_t* timer) {
             static_cast<PocketLcdDisplay*>(lv_timer_get_user_data(timer))->UpdateAnimationFrame();
         },
         kAnimationPeriodMs, this);
+    visual_timer_ = lv_timer_create(
+        [](lv_timer_t* timer) {
+            static_cast<PocketLcdDisplay*>(lv_timer_get_user_data(timer))->UpdateVisualFrame();
+        }, kAnimationPeriodMs, this);
 
     // Restore persistent timestamp from NVS if clock is uninitialized
     time_t cur_now = time(nullptr);
@@ -1414,13 +1435,8 @@ void PocketLcdDisplay::UpdateAnimationFrame() {
         next_emotion_tick_ = animation_tick_ + segment.duration_ticks;
     }
 
-    if (!qr_until_tick_ && !standby_active_ && !app.IsAlarmActive()) {
-        const auto name = ActiveExpressionName();
-        if (expression_pack_.Draw(face_layer_, name))
-            return;
-    } else {
-        expression_pack_.Hide();
-    }
+    if (expression_visible_ && !qr_until_tick_ && !standby_active_ && !app.IsAlarmActive())
+        return;
 
     // 4. Natural Blinking with Double-Blink Realism
     bool blink = false;
@@ -3011,6 +3027,64 @@ void PocketLcdDisplay::UpdateAnimationFrame() {
             lv_obj_set_size(right_bottom_lid_, current_right_width_ + 8, dynamic_cheek);
         }
     }
+}
+
+void PocketLcdDisplay::UpdateVisualFrame() {
+    auto& app = Application::GetInstance();
+    const bool face_visible = !qr_until_tick_ && !standby_active_ && !app.IsAlarmActive();
+    if (face_visible)
+        expression_visible_ = expression_pack_.Draw(face_layer_, ActiveExpressionName());
+    else {
+        expression_pack_.Hide();
+        expression_visible_ = false;
+    }
+
+    const auto motion = face_visible ? app.GetAudioService().GetVoiceMotion() : 0;
+    UpdateSpeakingMouth(motion);
+    const bool fast = expression_pack_.fps() > 20 || mouth_height_ > 0;
+    lv_timer_set_period(visual_timer_, fast ? 8 : expression_visible_ ? 16 : kAnimationPeriodMs);
+    if (fast == fast_refresh_)
+        return;
+    fast_refresh_ = fast;
+    if (auto* refresh = lv_display_get_refr_timer(display_))
+        lv_timer_set_period(refresh, fast ? 16 : LV_DEF_REFR_PERIOD);
+}
+
+void PocketLcdDisplay::OnDisplayFlush(lv_event_t* event) {
+    auto& self = *static_cast<PocketLcdDisplay*>(lv_event_get_user_data(event));
+    if (lv_display_flush_is_last(self.display_))
+        ++self.face_refreshes_;
+}
+
+void PocketLcdDisplay::UpdateSpeakingMouth(uint16_t motion) {
+    const int level = motion & 255;
+    const int brightness = motion >> 8;
+    const int opening = level < 3 ? 0 : std::clamp(3 + level / 4, 5, 22);
+    const int height = EaseLid(mouth_height_, opening);
+    const int width = height == 0 ? 0 : EaseLid(mouth_width_, 18 + brightness / 4 + level / 12);
+    if (height == mouth_height_ && width == mouth_width_)
+        return;
+    mouth_height_ = height;
+    mouth_width_ = width;
+    if (!height) {
+        lv_obj_add_flag(speaking_mouth_, LV_OBJ_FLAG_HIDDEN);
+        return;
+    }
+    lv_obj_set_size(speaking_mouth_, width, height);
+    lv_obj_set_pos(speaking_mouth_, (240 - width) / 2, 174 - height / 2);
+    lv_obj_remove_flag(speaking_mouth_, LV_OBJ_FLAG_HIDDEN);
+}
+
+void PocketLcdDisplay::LogFacePerformance() {
+    DisplayLockGuard lock(this);
+    if (!lock)
+        return;
+    ESP_LOGI(TAG, "FACE_PERF time_us=%lld fps=%u frames=%lu refreshes=%lu dirty_px=%lu draw_us=%llu mouth=%d,%d",
+             static_cast<long long>(esp_timer_get_time()), expression_pack_.fps(),
+             static_cast<unsigned long>(expression_pack_.frames_drawn()),
+             static_cast<unsigned long>(face_refreshes_),
+             static_cast<unsigned long>(expression_pack_.pixels_sent()),
+             static_cast<unsigned long long>(expression_pack_.draw_us()), mouth_width_, mouth_height_);
 }
 
 uint32_t PocketLcdDisplay::NextRandom() {
