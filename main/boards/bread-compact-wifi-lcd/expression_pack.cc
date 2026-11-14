@@ -281,10 +281,10 @@ bool ExpressionPack::Draw(lv_obj_t* parent, std::string_view name) {
     }
     const bool first = lv_obj_has_flag(canvas_, LV_OBJ_FLAG_HIDDEN) || frames_drawn_ == 0;
     lv_area_t dirty{kSide, kSide, -1, -1};
-    for (int y = 0; y < kSide; ++y) {
+    for (int32_t y = 0; y < kSide; ++y) {
         auto* row = pixels_ + y * kSide;
         const auto* colors = indices_ + y * kSide;
-        for (int x = 0; x < kSide; ++x) {
+        for (int32_t x = 0; x < kSide; ++x) {
             const auto* rgb = palette + 2 * colors[x];
             const uint16_t pixel = (rgb[0] << 8) | rgb[1];
             if (first || row[x] != pixel) {

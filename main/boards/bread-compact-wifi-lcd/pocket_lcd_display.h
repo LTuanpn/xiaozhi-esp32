@@ -210,6 +210,7 @@ private:
     uint32_t face_refreshes_ = 0;
     bool expression_visible_ = false;
     bool fast_refresh_ = false;
+    uint32_t visual_period_ms_ = 50;
     int mouth_width_ = 0;
     int mouth_height_ = 0;
     void UpdateVisualFrame();

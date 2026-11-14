@@ -3042,7 +3042,11 @@ void PocketLcdDisplay::UpdateVisualFrame() {
     const auto motion = face_visible ? app.GetAudioService().GetVoiceMotion() : 0;
     UpdateSpeakingMouth(motion);
     const bool fast = expression_pack_.fps() > 20 || mouth_height_ > 0;
-    lv_timer_set_period(visual_timer_, fast ? 8 : expression_visible_ ? 16 : kAnimationPeriodMs);
+    const uint32_t period = fast ? 8 : expression_visible_ ? 16 : kAnimationPeriodMs;
+    if (visual_period_ms_ != period) {
+        visual_period_ms_ = period;
+        lv_timer_set_period(visual_timer_, period);
+    }
     if (fast == fast_refresh_)
         return;
     fast_refresh_ = fast;
