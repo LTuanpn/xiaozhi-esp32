@@ -41,7 +41,9 @@ input[type=range]{padding:0;accent-color:var(--text)}label{display:block;margin:
     </form><div class="row"><button id="guard" aria-pressed="false">Bật GUARD</button><span id="alarm"></span></div>
   </section>
   <section><h2>Biểu cảm</h2><label for="emotion">Biểu cảm trên TFT</label><select id="emotion"></select>
-    <div class="row"><button id="preview">Hiện biểu cảm</button></div>
+    <label for="expression-seconds">Số giây mỗi biểu cảm</label>
+    <input id="expression-seconds" type="number" min="1" max="15" value="3" required>
+    <div class="row"><button id="preview">Hiện biểu cảm</button><button id="preview-all">Chạy lần lượt</button></div>
   </section>
   <section><h2>Wi-Fi</h2><p id="network"></p><div class="row"><button id="wifi">Đổi Wi-Fi</button></div></section>
   <section><h2>Cập nhật</h2><p id="version"></p>
@@ -145,7 +147,51 @@ $("timer").onsubmit = event => {
 };
 $("cancel-timer").onclick = () => tool("self.timer.set_countdown",{seconds:0});
 $("guard").onclick = () => tool("self.security.guard_mode",{enable:!guard});
-$("preview").onclick = () => tool("self.screen.set_emotion",{emotion:$("emotion").value,duration_seconds:8});
+function expressionDuration() {
+  const input = $("expression-seconds");
+  return input.reportValidity() ? Number(input.value) : 0;
+}
+$("preview").onclick = () => {
+  const duration = expressionDuration();
+  if (duration) void tool("self.screen.set_emotion",{emotion:$("emotion").value,duration_seconds:duration});
+};
+let sequence;
+$("preview-all").onclick = async () => {
+  if (sequence) {
+    sequence.abort();
+    return;
+  }
+  const duration = expressionDuration();
+  if (!duration) return;
+  const names = Array.from($("emotion").options, option => option.value);
+  const run = new AbortController();
+  sequence = run;
+  $("preview-all").textContent = "Dừng lượt xem";
+  $("preview").disabled = true;
+  try {
+    for (const [index, emotion] of names.entries()) {
+      if (run.signal.aborted) break;
+      $("emotion").value = emotion;
+      const ok = await tool("self.screen.set_emotion",{emotion,duration_seconds:duration},
+        `${index+1}/${names.length} · ${emotion}`);
+      if (!ok || run.signal.aborted) break;
+      await new Promise(resolve => {
+        function finish() {
+          clearTimeout(timer);
+          run.signal.removeEventListener("abort",finish);
+          resolve();
+        }
+        const timer = setTimeout(finish,duration*1000);
+        run.signal.addEventListener("abort",finish,{once:true});
+      });
+    }
+    if (run.signal.aborted) note("Đã dừng lượt xem.");
+  } finally {
+    sequence = null;
+    $("preview-all").textContent = "Chạy lần lượt";
+    $("preview").disabled = false;
+  }
+};
 $("wifi").onclick = () => {
   if (confirm("Robot sẽ chuyển sang hotspot Xiaozhi để đổi Wi-Fi. Tiếp tục?"))
     void tool("self.screen.show_qr",{},"Quét QR Wi-Fi mới trên robot.");

@@ -855,7 +855,7 @@ public:
         auto json = WifiBoard::GetBoardJson();
         if (ReservedAssetsTail() && ExpressionPack::Partition()) {
             json.pop_back();
-            json += ",\"expression_protocol\":1,\"expression_digest\":\"" +
+            json += ",\"expression_protocol\":2,\"expression_digest\":\"" +
                     display_->ExpressionDigest() + "\"}";
         }
         return json;

@@ -42,6 +42,7 @@ public:
     bool ShowFace();
     void ReloadExpressions(bool load);
     std::string ExpressionDigest();
+    std::string_view ActiveExpressionName() const;
     bool IsStandbyClockActive() const override { return standby_active_; }
     void UnlockBootStandby() { boot_standby_locked_ = false; manual_standby_locked_ = false; }
     bool IsBootStandbyLocked() const { return boot_standby_locked_ || manual_standby_locked_; }

@@ -595,8 +595,6 @@ bool PocketLcdDisplay::SetEmotion(const char* emotion) {
         return false;  // Standby owns the screen; this emotion was not applied.
     }
     WakeUp();
-    if (manual_emotion_until_us_ <= esp_timer_get_time())
-        expression_name_ = emotion ? emotion : "neutral";
     emotion_mode_ = FaceModeFromEmotion(emotion);
     SetFaceMode(emotion_mode_);
     if (emotion_mode_ == FaceMode::kMusic) {
@@ -702,6 +700,9 @@ void PocketLcdDisplay::SetChatMessage(const char* role, const char* content) {
                     FaceMode seg_mode = InferEmotionFromText(clause.c_str());
                     if (seg_mode == FaceMode::kNeutral) {
                         seg_mode = emotion_timeline_.empty() ? emotion_mode_ : emotion_timeline_.back().mode;
+                        if (seg_mode == FaceMode::kNeutral)
+                            seg_mode = clean_text.find('?') != std::string::npos ?
+                                FaceMode::kThinking : FaceMode::kSmileGentle;
                     }
                     uint32_t duration = static_cast<uint32_t>(std::clamp((int)clause.length() * 2, 25, 60));
                     emotion_timeline_.push_back({seg_mode, duration});
@@ -800,6 +801,28 @@ void PocketLcdDisplay::SetFaceMode(FaceMode mode) {
         target_look_x_ = 0;
         target_look_y_ = 0;
     }
+}
+
+std::string_view PocketLcdDisplay::ActiveExpressionName() const {
+    if (esp_timer_get_time() < manual_emotion_until_us_)
+        return expression_name_;
+    if (face_mode_ == FaceMode::kNeutral && is_speaking_)
+        return "happy";
+    static constexpr std::string_view names[] = {
+        "neutral", "thinking", "thinking", "happy", "playful_wink", "laugh",
+        "sad", "cry", "angry", "surprised", "skeptical", "shy",
+        "sleepy", "sleepy", "happy", "love", "dizzy", "scared",
+        "excited", "smug", "bored", "furious", "pout", "music",
+        "scanning", "matrix", "loading", "low_battery", "overheat", "reboot",
+        "target_locked", "side_eye", "facepalm", "innocent", "jealous", "scheming",
+        "disgusted", "whisper", "freeze", "sneeze", "headache", "drunk",
+        "exhausted", "zen", "shocked_jawdrop", "paranoid", "confused_question", "idea_eureka",
+        "hypno", "money_eyes", "neutral", "game_over", "party_celebrate", "tongue_out",
+        "thunder", "rain", "sunny", "sleepwalk", "angel", "fire_fury",
+        "waterfall", "heartbroken"
+    };
+    static_assert(std::size(names) == static_cast<size_t>(FaceMode::kHeartbroken) + 1);
+    return names[static_cast<size_t>(face_mode_)];
 }
 
 void PocketLcdDisplay::ApplyLayout() {
@@ -1336,17 +1359,9 @@ void PocketLcdDisplay::UpdateAnimationFrame() {
     } else if (temporary_emotion_until_tick_ > 0 && animation_tick_ >= temporary_emotion_until_tick_) {
         if (!is_speaking_ && dev_state != kDeviceStateSpeaking) {
             temporary_emotion_until_tick_ = 0;
-            expression_name_ = "neutral";
             emotion_mode_ = FaceMode::kNeutral;
             SetFaceMode(FaceMode::kNeutral);
         }
-    }
-
-    if (!qr_until_tick_ && !app.IsAlarmActive() && !standby_active_) {
-        const auto* name = dev_state == kDeviceStateNotifying ? "music" : expression_name_.c_str();
-        expression_pack_.Draw(face_layer_, name);
-    } else {
-        expression_pack_.Hide();
     }
 
     // 2. Autonomous Sleep (35s Sleepy, 60s Sleeping) & Mini Idle Quirks
@@ -1389,6 +1404,22 @@ void PocketLcdDisplay::UpdateAnimationFrame() {
         if (animation_tick_ >= wake_up_until_tick_) {
             SetFaceMode(FaceMode::kNeutral);
         }
+    }
+
+    if (is_speaking_ && current_emotion_idx_ < emotion_timeline_.size() &&
+        animation_tick_ >= next_emotion_tick_) {
+        const auto& segment = emotion_timeline_[current_emotion_idx_++];
+        emotion_mode_ = segment.mode;
+        SetFaceMode(emotion_mode_);
+        next_emotion_tick_ = animation_tick_ + segment.duration_ticks;
+    }
+
+    if (!qr_until_tick_ && !standby_active_ && !app.IsAlarmActive()) {
+        const auto name = ActiveExpressionName();
+        if (expression_pack_.Draw(face_layer_, name))
+            return;
+    } else {
+        expression_pack_.Hide();
     }
 
     // 4. Natural Blinking with Double-Blink Realism
@@ -1746,16 +1777,6 @@ void PocketLcdDisplay::UpdateAnimationFrame() {
     int animation_x = 0;
     int animation_y = 0;
     if (is_speaking_) {
-        // Advance to next emotion segment in timeline
-        if (!emotion_timeline_.empty() && current_emotion_idx_ < emotion_timeline_.size()) {
-            if (animation_tick_ >= next_emotion_tick_) {
-                emotion_mode_ = emotion_timeline_[current_emotion_idx_].mode;
-                SetFaceMode(emotion_mode_);
-                next_emotion_tick_ = animation_tick_ + emotion_timeline_[current_emotion_idx_].duration_ticks;
-                current_emotion_idx_++;
-            }
-        }
-
         // Subtle bounce only for Neutral or SmileGentle (1..2px)
         if (face_mode_ == FaceMode::kNeutral || face_mode_ == FaceMode::kSmileGentle) {
             int amp_bounce = 1 + (spk_level / 45);

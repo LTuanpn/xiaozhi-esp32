@@ -47,6 +47,8 @@ bool ValidImage(const uint8_t* image, size_t size) {
         return false;
     const size_t count = Read32(image + 4);
     const size_t payload = Read32(image + 8);
+    if (count == 0)
+        return size == 12 && payload == 12;  // Restore the built-in renderer.
     const size_t table_end = 12 + count * kClipSize;
     if (!count || count > 96 || table_end > payload || payload >= size)
         return false;
@@ -185,6 +187,11 @@ void ExpressionPack::Load() {
         return;
     }
     digest_.assign(header.sha, sizeof(header.sha));
+    if (Read32(image_ + 4) == 0) {
+        esp_partition_munmap(map_);
+        map_ = 0;
+        image_ = nullptr;
+    }
     ESP_LOGI(kTag, "Loaded expression assets");
 }
 
@@ -192,24 +199,29 @@ void ExpressionPack::Hide() {
     if (canvas_)
         lv_obj_add_flag(canvas_, LV_OBJ_FLAG_HIDDEN);
     clip_ = nullptr;
+    requested_.clear();
 }
 
-void ExpressionPack::Draw(lv_obj_t* parent, std::string_view name) {
+bool ExpressionPack::Draw(lv_obj_t* parent, std::string_view name) {
     if (!image_ || name.empty()) {
         Hide();
-        return;
+        return false;
     }
-    if (!clip_ || name != reinterpret_cast<const char*>(clip_)) {
+    if (!clip_ || name != requested_) {
         Hide();
         for (size_t i = 0; i < Read32(image_ + 4); ++i) {
             const uint8_t* candidate = image_ + 12 + i * kClipSize;
-            if (name == reinterpret_cast<const char*>(candidate)) {
+            const std::string_view label(reinterpret_cast<const char*>(candidate));
+            if (name == label) {
                 clip_ = candidate;
                 break;
             }
+            if (label == "neutral")
+                clip_ = candidate;
         }
         if (!clip_)
-            return;
+            return false;
+        requested_ = name;
         start_us_ = esp_timer_get_time();
         frame_ = -1;
     }
@@ -223,7 +235,7 @@ void ExpressionPack::Draw(lv_obj_t* parent, std::string_view name) {
         if (!inflater_)
             inflater_ = heap_caps_malloc(sizeof(tinfl_decompressor), MALLOC_CAP_SPIRAM);
         if (!indices_ || !delta_ || !pixels_ || !inflater_)
-            return;
+            return false;
         // Keep the full 240×240 background beneath status and subtitle overlays.
         canvas_ = lv_canvas_create(lv_obj_get_parent(parent));
         lv_obj_move_to_index(canvas_, lv_obj_get_index(parent) + 1);
@@ -238,7 +250,7 @@ void ExpressionPack::Draw(lv_obj_t* parent, std::string_view name) {
         frame_ = -1;
     }
     if (frame_ == target)
-        return;
+        return true;
     if (frame_ < 0)
         memset(indices_, 0, kPixels);
     const auto* palette = image_ + Read32(clip_ + 36);
@@ -256,7 +268,7 @@ void ExpressionPack::Draw(lv_obj_t* parent, std::string_view name) {
                 TINFL_STATUS_DONE ||
             output_size != kPixels) {
             Reset();
-            return;
+            return false;
         }
         for (size_t i = 0; i < kPixels; ++i)
             indices_[i] ^= delta_[i];
@@ -267,4 +279,5 @@ void ExpressionPack::Draw(lv_obj_t* parent, std::string_view name) {
     }
     lv_obj_remove_flag(canvas_, LV_OBJ_FLAG_HIDDEN);
     lv_obj_invalidate(canvas_);
+    return true;
 }

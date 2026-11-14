@@ -18,7 +18,7 @@ public:
     void Destroy();
     void Load();
     void Reset();
-    void Draw(lv_obj_t* parent, std::string_view name);
+    bool Draw(lv_obj_t* parent, std::string_view name);
     void Hide();
     const std::string& digest() const { return digest_; }
 
@@ -33,6 +33,7 @@ private:
     uint8_t* delta_ = nullptr;
     void* inflater_ = nullptr;
     const uint8_t* clip_ = nullptr;
+    std::string requested_;
     int frame_ = -1;
     int64_t start_us_ = 0;
 };
