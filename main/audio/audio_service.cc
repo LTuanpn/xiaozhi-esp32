@@ -38,7 +38,7 @@ uint16_t ComputeVoiceMotion(const std::vector<int16_t>& pcm, uint8_t level, int 
         energy += std::abs(static_cast<int>(pcm[i]));
         difference += std::abs(static_cast<int>(pcm[i]) - pcm[i - lag]);
     }
-    const uint16_t brightness = static_cast<uint16_t>(std::min(100U, difference * 72 / (energy + 1)));
+    const auto brightness = std::min<uint32_t>(100, difference * 72 / (energy + 1));
     return level | (brightness << 8);
 }
 #endif
