@@ -846,6 +846,32 @@ private:
     }
 
 public:
+    size_t ReservedAssetsTail() const override {
+        return display_ && display_->width() == 240 && display_->height() == 240
+                   ? ExpressionPack::kReserved : 0;
+    }
+
+    std::string GetBoardJson() override {
+        auto json = WifiBoard::GetBoardJson();
+        if (ReservedAssetsTail() && ExpressionPack::Partition()) {
+            json.pop_back();
+            json += ",\"expression_protocol\":1,\"expression_digest\":\"" +
+                    display_->ExpressionDigest() + "\"}";
+        }
+        return json;
+    }
+
+    void ApplyFleetExpressions(const std::string& url, const std::string& digest) override {
+        if (!ReservedAssetsTail() || !ExpressionPack::Partition() ||
+            digest == display_->ExpressionDigest())
+            return;
+        display_->ReloadExpressions(false);
+        const bool installed = ExpressionPack::Download(url, digest);
+        display_->ReloadExpressions(true);
+        if (!installed)
+            ESP_LOGW(TAG, "Expression asset download failed");
+    }
+
     CompactWifiBoardLCD() :
         boot_button_(BOOT_BUTTON_GPIO) {
         InitializeSpi();

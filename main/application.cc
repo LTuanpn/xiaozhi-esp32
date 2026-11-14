@@ -550,6 +550,9 @@ void Application::CheckNewVersion() {
             // If upgrade failed, continue to normal operation
         }
 
+        if (!ota_->GetExpressionUrl().empty())
+            board.ApplyFleetExpressions(ota_->GetExpressionUrl(), ota_->GetExpressionDigest());
+
         // No new version, mark the current version as valid
         ota_->MarkCurrentVersionValid();
         if (!ota_->HasActivationCode() && !ota_->HasActivationChallenge()) {

@@ -133,6 +133,25 @@ NetworkResult<> Ota::CheckVersion() {
         return std::unexpected(NetworkError::ProtocolError());
     }
 
+    expression_url_.clear();
+    expression_digest_.clear();
+    const auto* expression = cJSON_GetObjectItemCaseSensitive(root, "fleet_expressions");
+    const auto* expression_url = cJSON_GetObjectItemCaseSensitive(expression, "url");
+    const auto* expression_sha = cJSON_GetObjectItemCaseSensitive(expression, "sha256");
+    // Accept Studio offers only from this device's configured Fleet endpoint.
+    if (cJSON_IsString(expression_url) && cJSON_IsString(expression_sha) &&
+        url.find("/fleet/ota/") != std::string::npos) {
+        std::string base = url;
+        if (base.ends_with('/'))
+            base.pop_back();
+        std::string sha = expression_sha->valuestring;
+        if (sha.size() == 64 && sha.find_first_not_of("0123456789abcdef") == std::string::npos &&
+            base + "/expressions/" + sha + ".bin" == expression_url->valuestring) {
+            expression_url_ = expression_url->valuestring;
+            expression_digest_ = std::move(sha);
+        }
+    }
+
     has_activation_code_ = false;
     has_activation_challenge_ = false;
     cJSON *activation = cJSON_GetObjectItem(root, "activation");

@@ -521,7 +521,8 @@ bool Assets::Download(std::string url,
         return false;
     }
 
-    if (content_length > partition_->size) {
+    const size_t reserved = Board::GetInstance().ReservedAssetsTail();
+    if (reserved >= partition_->size || content_length > partition_->size - reserved) {
         ESP_LOGE(TAG, "Assets file size (%u) is larger than partition size (%lu)", content_length,
                  partition_->size);
         return false;

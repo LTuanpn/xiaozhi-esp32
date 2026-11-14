@@ -143,6 +143,21 @@ PocketLcdDisplay::~PocketLcdDisplay() {
     }
 }
 
+void PocketLcdDisplay::ReloadExpressions(bool load) {
+    DisplayLockGuard lock(this);
+    if (!lock)
+        return;
+    if (load && width_ == 240 && height_ == 240)
+        expression_pack_.Load();
+    else
+        expression_pack_.Reset();
+}
+
+std::string PocketLcdDisplay::ExpressionDigest() {
+    DisplayLockGuard lock(this);
+    return lock ? expression_pack_.digest() : std::string{};
+}
+
 void PocketLcdDisplay::SetupUI() {
     if (setup_ui_called_) {
         ESP_LOGW(TAG, "SetupUI() called multiple times, skipping duplicate call");
@@ -361,6 +376,9 @@ void PocketLcdDisplay::SetupUI() {
 
     ApplyLayout();
 
+    if (width_ == 240 && height_ == 240)
+        expression_pack_.Load();
+
     // 13. Start Animation Frame Timer (20 FPS)
     frame_timer_ = lv_timer_create(
         [](lv_timer_t* timer) {
@@ -482,6 +500,7 @@ bool PocketLcdDisplay::SetManualEmotion(const std::string& emotion, int duration
     emotion_timeline_.clear();
     WakeUp();
     manual_emotion_mode_ = FaceModeFromEmotion(emotion.c_str());
+    expression_name_ = emotion;
     emotion_mode_ = manual_emotion_mode_;
     manual_emotion_until_us_ = esp_timer_get_time() + static_cast<int64_t>(duration_ms) * 1000;
     temporary_emotion_until_tick_ = animation_tick_ + duration_ms / kAnimationPeriodMs;
@@ -575,6 +594,8 @@ bool PocketLcdDisplay::SetEmotion(const char* emotion) {
         return false;  // Standby owns the screen; this emotion was not applied.
     }
     WakeUp();
+    if (manual_emotion_until_us_ <= esp_timer_get_time())
+        expression_name_ = emotion ? emotion : "neutral";
     emotion_mode_ = FaceModeFromEmotion(emotion);
     SetFaceMode(emotion_mode_);
     if (emotion_mode_ == FaceMode::kMusic) {
@@ -1283,6 +1304,7 @@ void PocketLcdDisplay::UpdateAnimationFrame() {
     }
 
     if (standby_active_) {
+        expression_pack_.Hide();
         if (animation_tick_ - last_clock_tick_ >= 20) {
             last_clock_tick_ = animation_tick_;
             UpdateStandbyClock();
@@ -1313,9 +1335,17 @@ void PocketLcdDisplay::UpdateAnimationFrame() {
     } else if (temporary_emotion_until_tick_ > 0 && animation_tick_ >= temporary_emotion_until_tick_) {
         if (!is_speaking_ && dev_state != kDeviceStateSpeaking) {
             temporary_emotion_until_tick_ = 0;
+            expression_name_ = "neutral";
             emotion_mode_ = FaceMode::kNeutral;
             SetFaceMode(FaceMode::kNeutral);
         }
+    }
+
+    if (!qr_until_tick_ && !app.IsAlarmActive() && !standby_active_) {
+        const auto* name = dev_state == kDeviceStateNotifying ? "music" : expression_name_.c_str();
+        expression_pack_.Draw(face_layer_, name);
+    } else {
+        expression_pack_.Hide();
     }
 
     // 2. Autonomous Sleep (35s Sleepy, 60s Sleeping) & Mini Idle Quirks

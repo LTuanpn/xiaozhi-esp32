@@ -30,6 +30,8 @@ public:
     const std::string& GetFirmwareVersion() const { return firmware_version_; }
     const std::string& GetCurrentVersion() const { return current_version_; }
     const std::string& GetFirmwareUrl() const { return firmware_url_; }
+    const std::string& GetExpressionUrl() const { return expression_url_; }
+    const std::string& GetExpressionDigest() const { return expression_digest_; }
     const std::string& GetActivationMessage() const { return activation_message_; }
     const std::string& GetActivationCode() const { return activation_code_; }
     static std::string GetCheckVersionUrl();
@@ -47,6 +49,8 @@ private:
     std::string current_version_;
     std::string firmware_version_;
     std::string firmware_url_;
+    std::string expression_url_;
+    std::string expression_digest_;
     std::string activation_challenge_;
     std::string serial_number_;
     int activation_timeout_ms_ = 30000;

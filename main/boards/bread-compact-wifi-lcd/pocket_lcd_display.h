@@ -2,6 +2,7 @@
 #define POCKET_LCD_DISPLAY_H
 
 #include "display/lcd_display.h"
+#include "expression_pack.h"
 
 #include <lvgl.h>
 #include <span>
@@ -39,6 +40,8 @@ public:
     void HideStandbyClock() override;
     void HideStandbyClock(bool force);
     bool ShowFace();
+    void ReloadExpressions(bool load);
+    std::string ExpressionDigest();
     bool IsStandbyClockActive() const override { return standby_active_; }
     void UnlockBootStandby() { boot_standby_locked_ = false; manual_standby_locked_ = false; }
     bool IsBootStandbyLocked() const { return boot_standby_locked_ || manual_standby_locked_; }
@@ -136,6 +139,8 @@ private:
     uint32_t NextRandom();
 
     lv_obj_t* face_layer_ = nullptr;
+    ExpressionPack expression_pack_;
+    std::string expression_name_ = "neutral";
     lv_obj_t* chat_line_ = nullptr;
 
     // Eye elements
