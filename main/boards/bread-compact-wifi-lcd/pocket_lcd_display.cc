@@ -3405,6 +3405,16 @@ void PocketLcdDisplay::HideStandbyClock(bool force) {
     }
 }
 
+bool PocketLcdDisplay::ShowFace() {
+    DisplayLockGuard lock(this);
+    if (!lock || face_layer_ == nullptr)
+        return false;
+    HideQrCode(true);
+    HideStandbyClock(true);
+    WakeUp();
+    return true;
+}
+
 void PocketLcdDisplay::UpdateStandbyClock() {
     if (!standby_active_ || standby_container_ == nullptr) return;
 

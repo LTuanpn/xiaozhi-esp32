@@ -108,8 +108,7 @@ private:
         const int64_t left = countdown_deadline_us_ - esp_timer_get_time();
         cJSON_AddNumberToObject(status.get(), "timer_seconds", left > 0 ? (left + 999999) / 1000000 : 0);
         cJSON_AddStringToObject(status.get(), "timer_label", countdown_label_.c_str());
-        Settings wifi("wifi");
-        cJSON_AddBoolToObject(status.get(), "ota_configured", !wifi.GetString("ota_url").empty());
+        cJSON_AddStringToObject(status.get(), "ota_url", Ota::GetCheckVersionUrl().c_str());
         Settings lan("lan_control");
         cJSON_AddStringToObject(status.get(), "https_origin", lan.GetString("https_origin").c_str());
         if (auto* emotions = cJSON_AddArrayToObject(status.get(), "emotions")) {
@@ -667,22 +666,19 @@ private:
             "self.screen.set_standby",
             "Chuyển robot sang chế độ Màn hình chờ đồng hồ (Standby Clock) hoặc thoát khỏi màn hình chờ về khuôn mặt robot. Khi người dùng nói 'quay về màn hình chờ', 'vào màn hình chờ', 'màn hình chờ đi', 'đồng hồ', hãy gọi tool này với enable=true.",
             PropertyList({Property("enable", kPropertyTypeBoolean, true)}),
-            [this](const PropertyList& properties) -> ReturnValue {
+            [this](const PropertyList& properties) -> ToolResult {
+                if (!display_)
+                    return std::unexpected("Màn hình chưa sẵn sàng.");
                 bool enable = properties["enable"].value<bool>();
                 if (enable) {
                     Application::GetInstance().Schedule(
                         []() { Application::GetInstance().EndConversation(); });
+                    display_->ShowStandbyClock(true /* manual_lock */);
+                    return std::string("Đã hiển thị đồng hồ. Gọi Jarvis để trò chuyện tiếp.");
                 }
-                if (display_ != nullptr) {
-                    auto* p_disp = static_cast<PocketLcdDisplay*>(display_);
-                    if (enable) {
-                        p_disp->ShowStandbyClock(true /* manual_lock */);
-                    } else {
-                        p_disp->HideStandbyClock(true /* force */);
-                    }
-                }
-                return enable ? "Đã hiển thị đồng hồ. Gọi Jarvis để trò chuyện tiếp."
-                              : "Đã đánh thức robot trở lại trạng thái sẵn sàng";
+                if (!display_->ShowFace())
+                    return std::unexpected("Màn hình đang bận.");
+                return std::string("Đã hiển thị khuôn mặt.");
             }
         );
 

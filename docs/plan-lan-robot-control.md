@@ -2,9 +2,14 @@
 
 1. Board TFT cung cấp trang điều khiển. QR chứa mã ghép cặp ngẫu nhiên dùng một lần. Trang dùng tool MCP hiện có theo danh sách cho phép và đọc trạng thái thật.
 2. Giữ QR cấu hình Wi-Fi riêng. OTA chỉ lưu endpoint khi người dùng xác nhận, rồi có thao tác khởi động lại riêng. Quản lý bản phát hành dùng Fleet.
-3. Mic điện thoại chỉ bật trên origin HTTPS tin cậy. Reverse proxy chuyển cùng origin đến ESP32. Gửi PCM mono 16 kHz theo frame 60 ms để dùng Opus encoder và kết nối AI của robot.
+3. Trình duyệt điện thoại cấp quyền mic khi trang chạy qua HTTPS có chứng chỉ tin cậy. Điện thoại gửi PCM trong LAN qua reverse proxy cùng origin, sau đó ESP32 dùng Opus encoder và kết nối AI có sẵn.
 4. Một phiên nhấn giữ tại một thời điểm, có giới hạn bộ đệm, thời lượng và timeout. Dừng thu mic robot khi nhận phiên; trả WakeNet khi nhả hoặc mất kết nối. Ưu tiên GUARD và báo động.
 5. Kiểm tra JS, host test và CI build. Nạp và thử phát/thu trên robot ở lượt sau theo yêu cầu.
+
+## Kiểm tra nút Hiện mặt và URL OTA
+
+- Mở QR điều khiển rồi bấm **Hiện mặt**. TFT phải đóng lớp QR, thoát đồng hồ chờ và tính lại thời gian chờ từ lần bấm này. Ghép cặp LAN và WakeNet tiếp tục hoạt động.
+- Ô OTA đọc URL robot sẽ kiểm tra ở lần khởi động tới, gồm cả URL mặc định nếu firmware chưa lưu một URL riêng. Chỉ phiên LAN đã ghép cặp mới đọc được giá trị. Ô đã điền sẵn, ẩn giá trị theo mặc định và có nút hiện URL. Trong lúc soạn, trang giữ bản chỉnh sửa qua các lượt đọc trạng thái.
 
 ## Thiết lập khi thử
 

@@ -45,8 +45,8 @@ input[type=range]{padding:0;accent-color:var(--text)}label{display:block;margin:
   </section>
   <section><h2>Wi-Fi</h2><p id="network"></p><div class="row"><button id="wifi">Đổi Wi-Fi</button></div></section>
   <section><h2>Cập nhật</h2><p id="version"></p>
-    <form id="ota"><label for="ota-url">URL kiểm tra OTA</label><input id="ota-url" type="password" maxlength="400" autocomplete="off" placeholder="https://…">
-      <div class="row"><button>Lưu URL</button><button id="reboot" type="button">Khởi động lại</button></div>
+    <form id="ota"><label for="ota-url">URL kiểm tra OTA</label><input id="ota-url" type="password" maxlength="1024" autocomplete="off" spellcheck="false" placeholder="https://…">
+      <div class="row"><button id="save-ota" disabled>Lưu URL</button><button id="toggle-ota" type="button" aria-controls="ota-url">Hiện URL</button><button id="reboot" type="button">Khởi động lại</button></div>
     </form>
     <form id="https"><label for="https-origin">Địa chỉ HTTPS cho QR và mic</label>
       <input id="https-origin" type="url" maxlength="100" placeholder="https://jarvis.example.vn">
@@ -60,6 +60,11 @@ input[type=range]{padding:0;accent-color:var(--text)}label{display:block;margin:
 const $ = id => document.getElementById(id);
 let session = sessionStorage.getItem("jarvis-session") || "";
 let guard = false, busy = false, pollBusy = false, audioContext, micGranted = false, turn;
+let savedOtaUrl = "";
+const otaInput = $("ota-url");
+function updateOtaButton() {
+  $("save-ota").disabled = otaInput.value.trim() === savedOtaUrl;
+}
 function note(text, error = false) {
   $("feedback").textContent = text;
   $("feedback").toggleAttribute("data-error", error);
@@ -97,7 +102,9 @@ async function readStatus() {
       origin.value = state.https_origin || "";
       origin.dataset.loaded = "true";
     }
-    $("ota-url").placeholder = state.ota_configured ? "Đã lưu URL tùy chỉnh" : "https://…";
+    if (otaInput.value.trim() === savedOtaUrl) otaInput.value = state.ota_url || "";
+    savedOtaUrl = state.ota_url || "";
+    updateOtaButton();
     $("timer-status").textContent = state.timer_seconds ? state.timer_label + " · " + state.timer_seconds + " giây còn lại" : "Chưa có hẹn giờ";
     guard = state.guard;
     $("guard").textContent = guard ? "Tắt GUARD" : "Bật GUARD";
@@ -121,6 +128,7 @@ async function tool(name, args = {}, feedback = "Đã thực hiện.") {
     await request("/api/tool", {method:"POST", headers:{"Content-Type":"application/json"},
       body:JSON.stringify({name,arguments:args})});
     note(feedback);
+    return true;
   } catch (error) { note(error.message, true); }
   finally { busy = false; void readStatus(); }
 }
@@ -128,7 +136,7 @@ for (const [id, name] of [["volume","self.audio_speaker.set_volume"], ["brightne
   $(id).oninput = () => { $(id+"-value").value = $(id).value + "%"; };
   $(id).onchange = () => tool(name,{[id]:Number($(id).value)});
 }
-$("face").onclick = () => tool("self.screen.set_standby",{enable:false});
+$("face").onclick = () => tool("self.screen.set_standby",{enable:false},"Đã hiển thị khuôn mặt.");
 $("standby").onclick = () => tool("self.screen.set_standby",{enable:true});
 $("listen").onclick = () => tool("self.lan.start_listening");
 $("timer").onsubmit = event => {
@@ -142,13 +150,21 @@ $("wifi").onclick = () => {
   if (confirm("Robot sẽ chuyển sang hotspot Xiaozhi để đổi Wi-Fi. Tiếp tục?"))
     void tool("self.screen.show_qr",{},"Quét QR Wi-Fi mới trên robot.");
 };
-$("ota").onsubmit = event => {
+otaInput.oninput = updateOtaButton;
+$("toggle-ota").onclick = () => {
+  const show = otaInput.type === "password";
+  otaInput.type = show ? "text" : "password";
+  $("toggle-ota").textContent = show ? "Ẩn URL" : "Hiện URL";
+};
+$("ota").onsubmit = async event => {
   event.preventDefault();
-  const url = $("ota-url").value.trim();
+  const url = otaInput.value.trim();
+  if (url === savedOtaUrl) return;
   if (!/^https?:\/\//.test(url)) return note("Nhập URL HTTP hoặc HTTPS.",true);
-  if (confirm("Lưu URL kiểm tra OTA này vào robot?")) {
-    $("ota-url").value = "";
-    void tool("self.set_ota_url",{url},"Đã lưu URL. Có hiệu lực khi khởi động lại.");
+  if (confirm("Lưu URL kiểm tra OTA này vào robot?") &&
+      await tool("self.set_ota_url",{url},"Đã lưu URL. Có hiệu lực khi khởi động lại.")) {
+    savedOtaUrl = url;
+    updateOtaButton();
   }
 };
 $("https").onsubmit = event => {
@@ -165,7 +181,7 @@ $("reboot").onclick = () => {
 const micSupported = window.isSecureContext && navigator.mediaDevices?.getUserMedia && window.AudioWorkletNode;
 $("mic-permission").disabled = !micSupported;
 $("mic-status").textContent = micSupported ? "Cấp quyền một lần, sau đó nhấn giữ để nói qua loa robot." :
-  "Mic điện thoại cần mở trang qua HTTPS có chứng chỉ tin cậy.";
+  "Trình duyệt cần HTTPS có chứng chỉ tin cậy để cấp quyền mic. Âm thanh vẫn đi trong LAN.";
 $("mic-permission").onclick = async () => {
   $("mic-permission").disabled = true;
   try {

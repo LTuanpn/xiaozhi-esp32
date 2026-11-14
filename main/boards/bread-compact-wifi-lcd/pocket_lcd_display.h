@@ -38,6 +38,7 @@ public:
     void ShowStandbyClock(bool manual_lock);
     void HideStandbyClock() override;
     void HideStandbyClock(bool force);
+    bool ShowFace();
     bool IsStandbyClockActive() const override { return standby_active_; }
     void UnlockBootStandby() { boot_standby_locked_ = false; manual_standby_locked_ = false; }
     bool IsBootStandbyLocked() const { return boot_standby_locked_ || manual_standby_locked_; }
