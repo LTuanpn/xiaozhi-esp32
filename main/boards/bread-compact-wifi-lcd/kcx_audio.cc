@@ -168,9 +168,14 @@ void KcxAudio::ConfigurePower(bool enabled) {
 void KcxAudio::ReadLine(std::string_view line) {
     line = Trim(line);
     if (line == "OK+" || line.starts_with("OK+VERS")) {
+        const bool first = !present_;
         present_ = true;
         if (state_ == "starting" || state_ == "no_module")
             state_ = "ready";
+        if (first) {
+            Transmit("AT+BT_MODE?");
+            Transmit("AT+CHANNEL=1");
+        }
         return;
     }
     if (line.starts_with("OK+BT_EMITTER"))
@@ -240,6 +245,8 @@ void KcxAudio::Run() {
                 ConfigurePower(active_power_);
                 present_ = false;
                 linked_ = false;
+                reconnect_on_start_ = active_power_ && !saved_.empty();
+                baud_ = 9600;  // First probe will switch to the factory default.
                 line.clear();
                 uart_flush_input(kUart);
                 deadline_ = now + 4500000;
@@ -247,12 +254,22 @@ void KcxAudio::Run() {
             }
             if (uart_ok && active_power_) {
                 if (!present_ && state_ != "receiver_mode" && now >= probe) {
+                    baud_ = baud_ == 115200 ? 9600 : 115200;
+                    uart_set_baudrate(kUart, baud_);
                     Transmit("AT+");
                     probe = now + 1200000;
                     if (now >= deadline_)
                         state_ = "no_module";
                 }
+                if (present_ && state_ == "ready" && reconnect_on_start_ && now >= probe) {
+                    reconnect_on_start_ = false;
+                    if (pending_.empty()) {
+                        wanted_ = saved_;
+                        pending_ = "connect";
+                    }
+                }
                 if (!pending_.empty()) {
+                    reconnect_on_start_ = false;
                     const auto action = std::move(pending_);
                     pending_.clear();
                     linked_ = false;

@@ -44,6 +44,8 @@ private:
     bool active_power_ = false;
     bool saw_link_down_ = false;
     bool present_ = false;
+    bool reconnect_on_start_ = false;
+    int baud_ = 115200;
 };
 
 class KcxCodec : public NoAudioCodecSimplex {
