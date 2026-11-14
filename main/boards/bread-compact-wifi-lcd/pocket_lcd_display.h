@@ -142,6 +142,8 @@ private:
 
     lv_obj_t* face_layer_ = nullptr;
     lv_obj_t* speaking_mouth_ = nullptr;
+    lv_obj_t* mouth_highlight_ = nullptr;
+    uint32_t mouth_accent_ = 0;
     ExpressionPack expression_pack_;
     std::string expression_name_ = "neutral";
     lv_obj_t* chat_line_ = nullptr;
@@ -215,6 +217,7 @@ private:
     int mouth_height_ = 0;
     void UpdateVisualFrame();
     void UpdateSpeakingMouth(uint16_t motion);
+    uint32_t EyeAccent() const;
     int64_t manual_emotion_until_us_ = 0;
     FaceMode manual_emotion_mode_ = FaceMode::kNeutral;
     int64_t countdown_deadline_us_ = 0;

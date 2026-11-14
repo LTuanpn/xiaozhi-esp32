@@ -206,6 +206,15 @@ unsigned ExpressionPack::fps() const {
     return clip_ ? Read16(clip_ + 32) : 0;
 }
 
+uint32_t ExpressionPack::MouthAccent() const {
+    if (!clip_)
+        return 0;
+    const auto* accent = image_ + Read32(clip_ + 36) + kPaletteSize - 2;
+    const uint16_t word = (accent[0] << 8) | accent[1];
+    return (((word >> 11) * 255 / 31) << 16) |
+           ((((word >> 5) & 63) * 255 / 63) << 8) | ((word & 31) * 255 / 31);
+}
+
 bool ExpressionPack::Draw(lv_obj_t* parent, std::string_view name) {
     if (!image_ || name.empty()) {
         Hide();

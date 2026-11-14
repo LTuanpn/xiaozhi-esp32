@@ -390,11 +390,16 @@ void PocketLcdDisplay::SetupUI() {
     PrepareShape(speaking_mouth_);
     lv_obj_remove_flag(speaking_mouth_, LV_OBJ_FLAG_CLICKABLE);
     lv_obj_set_style_radius(speaking_mouth_, LV_RADIUS_CIRCLE, 0);
-    lv_obj_set_style_border_color(speaking_mouth_, lv_color_hex(0x81E8FF), 0);
     lv_obj_set_style_border_width(speaking_mouth_, 2, 0);
-    lv_obj_set_style_bg_color(speaking_mouth_, lv_color_hex(0x071521), 0);
+    lv_obj_set_style_bg_color(speaking_mouth_, lv_color_black(), 0);
     lv_obj_set_style_bg_opa(speaking_mouth_, LV_OPA_COVER, 0);
     lv_obj_add_flag(speaking_mouth_, LV_OBJ_FLAG_HIDDEN);
+    mouth_highlight_ = lv_obj_create(speaking_mouth_);
+    PrepareShape(mouth_highlight_);
+    lv_obj_remove_flag(mouth_highlight_, LV_OBJ_FLAG_CLICKABLE);
+    lv_obj_set_style_radius(mouth_highlight_, LV_RADIUS_CIRCLE, 0);
+    lv_obj_set_style_bg_opa(mouth_highlight_, LV_OPA_70, 0);
+    lv_obj_add_flag(mouth_highlight_, LV_OBJ_FLAG_HIDDEN);
     lv_display_add_event_cb(display_, OnDisplayFlush, LV_EVENT_FLUSH_FINISH, this);
 
     // 13. Start Animation Frame Timer (20 FPS)
@@ -2009,34 +2014,27 @@ void PocketLcdDisplay::UpdateAnimationFrame() {
     };
 
     // Dynamic Emotion Color Palette
-    uint32_t border_color_hex = 0x00E5FF; // Default Cyan
+    const uint32_t border_color_hex = EyeAccent();
     uint32_t iris_color_hex = 0x0088FF;   // Default Jarvis Blue
 
     if (face_mode_ == FaceMode::kSmileGentle || face_mode_ == FaceMode::kPlayfulWink ||
         face_mode_ == FaceMode::kEcstaticLaugh || face_mode_ == FaceMode::kPartyCelebrate ||
         face_mode_ == FaceMode::kExcited) {
-        border_color_hex = 0x00E5FF;
         iris_color_hex = 0x00C853; // Xanh Ngọc
     } else if (face_mode_ == FaceMode::kAngry || face_mode_ == FaceMode::kFurious ||
                face_mode_ == FaceMode::kFireFury) {
-        border_color_hex = 0xFF1744; // Đỏ Neon
         iris_color_hex = 0xFF3D00;   // Lửa Neon
     } else if (face_mode_ == FaceMode::kSadEmpathy || face_mode_ == FaceMode::kSadCrying ||
                face_mode_ == FaceMode::kCryingStream || face_mode_ == FaceMode::kHeartbroken) {
-        border_color_hex = 0x2979FF; // Lam
         iris_color_hex = 0x304FFE;   // Tím Thẫm
     } else if (face_mode_ == FaceMode::kLove || face_mode_ == FaceMode::kShy) {
-        border_color_hex = 0xFF1493; // Hồng Neon
         iris_color_hex = 0xD500F9;   // Hồng Tím
     } else if (face_mode_ == FaceMode::kMatrixGlitch) {
-        border_color_hex = 0x00FF41; // Xanh Hacker
         iris_color_hex = 0x00FF41;
     } else if (face_mode_ == FaceMode::kFreezing) {
-        border_color_hex = 0x00E5FF; // Viền Băng
         iris_color_hex = 0x80D8FF;   // Băng Sáng
     } else if (face_mode_ == FaceMode::kSunnyDazzle || face_mode_ == FaceMode::kIdeaEureka ||
                face_mode_ == FaceMode::kMoneyEyes) {
-        border_color_hex = 0xFFD600; // Vàng Rực
         iris_color_hex = 0x00E676;   // Lục Đô La
     }
 
@@ -3039,8 +3037,16 @@ void PocketLcdDisplay::UpdateVisualFrame() {
         expression_visible_ = false;
     }
 
-    const auto motion = face_visible ? app.GetAudioService().GetVoiceMotion() : 0;
-    UpdateSpeakingMouth(motion);
+    const bool baked_mouth = face_mode_ == FaceMode::kEcstaticLaugh ||
+                            (expression_visible_ && (face_mode_ == FaceMode::kShockedJawdrop ||
+                                                     face_mode_ == FaceMode::kTongueOut));
+    if (!face_visible || baked_mouth) {
+        mouth_width_ = mouth_height_ = 0;
+        if (!lv_obj_has_flag(speaking_mouth_, LV_OBJ_FLAG_HIDDEN))
+            lv_obj_add_flag(speaking_mouth_, LV_OBJ_FLAG_HIDDEN);
+    } else {
+        UpdateSpeakingMouth(app.GetAudioService().GetVoiceMotion());
+    }
     const bool fast = expression_pack_.fps() > 20 || mouth_height_ > 0;
     const uint32_t period = fast ? 8 : expression_visible_ ? 16 : kAnimationPeriodMs;
     if (visual_period_ms_ != period) {
@@ -3063,9 +3069,19 @@ void PocketLcdDisplay::OnDisplayFlush(lv_event_t* event) {
 void PocketLcdDisplay::UpdateSpeakingMouth(uint16_t motion) {
     const int level = motion & 255;
     const int brightness = motion >> 8;
-    const int opening = level < 3 ? 0 : std::clamp(3 + level / 4, 5, 22);
+    const int opening = level < 3 ? 0 : std::clamp(2 + level / 5, 4, 15);
     const int height = EaseLid(mouth_height_, opening);
-    const int width = height == 0 ? 0 : EaseLid(mouth_width_, 18 + brightness / 4 + level / 12);
+    const int target_width = std::clamp(20 + brightness / 4 - opening / 3, 17, 43);
+    const int width = height == 0 ? 0 : EaseLid(mouth_width_ ? mouth_width_ : target_width, target_width);
+    if (height) {
+        const auto accent = expression_pack_.MouthAccent();
+        const auto color = accent ? accent : EyeAccent();
+        if (color != mouth_accent_) {
+            mouth_accent_ = color;
+            lv_obj_set_style_border_color(speaking_mouth_, lv_color_hex(color), 0);
+            lv_obj_set_style_bg_color(mouth_highlight_, lv_color_hex(color), 0);
+        }
+    }
     if (height == mouth_height_ && width == mouth_width_)
         return;
     mouth_height_ = height;
@@ -3076,7 +3092,34 @@ void PocketLcdDisplay::UpdateSpeakingMouth(uint16_t motion) {
     }
     lv_obj_set_size(speaking_mouth_, width, height);
     lv_obj_set_pos(speaking_mouth_, (240 - width) / 2, 174 - height / 2);
+    if (height >= 9) {
+        const int inner_width = width / 2;
+        lv_obj_set_size(mouth_highlight_, inner_width, height / 4);
+        lv_obj_set_pos(mouth_highlight_, (width - inner_width) / 2 - 2, height - height / 4 - 4);
+        lv_obj_remove_flag(mouth_highlight_, LV_OBJ_FLAG_HIDDEN);
+    } else {
+        lv_obj_add_flag(mouth_highlight_, LV_OBJ_FLAG_HIDDEN);
+    }
     lv_obj_remove_flag(speaking_mouth_, LV_OBJ_FLAG_HIDDEN);
+}
+
+uint32_t PocketLcdDisplay::EyeAccent() const {
+    switch (face_mode_) {
+        case FaceMode::kAngry:
+        case FaceMode::kFurious:
+        case FaceMode::kFireFury: return 0xFF1744;
+        case FaceMode::kSadEmpathy:
+        case FaceMode::kSadCrying:
+        case FaceMode::kCryingStream:
+        case FaceMode::kHeartbroken: return 0x2979FF;
+        case FaceMode::kLove:
+        case FaceMode::kShy: return 0xFF1493;
+        case FaceMode::kMatrixGlitch: return 0x00FF41;
+        case FaceMode::kSunnyDazzle:
+        case FaceMode::kIdeaEureka:
+        case FaceMode::kMoneyEyes: return 0xFFD600;
+        default: return 0x00E5FF;
+    }
 }
 
 void PocketLcdDisplay::LogFacePerformance() {
