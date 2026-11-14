@@ -26,6 +26,7 @@ public:
     uint64_t draw_us() const { return draw_us_; }
     unsigned fps() const;
     uint32_t MouthAccent() const;
+    bool HasDynamicMouth() const;
 
 private:
     const uint8_t* image_ = nullptr;

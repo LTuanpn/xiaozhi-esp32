@@ -3047,7 +3047,7 @@ void PocketLcdDisplay::UpdateVisualFrame() {
     } else {
         UpdateSpeakingMouth(app.GetAudioService().GetVoiceMotion());
     }
-    const bool fast = expression_pack_.fps() > 20 || mouth_height_ > 0;
+    const bool fast = expression_pack_.fps() > 20 || app.GetAudioService().GetVoiceMotion() || mouth_height_ > 3;
     const uint32_t period = fast ? 8 : expression_visible_ ? 16 : kAnimationPeriodMs;
     if (visual_period_ms_ != period) {
         visual_period_ms_ = period;
@@ -3069,9 +3069,15 @@ void PocketLcdDisplay::OnDisplayFlush(lv_event_t* event) {
 void PocketLcdDisplay::UpdateSpeakingMouth(uint16_t motion) {
     const int level = motion & 255;
     const int brightness = motion >> 8;
-    const int opening = level < 3 ? 0 : std::clamp(2 + level / 5, 4, 15);
+    const bool rest_mouth = expression_pack_.HasDynamicMouth() &&
+        (face_mode_ == FaceMode::kSmileGentle || face_mode_ == FaceMode::kSadEmpathy ||
+         face_mode_ == FaceMode::kSadCrying || face_mode_ == FaceMode::kCryingStream ||
+         face_mode_ == FaceMode::kShy || face_mode_ == FaceMode::kPout ||
+         face_mode_ == FaceMode::kSurprised || face_mode_ == FaceMode::kScared ||
+         face_mode_ == FaceMode::kExcited || face_mode_ == FaceMode::kPartyCelebrate);
+    const int opening = level < 3 ? (rest_mouth ? 3 : 0) : std::clamp(2 + level / 5, 4, 15);
     const int height = EaseLid(mouth_height_, opening);
-    const int target_width = std::clamp(20 + brightness / 4 - opening / 3, 17, 43);
+    const int target_width = level < 3 ? 18 : std::clamp(20 + brightness / 4 - opening / 3, 17, 43);
     const int width = height == 0 ? 0 : EaseLid(mouth_width_ ? mouth_width_ : target_width, target_width);
     if (height) {
         const auto accent = expression_pack_.MouthAccent();
