@@ -12,6 +12,34 @@ from collections import Counter
 
 
 class FleetTest(unittest.IsolatedAsyncioTestCase):
+    async def test_device_health_reports_only_an_unambiguous_mcp_connection(self):
+        with tempfile.TemporaryDirectory() as directory:
+            fleet = Fleet(directory, MagicMock(port=8765), MagicMock())
+            app = web.Application()
+            fleet.attach(app)
+            try:
+                async with TestClient(TestServer(app)) as robot:
+                    path = f"/fleet/ota/{fleet.key}/health"
+                    self.assertEqual((await robot.get("/fleet/ota/wrong/health")).status, 404)
+                    self.assertEqual(await (await robot.get(path)).text(), "unknown")
+                    if not hasattr(fleet, "connections"):
+                        fleet.connected = True
+                        self.assertEqual(await (await robot.get(path)).text(), "online")
+                    fleet.connections = MagicMock()
+                    for states, expected in (
+                        (["connecting"], "connecting"),
+                        (["connected"], "online"),
+                        (["retrying"], "offline"),
+                        (["connected", "retrying"], "unknown"),
+                    ):
+                        fleet.connections.snapshot.return_value = [{"state": state} for state in states]
+                        response = await robot.get(path)
+                        self.assertEqual(response.status, 200)
+                        self.assertEqual(await response.text(), expected)
+                        self.assertEqual(response.headers["Cache-Control"], "no-store")
+            finally:
+                fleet.db.close()
+
     def test_utility_catalog(self):
         self.assertEqual(sorted(Counter(tool["category"] for tool, _ in TOOLS.values()).values()), [5] * 10)
         samples = {"a": 9, "b": 3, "value": 10, "day": "2026-11-12", "values": [1, 3, 5],

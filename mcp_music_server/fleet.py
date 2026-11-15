@@ -77,6 +77,7 @@ class Fleet:
     def attach(self, app):
         app.router.add_post("/fleet/ota/{key}", self.check)
         app.router.add_post("/fleet/ota/{key}/activate", self.check)
+        app.router.add_get("/fleet/ota/{key}/health", self.device_health)
         app.router.add_get("/fleet/ota/{key}/image/{asset:[0-9]+}.bin", self.image)
         app.router.add_get("/fleet/ota/{key}/assets/{pack:[a-z]+}.bin", self.assets.download)
 
@@ -86,6 +87,19 @@ class Fleet:
     def authorize_device(self, request):
         if not hmac.compare_digest(request.match_info["key"].encode(), self.key.encode()):
             raise web.HTTPNotFound()
+
+    async def device_health(self, request):
+        self.authorize_device(request)
+        # The shared OTA key does not identify a particular MCP enrollment.
+        # A single configured connection is the only unambiguous status.
+        if hasattr(self, "connections"):
+            rows = self.connections.snapshot() if self.connections else []
+            state = rows[0]["state"] if len(rows) == 1 else "unknown"
+        else:
+            state = "connected" if self.connected else "unknown"
+        status = {"connected": "online", "connecting": "connecting", "retrying": "offline"}
+        return web.Response(text=status.get(state, "unknown"),
+                            headers={"Cache-Control": "no-store"})
 
     async def image(self, request):
         self.authorize_device(request)
