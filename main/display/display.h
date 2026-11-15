@@ -23,6 +23,9 @@
 class LvglFont;
 class LvglImage;
 
+enum class ServiceStatus : uint8_t { Unknown, Connecting, Online, Offline, Unverified };
+enum class DisplayService : uint8_t { Network, Ota, Cloud, MusicMcp };
+
 class Theme {
 public:
     Theme(const std::string& name) : name_(name) {}
@@ -41,6 +44,7 @@ public:
     virtual ~Display();
 
     virtual void SetStatus(const char* status);
+    virtual void SetServiceStatus(DisplayService service, ServiceStatus status) {}
     virtual void ShowNotification(const char* notification, int duration_ms = 3000);
     virtual void ShowNotification(const std::string& notification, int duration_ms = 3000);
     virtual void ShowQrCode(const std::string& text, const std::string& title = "", int duration_ms = 30000) {}

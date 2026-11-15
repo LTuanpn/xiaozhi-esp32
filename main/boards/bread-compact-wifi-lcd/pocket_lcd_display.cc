@@ -384,6 +384,10 @@ void PocketLcdDisplay::SetupUI() {
     }
     lv_label_set_text(chat_line_, "");
 
+    activity_label_ = lv_label_create(scr);
+    lv_obj_align(activity_label_, LV_ALIGN_TOP_MID, 0, 4);
+    lv_obj_add_flag(activity_label_, LV_OBJ_FLAG_HIDDEN);
+
     ApplyLayout();
 
     if (width_ == 240 && height_ == 240)
@@ -486,8 +490,7 @@ void PocketLcdDisplay::SetStatus(const char* status) {
 
     if (std::strcmp(status, Lang::Strings::LISTENING) == 0 ||
         std::strcmp(status, Lang::Strings::SPEAKING) == 0 ||
-        std::strcmp(status, Lang::Strings::WIFI_CONFIG_MODE) == 0 ||
-        Contains(status, "Wi-Fi") || Contains(status, "Config")) {
+        std::strcmp(status, Lang::Strings::WIFI_CONFIG_MODE) == 0) {
         boot_standby_locked_ = false; // User initiated interaction or Wi-Fi config needed
         WakeUp();
     }
@@ -1392,6 +1395,17 @@ void PocketLcdDisplay::UpdateAnimationFrame() {
                 ShowStandbyClock(false);
                 return;
             }
+        }
+    }
+    if (dev_state != prev_dev_state && activity_label_) {
+        if (dev_state == kDeviceStateListening || dev_state == kDeviceStateSpeaking) {
+            const bool listening = dev_state == kDeviceStateListening;
+            lv_label_set_text(activity_label_, listening ? "LISTENING" : "TALKING");
+            lv_obj_set_style_text_color(activity_label_,
+                                        lv_color_hex(listening ? 0x64C8FF : 0xFFD060), 0);
+            lv_obj_remove_flag(activity_label_, LV_OBJ_FLAG_HIDDEN);
+        } else {
+            lv_obj_add_flag(activity_label_, LV_OBJ_FLAG_HIDDEN);
         }
     }
     prev_dev_state = dev_state;
@@ -3356,17 +3370,121 @@ void PocketLcdDisplay::HideQrCode(bool force) {
     }
 }
 
+void PocketLcdDisplay::SetServiceStatus(DisplayService service, ServiceStatus status) {
+    DisplayLockGuard lock(this);
+    if (!lock)
+        return;
+    auto& current = services_[static_cast<size_t>(service)];
+    if (current == status)
+        return;
+    current = status;
+    if (service == DisplayService::Network && status == ServiceStatus::Offline) {
+        services_[static_cast<size_t>(DisplayService::MusicMcp)] = ServiceStatus::Unknown;
+        service_events_.clear();
+        next_service_event_us_ = 0;
+        return;
+    }
+    if (service_events_.size() == 8) {
+        service_events_.pop_front();
+        next_service_event_us_ = 0;
+    }
+    service_events_.push_back({service, status});
+}
+
+void PocketLcdDisplay::UpdateStandbyServiceStatus() {
+    if (!standby_active_ || !status_ready_label_ || !pinned_memo_label_)
+        return;
+    struct Label {
+        const char* short_text;
+        const char* detail;
+        uint32_t color;
+    };
+    constexpr uint32_t green = 0x32D74B, blue = 0x64C8FF, amber = 0xFFD060, red = 0xFF6964;
+    constexpr Label labels[][5] = {
+        {{"NO WI-FI", "Waiting for Wi-Fi", amber},
+         {"WI-FI...", "Connecting to Wi-Fi", blue},
+         {"WI-FI OK", "Wi-Fi connected", green},
+         {"WI-FI OFF", "Wi-Fi disconnected", red},
+         {"WI-FI ?", "Wi-Fi not verified", amber}},
+        {{"OTA WAIT", "Waiting for OTA check", amber},
+         {"OTA...", "Checking for updates", blue},
+         {"OTA OK", "OTA check passed", green},
+         {"OTA ERR", "OTA check or update failed", red},
+         {"OTA ?", "OTA not verified", amber}},
+        {{"AI WAIT", "Waiting for AI server", amber},
+         {"AI...", "Connecting to AI server", blue},
+         {"AI OK", "AI server connected", green},
+         {"AI ERR", "AI connection lost or failed", red},
+         {"AI WAIT", "Say Jarvis to connect AI", amber}},
+        {{"MCP WAIT", "Waiting for Music MCP status", amber},
+         {"MCP...", "Music MCP connecting", blue},
+         {"MCP OK", "Music MCP connected", green},
+         {"MCP ERR", "Music MCP disconnected / retrying", red},
+         {"MCP ?", "Music MCP status unavailable", amber}},
+    };
+    Label label{"READY", "READY - SAY WAKE WORD", green};
+    const auto state = Application::GetInstance().GetDeviceState();
+    const auto now = esp_timer_get_time();
+    if (state == kDeviceStateListening) {
+        label = {"LISTENING", "Listening to you", blue};
+    } else if (state == kDeviceStateSpeaking) {
+        label = {"TALKING", "Jarvis is speaking", amber};
+    } else if (state == kDeviceStateNotifying) {
+        label = {"PLAYING", "Audio playing", blue};
+    } else if (state == kDeviceStateConnecting) {
+        label = {"AI...", "Opening AI session", blue};
+    } else if (state == kDeviceStateUpgrading) {
+        label = {"UPDATE...", "Installing firmware", blue};
+    } else if (state == kDeviceStateFatalError) {
+        label = {"ERROR", "Jarvis stopped", red};
+    } else if (state == kDeviceStateWifiConfiguring) {
+        label = {"WI-FI SET", "Set up Wi-Fi", amber};
+    } else if (services_[0] == ServiceStatus::Offline) {
+        label = labels[0][static_cast<size_t>(ServiceStatus::Offline)];
+    } else {
+        if (!service_events_.empty() && now >= next_service_event_us_) {
+            if (next_service_event_us_)
+                service_events_.pop_front();
+            next_service_event_us_ = service_events_.empty() ? 0 : now + 1800000;
+        }
+        if (!service_events_.empty()) {
+            const auto& event = service_events_.front();
+            label = labels[static_cast<size_t>(event.service)][static_cast<size_t>(event.status)];
+        } else {
+            for (size_t i = 0; i < services_.size(); ++i) {
+                if (services_[i] != ServiceStatus::Online) {
+                    label = labels[i][static_cast<size_t>(services_[i])];
+                    break;
+                }
+            }
+            if (label.color == green && state != kDeviceStateIdle)
+                label = {"WAIT...", "Starting Jarvis", blue};
+        }
+    }
+    const char* detail = label.detail;
+    if (std::strcmp(label.short_text, "READY") == 0 && !pinned_memo_.empty())
+        detail = pinned_memo_.c_str();
+    if (std::strcmp(lv_label_get_text(status_ready_label_), label.short_text) != 0)
+        ESP_LOGI(TAG, "Standby status: %s", label.short_text);
+    for (const auto& [widget, value] : {std::pair{status_ready_label_, label.short_text},
+                                        std::pair{pinned_memo_label_, detail}}) {
+        if (std::strcmp(lv_label_get_text(widget), value) != 0)
+            lv_label_set_text(widget, value);
+        const auto color = lv_color_hex(label.color);
+        if (lv_color_to_int(lv_obj_get_style_text_color(widget, LV_PART_MAIN)) != label.color)
+            lv_obj_set_style_text_color(widget, color, LV_PART_MAIN);
+    }
+}
+
 void PocketLcdDisplay::SetPinnedMemo(const std::string& memo) {
     DisplayLockGuard lock(this);
     if (!lock) return;
     if (memo.empty()) {
-        pinned_memo_ = "READY • SAY WAKE WORD";
+        pinned_memo_.clear();
     } else {
         pinned_memo_ = "PIN: " + memo;
     }
-    if (pinned_memo_label_ != nullptr) {
-        lv_label_set_text(pinned_memo_label_, pinned_memo_.c_str());
-    }
+    UpdateStandbyServiceStatus();
 }
 
 void PocketLcdDisplay::SetCountdownTimer(int seconds, const std::string& label) {
@@ -3479,8 +3597,9 @@ void PocketLcdDisplay::ShowStandbyClock(bool manual_lock) {
         // 1. TOP STATUS BAR (x: 6, y: 4, w: 228, h: 28)
         status_ready_label_ = lv_label_create(standby_container_);
         lv_obj_set_pos(status_ready_label_, 6, 8);
-        lv_obj_set_style_text_color(status_ready_label_, lv_color_hex(0x32D74B), 0);
-        lv_label_set_text(status_ready_label_, "READY");
+        lv_obj_set_width(status_ready_label_, 65);
+        lv_label_set_long_mode(status_ready_label_, LV_LABEL_LONG_SCROLL_CIRCULAR);
+        lv_label_set_text(status_ready_label_, "");
 
         pill_container_ = lv_obj_create(standby_container_);
         lv_obj_remove_style_all(pill_container_);
@@ -3548,10 +3667,10 @@ void PocketLcdDisplay::ShowStandbyClock(bool manual_lock) {
 
         pinned_memo_label_ = lv_label_create(hero_card_);
         lv_obj_set_pos(pinned_memo_label_, 14, 92);
-        lv_obj_set_width(pinned_memo_label_, 208);
+        lv_obj_set_width(pinned_memo_label_, 198);
         lv_label_set_long_mode(pinned_memo_label_, LV_LABEL_LONG_SCROLL_CIRCULAR);
         lv_obj_set_style_text_color(pinned_memo_label_, lv_color_hex(0xFFD60A), 0);
-        lv_label_set_text(pinned_memo_label_, pinned_memo_.c_str());
+        lv_label_set_text(pinned_memo_label_, "");
 
         // 3. BOTTOM 3 BENTO WIDGETS (y: 154, h: 80)
         // Box 1: TIMER (x: 6, w: 72, h: 80)
@@ -3777,20 +3896,7 @@ void PocketLcdDisplay::UpdateStandbyClock() {
     if (wifi_rssi_label_) lv_label_set_text(wifi_rssi_label_, wifi_buf);
 
     // 3. Status label
-    if (status_ready_label_) {
-        auto& app = Application::GetInstance();
-        DeviceState st = app.GetDeviceState();
-        if (st == kDeviceStateListening) {
-            lv_label_set_text(status_ready_label_, "LISTENING");
-            lv_obj_set_style_text_color(status_ready_label_, lv_color_hex(0x0A84FF), 0);
-        } else if (st == kDeviceStateSpeaking) {
-            lv_label_set_text(status_ready_label_, "TALKING");
-            lv_obj_set_style_text_color(status_ready_label_, lv_color_hex(0xFFD60A), 0);
-        } else {
-            lv_label_set_text(status_ready_label_, "READY");
-            lv_obj_set_style_text_color(status_ready_label_, lv_color_hex(0x32D74B), 0);
-        }
-    }
+    UpdateStandbyServiceStatus();
 
     // 4. Volume Widget (Real volume from AudioCodec)
     auto codec = Board::GetInstance().GetAudioCodec();

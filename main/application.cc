@@ -122,10 +122,12 @@ void Application::Initialize() {
 
         switch (event) {
             case NetworkEvent::Scanning:
+                display->SetServiceStatus(DisplayService::Network, ServiceStatus::Connecting);
                 display->ShowNotification(Lang::Strings::SCANNING_WIFI, 30000);
                 xEventGroupSetBits(event_group_, MAIN_EVENT_NETWORK_DISCONNECTED);
                 break;
             case NetworkEvent::Connecting: {
+                display->SetServiceStatus(DisplayService::Network, ServiceStatus::Connecting);
                 if (data.empty()) {
                     // Cellular network - registering without carrier info yet
                     display->SetStatus(Lang::Strings::REGISTERING_NETWORK);
@@ -139,6 +141,7 @@ void Application::Initialize() {
                 break;
             }
             case NetworkEvent::Connected: {
+                display->SetServiceStatus(DisplayService::Network, ServiceStatus::Online);
                 if (display != nullptr) {
                     display->HideQrCode();
                 }
@@ -149,9 +152,11 @@ void Application::Initialize() {
                 break;
             }
             case NetworkEvent::Disconnected:
+                display->SetServiceStatus(DisplayService::Network, ServiceStatus::Offline);
                 xEventGroupSetBits(event_group_, MAIN_EVENT_NETWORK_DISCONNECTED);
                 break;
             case NetworkEvent::WifiConfigModeEnter:
+                display->SetServiceStatus(DisplayService::Network, ServiceStatus::Offline);
                 // WiFi config mode enter is handled by WifiBoard internally
                 break;
             case NetworkEvent::WifiConfigModeExit:
@@ -495,9 +500,11 @@ void Application::CheckNewVersion() {
     while (true) {
         auto display = board.GetDisplay();
         display->SetStatus(Lang::Strings::CHECKING_NEW_VERSION);
+        display->SetServiceStatus(DisplayService::Ota, ServiceStatus::Connecting);
 
         auto check = ota_->CheckVersion();
         if (!check) {
+            display->SetServiceStatus(DisplayService::Ota, ServiceStatus::Offline);
             Settings mqtt("mqtt", false);
             Settings websocket("websocket", false);
             if (!mqtt.GetString("endpoint").empty() || !websocket.GetString("url").empty()) {
@@ -542,6 +549,7 @@ void Application::CheckNewVersion() {
         }
         retry_count = 0;
         retry_delay = 2;  // Reset retry delay
+        display->SetServiceStatus(DisplayService::Ota, ServiceStatus::Online);
 
         if (ota_->HasNewVersion()) {
             if (UpgradeFirmware(ota_->GetFirmwareUrl(), ota_->GetFirmwareVersion())) {
@@ -590,6 +598,7 @@ void Application::InitializeProtocol() {
     auto codec = board.GetAudioCodec();
 
     display->SetStatus(Lang::Strings::LOADING_PROTOCOL);
+    display->SetServiceStatus(DisplayService::Cloud, ServiceStatus::Connecting);
 
     Settings connection("connection", true);
     Settings mqtt("mqtt", false);
@@ -612,9 +621,17 @@ void Application::InitializeProtocol() {
         protocol_ = std::make_unique<WebsocketProtocol>();
     }
 
-    protocol_->OnConnected([this]() { DismissAlert(); });
+    protocol_->OnConnected([this, display]() {
+        display->SetServiceStatus(DisplayService::Cloud, ServiceStatus::Online);
+        DismissAlert();
+    });
+    if (use_mqtt)
+        protocol_->OnDisconnected([display]() {
+            display->SetServiceStatus(DisplayService::Cloud, ServiceStatus::Offline);
+        });
 
-    protocol_->OnNetworkError([this](const std::string& message) {
+    protocol_->OnNetworkError([this, display](const std::string& message) {
+        display->SetServiceStatus(DisplayService::Cloud, ServiceStatus::Offline);
         last_error_message_ = message;
         xEventGroupSetBits(event_group_, MAIN_EVENT_ERROR);
     });
@@ -625,7 +642,8 @@ void Application::InitializeProtocol() {
         }
     });
 
-    protocol_->OnAudioChannelOpened([this, codec, &board]() {
+    protocol_->OnAudioChannelOpened([this, codec, &board, display]() {
+        display->SetServiceStatus(DisplayService::Cloud, ServiceStatus::Online);
         board.SetPowerSaveLevel(PowerSaveLevel::PERFORMANCE);
         if (protocol_->server_sample_rate() != codec->output_sample_rate()) {
             ESP_LOGW(TAG,
@@ -813,7 +831,10 @@ void Application::InitializeProtocol() {
         }
     });
 
-    protocol_->Start();
+    if (!protocol_->Start())
+        display->SetServiceStatus(DisplayService::Cloud, ServiceStatus::Offline);
+    else if (!use_mqtt)
+        display->SetServiceStatus(DisplayService::Cloud, ServiceStatus::Unverified);
 }
 
 void Application::ShowActivationCode(const std::string& code, const std::string& message) {
@@ -1566,6 +1587,7 @@ bool Application::UpgradeFirmware(const std::string& url, const std::string& ver
         protocol_->CloseAudioChannel();
     }
     ESP_LOGI(TAG, "Starting firmware upgrade from URL: %s", upgrade_url.c_str());
+    display->SetServiceStatus(DisplayService::Ota, ServiceStatus::Connecting);
 
     Alert(Lang::Strings::OTA_UPGRADE, Lang::Strings::UPGRADING, "download",
           Lang::Sounds::OGG_UPGRADE);
@@ -1589,6 +1611,7 @@ bool Application::UpgradeFirmware(const std::string& url, const std::string& ver
     });
 
     if (!upgrade_success) {
+        display->SetServiceStatus(DisplayService::Ota, ServiceStatus::Offline);
         // Upgrade failed, restart audio service and continue running
         ESP_LOGE(TAG,
                  "Firmware upgrade failed, restarting audio service and continuing operation...");
@@ -1600,6 +1623,7 @@ bool Application::UpgradeFirmware(const std::string& url, const std::string& ver
         return false;
     } else {
         // Upgrade success, reboot immediately
+        display->SetServiceStatus(DisplayService::Ota, ServiceStatus::Online);
         ESP_LOGI(TAG, "Firmware upgrade successful, rebooting...");
         display->SetChatMessage("system", "Upgrade successful, rebooting...");
         vTaskDelay(pdMS_TO_TICKS(1000));  // Brief pause to show message

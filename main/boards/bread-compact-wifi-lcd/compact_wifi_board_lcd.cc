@@ -868,6 +868,51 @@ private:
             "serial_cli_lcd", 4096, display_, 1, nullptr);
     }
 
+    void StartMusicStatusMonitor() {
+        if (xTaskCreate(
+                [](void* arg) {
+                    auto& board = *static_cast<CompactWifiBoardLCD*>(arg);
+                    std::string previous_url;
+                    while (true) {
+                        vTaskDelay(pdMS_TO_TICKS(15000));
+                        if (!WifiManager::GetInstance().IsConnected())
+                            continue;
+                        auto url = Ota::GetCheckVersionUrl();
+                        auto state = ServiceStatus::Unverified;
+                        auto path = url.find("/fleet/ota/");
+                        if (path != std::string::npos &&
+                            url.find_first_of("?#", path) == std::string::npos) {
+                            while (url.ends_with('/'))
+                                url.pop_back();
+                            if (url != previous_url)
+                                board.display_->SetServiceStatus(DisplayService::MusicMcp,
+                                                                 ServiceStatus::Connecting);
+                            auto http = board.GetNetwork()->CreateHttp(0);
+                            http->SetTimeout(3000);
+                            if (http->Open("GET", url + "/health")) {
+                                const auto code = http->GetStatusCode();
+                                const auto size = http->GetBodyLength();
+                                if (code && *code == 200 && size > 0 && size <= 15) {
+                                    const auto result = http->ReadAll();
+                                    if (result == "online")
+                                        state = ServiceStatus::Online;
+                                    else if (result == "connecting")
+                                        state = ServiceStatus::Connecting;
+                                    else if (result == "offline")
+                                        state = ServiceStatus::Offline;
+                                }
+                            }
+                            http->Close();
+                        }
+                        previous_url = std::move(url);
+                        board.display_->SetServiceStatus(DisplayService::MusicMcp, state);
+                    }
+                },
+                "mcp_health", 4096, this, 1, nullptr) != pdPASS) {
+            display_->SetServiceStatus(DisplayService::MusicMcp, ServiceStatus::Unverified);
+        }
+    }
+
 public:
     size_t ReservedAssetsTail() const override {
         return display_ && display_->width() == 240 && display_->height() == 240
@@ -947,6 +992,7 @@ public:
                     });
 #endif
         InitializeSerialCli();
+        StartMusicStatusMonitor();
         if (DISPLAY_BACKLIGHT_PIN != GPIO_NUM_NC) {
             GetBacklight()->RestoreBrightness();
         }

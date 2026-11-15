@@ -5,6 +5,8 @@
 #include "expression_pack.h"
 
 #include <lvgl.h>
+#include <array>
+#include <deque>
 #include <span>
 #include <string>
 #include <string_view>
@@ -20,6 +22,7 @@ public:
 
     void SetupUI() override;
     void SetStatus(const char* status) override;
+    void SetServiceStatus(DisplayService service, ServiceStatus status) override;
     void ShowNotification(const char* notification, int duration_ms = 3000) override;
     void ShowNotification(const std::string& notification, int duration_ms = 3000) override;
     bool SetEmotion(const char* emotion) override;
@@ -154,6 +157,7 @@ private:
     ExpressionPack expression_pack_;
     std::string expression_name_ = "neutral";
     lv_obj_t* chat_line_ = nullptr;
+    lv_obj_t* activity_label_ = nullptr;
 
     // Eye elements
     lv_obj_t* left_eye_ = nullptr;
@@ -330,7 +334,15 @@ private:
     lv_obj_t* guard_status_label_ = nullptr;
 
     // State Variables (No Fake Sensors)
-    std::string pinned_memo_ = "READY • SAY WAKE WORD";
+    std::string pinned_memo_;
+    struct ServiceEvent {
+        DisplayService service;
+        ServiceStatus status;
+    };
+    std::array<ServiceStatus, 4> services_{};
+    std::deque<ServiceEvent> service_events_;
+    int64_t next_service_event_us_ = 0;
+    void UpdateStandbyServiceStatus();
     int countdown_remaining_sec_ = 0;
     std::string countdown_label_ = "FOCUS";
     bool guard_mode_active_ = false;
