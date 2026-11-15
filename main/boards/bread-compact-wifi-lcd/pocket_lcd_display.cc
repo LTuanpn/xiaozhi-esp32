@@ -932,8 +932,11 @@ void PocketLcdDisplay::ApplyLayout() {
     lv_obj_set_style_radius(left_eye_, EyeRadius(current_left_width_, current_left_height_), 0);
     lv_obj_set_style_radius(right_eye_, EyeRadius(current_right_width_, current_right_height_), 0);
     lv_obj_move_foreground(face_layer_);
-    if (chat_line_ != nullptr && (qr_until_tick_ == 0 || animation_tick_ >= qr_until_tick_)) {
-        lv_obj_move_foreground(chat_line_);
+    if (qr_until_tick_ == 0 || animation_tick_ >= qr_until_tick_) {
+        if (activity_label_)
+            lv_obj_move_foreground(activity_label_);
+        if (chat_line_)
+            lv_obj_move_foreground(chat_line_);
     }
     UpdateAnimationFrame();
 }
@@ -1398,11 +1401,18 @@ void PocketLcdDisplay::UpdateAnimationFrame() {
         }
     }
     if (dev_state != prev_dev_state && activity_label_) {
-        if (dev_state == kDeviceStateListening || dev_state == kDeviceStateSpeaking) {
-            const bool listening = dev_state == kDeviceStateListening;
-            lv_label_set_text(activity_label_, listening ? "LISTENING" : "TALKING");
+        const char* activity = nullptr;
+        if (dev_state == kDeviceStateListening)
+            activity = "LISTENING";
+        else if (dev_state == kDeviceStateSpeaking)
+            activity = "TALKING";
+        else if (dev_state == kDeviceStateConnecting)
+            activity = "AI...";
+        if (activity) {
+            lv_label_set_text(activity_label_, activity);
+            const bool speaking = dev_state == kDeviceStateSpeaking;
             lv_obj_set_style_text_color(activity_label_,
-                                        lv_color_hex(listening ? 0x64C8FF : 0xFFD060), 0);
+                                        lv_color_hex(speaking ? 0xFFD060 : 0x64C8FF), 0);
             lv_obj_remove_flag(activity_label_, LV_OBJ_FLAG_HIDDEN);
         } else {
             lv_obj_add_flag(activity_label_, LV_OBJ_FLAG_HIDDEN);
