@@ -245,7 +245,7 @@ private:
         config.ap.authmode = WIFI_AUTH_WPA2_PSK;
         config.ap.max_connection = 1;
         if (esp_wifi_set_mode(WIFI_MODE_APSTA) != ESP_OK ||
-            esp_wifi_set_config(WIFI_IF_AP, &config) != ESP_OK || !config_portal_.Start(ap.ip) ||
+            esp_wifi_set_config(WIFI_IF_AP, &config) != ESP_OK || !config_portal_.Start(ap) ||
             !display_->TryShowQrCode(std::string("WIFI:T:WPA;S:") + ssid + ";P:" + password + ";;",
                                      ssid, duration * 1000)) {
             StopConfigHotspot();

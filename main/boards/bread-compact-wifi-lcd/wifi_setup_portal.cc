@@ -37,8 +37,9 @@ form.onsubmit=async event=>{
 </script></body></html>)HTML";
 }  // namespace
 
-bool WifiSetupPortal::Start(esp_ip4_addr_t gateway) {
-    gateway_ = gateway;
+bool WifiSetupPortal::Start(const esp_netif_ip_info_t& network) {
+    gateway_ = network.ip;
+    subnet_mask_ = network.netmask.addr;
     httpd_config_t config = HTTPD_DEFAULT_CONFIG();
     config.ctrl_port = 32771;
     config.max_open_sockets = 2;
@@ -48,25 +49,31 @@ bool WifiSetupPortal::Start(esp_ip4_addr_t gateway) {
     config.uri_match_fn = httpd_uri_match_wildcard;
     config.global_user_ctx = this;
     config.open_fn = [](httpd_handle_t server, int fd) {
-        auto* portal = static_cast<WifiSetupPortal*>(httpd_get_global_user_ctx(server));
-        sockaddr_storage local{};
-        socklen_t size = sizeof(local);
-        if (getsockname(fd, reinterpret_cast<sockaddr*>(&local), &size) != 0)
-            return ESP_FAIL;
-        if (local.ss_family == AF_INET) {
-            const auto& address = reinterpret_cast<const sockaddr_in&>(local).sin_addr;
-            return address.s_addr == portal->gateway_.addr ? ESP_OK : ESP_FAIL;
-        }
+        const auto ipv4 = [fd](bool local) -> uint32_t {
+            sockaddr_storage socket_address{};
+            auto* address = reinterpret_cast<sockaddr*>(&socket_address);
+            socklen_t size = sizeof(socket_address);
+            if ((local ? getsockname(fd, address, &size) : getpeername(fd, address, &size)) != 0)
+                return 0;
+            if (socket_address.ss_family == AF_INET)
+                return reinterpret_cast<const sockaddr_in&>(socket_address).sin_addr.s_addr;
 #if CONFIG_LWIP_IPV6
-        if (local.ss_family == AF_INET6) {
-            const auto& address = reinterpret_cast<const sockaddr_in6&>(local).sin6_addr;
-            if (IN6_IS_ADDR_V4MAPPED(&address) &&
-                memcmp(address.s6_addr + 12, &portal->gateway_.addr,
-                       sizeof(portal->gateway_.addr)) == 0)
-                return ESP_OK;
-        }
+            if (socket_address.ss_family == AF_INET6) {
+                const auto& ipv6 = reinterpret_cast<const sockaddr_in6&>(socket_address).sin6_addr;
+                uint32_t value = 0;
+                if (IN6_IS_ADDR_V4MAPPED(&ipv6))
+                    memcpy(&value, ipv6.s6_addr + 12, sizeof(value));
+                return value;
+            }
 #endif
-        return ESP_FAIL;
+            return 0;
+        };
+        const auto* portal = static_cast<WifiSetupPortal*>(httpd_get_global_user_ctx(server));
+        const auto peer = ipv4(false);
+        return ipv4(true) == portal->gateway_.addr && peer != 0 &&
+                       ((peer ^ portal->gateway_.addr) & portal->subnet_mask_) == 0
+                   ? ESP_OK
+                   : ESP_FAIL;
     };
     if (httpd_start(&http_, &config) != ESP_OK)
         return false;
