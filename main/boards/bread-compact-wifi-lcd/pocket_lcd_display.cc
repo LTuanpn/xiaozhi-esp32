@@ -429,6 +429,7 @@ void PocketLcdDisplay::SetupUI() {
     lv_obj_remove_flag(resting_tongue_, LV_OBJ_FLAG_SCROLLABLE);
     lv_obj_set_size(resting_tongue_, 16, 10);
     lv_obj_set_style_radius(resting_tongue_, LV_RADIUS_CIRCLE, 0);
+    lv_obj_set_style_bg_color(resting_tongue_, lv_color_hex(0xF66B8F), 0);
     lv_obj_set_style_bg_opa(resting_tongue_, LV_OPA_COVER, 0);
     lv_obj_add_flag(resting_tongue_, LV_OBJ_FLAG_HIDDEN);
     default_emotion_ = Settings("face").GetString("default_emotion");
@@ -3189,7 +3190,7 @@ void PocketLcdDisplay::UpdateVisualFrame() {
             lv_obj_add_flag(resting_mouth_, LV_OBJ_FLAG_HIDDEN);
         rest_shape_ = 0;
     } else {
-        const auto color = lv_color_hex(expression_pack_.MouthAccent().value_or(EyeAccent()));
+        const auto color = lv_color_hex(expression_pack_.MouthAccent());
         if (rest_shape_ != rest || lv_color_to_int(lv_obj_get_style_arc_color(resting_mouth_, LV_PART_MAIN)) != lv_color_to_int(color)) {
             const bool small = rest == 3 || rest == 4;
             const bool ring = rest == 3 || rest == 5;
@@ -3202,7 +3203,6 @@ void PocketLcdDisplay::UpdateVisualFrame() {
             const int end = rest == 2 ? 345 : ring ? 360 : 172;
             lv_arc_set_bg_angles(resting_mouth_, start, end);
             if (rest == 6) {
-                lv_obj_set_style_bg_color(resting_tongue_, color, 0);
                 lv_obj_set_pos(resting_tongue_, 12, 12);
                 lv_obj_remove_flag(resting_tongue_, LV_OBJ_FLAG_HIDDEN);
             } else {
@@ -3246,7 +3246,8 @@ void PocketLcdDisplay::UpdateSpeakingMouth(uint16_t motion) {
     const int target_width = std::clamp(20 + brightness / 4 - opening / 3, 17, 43);
     const int width = height == 0 ? 0 : EaseLid(mouth_width_ ? mouth_width_ : target_width, target_width);
     if (height) {
-        const auto color = expression_pack_.MouthAccent().value_or(EyeAccent());
+        const auto accent = expression_pack_.MouthAccent();
+        const auto color = accent ? accent : EyeAccent();
         if (color != mouth_accent_) {
             mouth_accent_ = color;
             lv_obj_set_style_border_color(speaking_mouth_, lv_color_hex(color), 0);

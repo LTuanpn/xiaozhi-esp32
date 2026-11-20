@@ -206,13 +206,11 @@ unsigned ExpressionPack::fps() const {
     return clip_ ? Read16(clip_ + 32) : 0;
 }
 
-std::optional<uint32_t> ExpressionPack::MouthAccent() const {
+uint32_t ExpressionPack::MouthAccent() const {
     if (!clip_)
-        return std::nullopt;
+        return 0;
     const auto* accent = image_ + Read32(clip_ + 36) + kPaletteSize - 2;
     const uint16_t word = (accent[0] << 8) | accent[1];
-    if (!word && accent[-2] != 'M')
-        return std::nullopt;
     return (((word >> 11) * 255 / 31) << 16) |
            ((((word >> 5) & 63) * 255 / 63) << 8) | ((word & 31) * 255 / 31);
 }

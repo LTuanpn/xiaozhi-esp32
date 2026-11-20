@@ -3,6 +3,7 @@
 #ifdef CONFIG_USE_HOTSPOT_WIFI_PROVISIONING
 #include "wifi_setup_portal.h"
 
+#include <esp_timer.h>
 #include <lwip/sockets.h>
 #include <ssid_manager.h>
 
@@ -173,7 +174,10 @@ esp_err_t WifiSetupPortal::Handle(httpd_req_t* request) {
         return httpd_resp_send_err(request, HTTPD_400_BAD_REQUEST, "Dữ liệu Wi-Fi không hợp lệ.");
     }
     std::string body(request->content_len, '\0');
+    const int64_t deadline = esp_timer_get_time() + 1000000;
     for (size_t offset = 0; offset < body.size();) {
+        if (esp_timer_get_time() >= deadline)
+            return ESP_FAIL;
         const int size = httpd_req_recv(request, body.data() + offset, body.size() - offset);
         if (size <= 0)
             return ESP_FAIL;
