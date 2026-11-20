@@ -1,6 +1,7 @@
 #pragma once
 
 #include <algorithm>
+#include <charconv>
 #include <deque>
 #include <string>
 #include <string_view>
@@ -55,6 +56,29 @@ inline bool RememberAssistantSentence(std::deque<std::string>& recent, const std
         recent.push_back(text);
     }
     return true;
+}
+
+// The proxy appends this optional parameter when the device supplies a turn id.
+inline int MusicUrlTurn(std::string_view url) {
+    const auto query = url.find('?');
+    if (query == url.npos)
+        return 0;
+    auto params = url.substr(query + 1);
+    while (!params.empty()) {
+        const auto end = params.find('&');
+        auto field = params.substr(0, end);
+        if (field.starts_with("jarvis_turn=")) {
+            field.remove_prefix(12);
+            int value = 0;
+            auto [ptr, error] = std::from_chars(field.data(), field.data() + field.size(), value);
+            return error == std::errc{} && ptr == field.data() + field.size() && value > 0 ? value
+                                                                                           : -1;
+        }
+        if (end == params.npos)
+            break;
+        params.remove_prefix(end + 1);
+    }
+    return 0;
 }
 
 inline bool IsMusicRequest(std::string_view text) {

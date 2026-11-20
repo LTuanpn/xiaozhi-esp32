@@ -775,7 +775,8 @@ void PocketLcdDisplay::SetChatMessage(const char* role, const char* content) {
         is_speaking_ = true;
         last_active_tick_ = animation_tick_;
 
-        if (Application::GetInstance().GetDeviceState() == kDeviceStateNotifying || face_mode_ == FaceMode::kMusic) {
+        if (Application::GetInstance().GetDeviceState() == kDeviceStateNotifying &&
+            Application::GetInstance().ReportedMusicPhase() == MusicPhase::Playing) {
             emotion_mode_ = FaceMode::kMusic;
             SetFaceMode(FaceMode::kMusic);
             temporary_emotion_until_tick_ = animation_tick_ + (300000 / kAnimationPeriodMs);
@@ -1489,9 +1490,11 @@ void PocketLcdDisplay::UpdateAnimationFrame() {
 
     // 1. Temporary Emotion Timeout (do not reset if speaking or notifying)
     if (dev_state == kDeviceStateNotifying) {
-        emotion_mode_ = app.IsAlarmActive()
-                            ? (alarm_is_guard_ ? FaceMode::kFurious : FaceMode::kThunderShock)
-                            : FaceMode::kMusic;
+        emotion_mode_ =
+            app.IsAlarmActive()
+                ? (alarm_is_guard_ ? FaceMode::kFurious : FaceMode::kThunderShock)
+                : (app.ReportedMusicPhase() == MusicPhase::Playing ? FaceMode::kMusic
+                                                                   : FaceMode::kThinking);
         SetFaceMode(emotion_mode_);
     } else if (temporary_emotion_until_tick_ > 0 && animation_tick_ >= temporary_emotion_until_tick_) {
         if (!is_speaking_ && dev_state != kDeviceStateSpeaking) {
@@ -3461,7 +3464,13 @@ void PocketLcdDisplay::UpdateStandbyServiceStatus() {
     } else if (state == kDeviceStateSpeaking) {
         label = {"TALKING", "JARVIS IS SPEAKING", amber};
     } else if (state == kDeviceStateNotifying) {
-        label = {"PLAYING", "AUDIO PLAYING", blue};
+        auto& app = Application::GetInstance();
+        if (app.IsAlarmActive())
+            label = {"ALARM", "LOCAL ALARM", amber};
+        else if (app.ReportedMusicPhase() == MusicPhase::Opening)
+            label = {"OPENING", "OPENING MUSIC STREAM", blue};
+        else
+            label = {"PLAYING", "AUDIO PLAYING", blue};
     } else if (state == kDeviceStateConnecting) {
         label = {"AI...", "OPENING AI SESSION", blue};
     } else if (state == kDeviceStateUpgrading) {

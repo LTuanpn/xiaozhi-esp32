@@ -15,6 +15,7 @@ class ConversationTextTest(unittest.TestCase):
         root = Path(__file__).resolve().parents[2]
         source = r'''
 #include "conversation_text.h"
+#include "boards/bread-compact-wifi-lcd/activity_deadline.h"
 #include <cassert>
 
 int main() {
@@ -31,6 +32,18 @@ int main() {
     assert(!RememberAssistantSentence(recent, ""));
     recent.clear(); // New STT turn
     assert(RememberAssistantSentence(recent, "Đã bật đèn."));
+    int64_t timer = 1000001, workout = timer, guard = 0;
+    assert(jarvis::SecondsLeft(timer, 0) == 2);
+    assert(jarvis::FirstDue(timer-1, {&timer,&workout,&guard}) == nullptr);
+    auto due = jarvis::FirstDue(timer, {&timer,&workout,&guard});
+    assert(due == &timer);
+    assert(jarvis::FirstDue(timer+1, {&timer,&workout,&guard}) == due);
+    *due = 0;
+    assert(jarvis::FirstDue(workout, {&timer,&workout,&guard}) == &workout);
+    assert(MusicUrlTurn("https://music.test/stream/t.ogg") == 0);
+    assert(MusicUrlTurn("https://music.test/stream/t.ogg?jarvis_turn=123") == 123);
+    assert(MusicUrlTurn("https://music.test/x?q=1&jarvis_turn=44&other=y") == 44);
+    assert(MusicUrlTurn("https://music.test/x?jarvis_turn=8x") == -1);
     assert(IsMusicRequest("Phát bài Come My Way."));
     assert(IsMusicRequest("Jarvis, mở Come My Way của Sơn Tùng."));
     assert(!IsMusicRequest("Mở trang cấu hình của robot."));

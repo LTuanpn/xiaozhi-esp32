@@ -102,9 +102,13 @@ void Application::Initialize() {
             Schedule([this, playback_id]() {
                 if (notification_playback_id_ == playback_id && notification_is_music_) {
                     music_output_started_ = true;
-                    music_report_ = (uint32_t(playing_request_id_) << 4) | 3;
-                    ESP_LOGI(TAG, "Music output started, playback=%lu",
-                             static_cast<unsigned long>(playback_id));
+                    ReportMusicPhase(playing_request_id_, MusicPhase::Playing);
+                    ESP_LOGI(TAG,
+                             "Music output started, request=%d playback=%lu prepare_to_pcm_ms=%lld",
+                             playing_request_id_, static_cast<unsigned long>(playback_id),
+                             playing_request_id_
+                                 ? (long long)((esp_timer_get_time() - music_prepared_us_) / 1000)
+                                 : -1LL);
                     Board::GetInstance().GetDisplay()->SetEmotion("music");
                 }
             });
@@ -1467,7 +1471,7 @@ bool Application::StartNotification(std::string audio_url, std::vector<NotifySub
     const bool accepted = StartPlayback(std::move(audio_url), std::move(subtitles), {}, music);
     if (music) {
         playing_request_id_ = request;
-        music_report_ = (uint32_t(request) << 4) | (accepted ? 2 : 5);
+        ReportMusicPhase(request, accepted ? MusicPhase::Opening : MusicPhase::Failed);
     }
     return accepted;
 }
@@ -1493,9 +1497,10 @@ int Application::PrepareMusicRequest() {
         IsAlarmActive())
         return 0;
     music_request_id_ = static_cast<int>(esp_random() % 134217727U) + 1;
-    music_report_ = (uint32_t(music_request_id_) << 4) | 1;
+    ReportMusicPhase(music_request_id_, MusicPhase::Searching);
     ESP_LOGI(TAG, "Waiting for Music MCP and stream URL, request=%d", music_request_id_);
-    music_deadline_us_ = esp_timer_get_time() + 24000000;
+    music_prepared_us_ = esp_timer_get_time();
+    music_deadline_us_ = music_prepared_us_ + 24000000;
     Board::GetInstance().GetDisplay()->ShowNotification("Đang chuẩn bị nhạc…");
     if (!music_cue_active_ && audio_service_.IsPlaybackIdle()) {
         music_cue_active_ = true;
@@ -1507,7 +1512,7 @@ int Application::PrepareMusicRequest() {
 
 void Application::CancelMusicRequest() {
     if (music_request_id_)
-        music_report_ = (uint32_t(music_request_id_) << 4) | 6;
+        ReportMusicPhase(music_request_id_, MusicPhase::Stopped);
     music_request_id_ = 0;
     music_deadline_us_ = 0;
     pending_music_url_.clear();
@@ -1516,10 +1521,12 @@ void Application::CancelMusicRequest() {
 void Application::CheckMusicRequest() {
     if (music_deadline_us_ == 0 || esp_timer_get_time() < music_deadline_us_)
         return;
-    if (GetDeviceState() == kDeviceStateSpeaking)
+    const auto state = GetDeviceState();
+    if (state == kDeviceStateSpeaking && esp_timer_get_time() < music_deadline_us_ + 2000000)
         return;
     CancelMusicRequest();
-    if (GetDeviceState() == kDeviceStateListening || GetDeviceState() == kDeviceStateIdle)
+    if (state == kDeviceStateListening || state == kDeviceStateIdle ||
+        state == kDeviceStateSpeaking)
         ReportMusicFailure("Chưa nhận được phản hồi từ máy chủ nhạc.");
 }
 
@@ -1602,7 +1609,7 @@ bool Application::QueueNotificationClip(std::string audio_url,
 
 void Application::StopNotification() {
     if (notification_is_music_)
-        music_report_ = (uint32_t(playing_request_id_) << 4) | 6;
+        ReportMusicPhase(playing_request_id_, MusicPhase::Stopped);
     alarm_active_ = false;
     alarm_clips_.clear();
     next_alarm_clip_us_ = 0;
@@ -1635,7 +1642,7 @@ void Application::HandleNotificationFinished(uint32_t playback_id, bool success)
     const bool interrupted = music_output_started_;
     StopNotification();
     if (music)
-        music_report_ = (uint32_t(playing_request_id_) << 4) | (success ? 4 : 5);
+        ReportMusicPhase(playing_request_id_, success ? MusicPhase::Finished : MusicPhase::Failed);
     if (!success && music) {
         ReportMusicFailure(interrupted ? "Luồng nhạc vừa bị ngắt."
                                        : "Không mở được luồng nhạc từ máy chủ.");

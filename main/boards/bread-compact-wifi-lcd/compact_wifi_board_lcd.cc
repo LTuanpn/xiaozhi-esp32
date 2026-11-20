@@ -1,19 +1,21 @@
-#include "wifi_board.h"
+#include <esp_app_desc.h>
 #include <wifi_manager.h>
-#include "codecs/no_audio_codec.h"
-#include "pocket_lcd_display.h"
-#include "system_reset.h"
+#include "activity_deadline.h"
 #include "application.h"
+#include "assets/lang_config.h"
 #include "button.h"
+#include "codecs/no_audio_codec.h"
 #include "config.h"
-#include "mcp_server.h"
+#include "conversation_text.h"
+#include "kcx_audio.h"
 #include "lamp_controller.h"
 #include "lan_control.h"
-#include "kcx_audio.h"
-#include "settings.h"
-#include <esp_app_desc.h>
 #include "led/single_led.h"
-#include "assets/lang_config.h"
+#include "mcp_server.h"
+#include "pocket_lcd_display.h"
+#include "settings.h"
+#include "system_reset.h"
+#include "wifi_board.h"
 
 #include <driver/i2c_master.h>
 #include <driver/spi_common.h>
@@ -105,10 +107,6 @@ private:
     const char* last_alarm_ = "none";
     std::string alarm_label_;
 
-    static int SecondsLeft(int64_t deadline, int64_t now) {
-        return deadline > now ? static_cast<int>((deadline - now + 999999) / 1000000) : 0;
-    }
-
     const char* GuardState() {
         auto& app = Application::GetInstance();
         auto& audio = app.GetAudioService();
@@ -128,8 +126,8 @@ private:
             return "{}";
         auto& app = Application::GetInstance();
         const auto now = esp_timer_get_time();
-        const int timer = SecondsLeft(countdown_deadline_us_, now);
-        const int workout = SecondsLeft(workout_deadline_us_, now);
+        const int timer = jarvis::SecondsLeft(countdown_deadline_us_, now);
+        const int workout = jarvis::SecondsLeft(workout_deadline_us_, now);
         auto state = [&](int64_t deadline, int left, std::string_view kind) {
             if (deadline)
                 return left ? "running" : "pending_alarm";
@@ -322,14 +320,11 @@ private:
             app.GetDeviceState() == kDeviceStateWifiConfiguring)
             return;
         // A due deadline doubles as a bounded pending alarm until playback accepts it.
-        int64_t* first = nullptr;
-        for (auto* deadline : {&countdown_deadline_us_, &workout_deadline_us_, &guard_alert_us_}) {
-            if (*deadline && *deadline <= now && (!first || *deadline < *first))
-                first = deadline;
-        }
+        auto* first = jarvis::FirstDue(
+            now, {&countdown_deadline_us_, &workout_deadline_us_, &guard_alert_us_});
         if (!first) {
             if (workout_deadline_us_) {
-                const int left = SecondsLeft(workout_deadline_us_, now);
+                const int left = jarvis::SecondsLeft(workout_deadline_us_, now);
                 const int interval = (workout_duration_ - left) / 10;
                 if (app.GetDeviceState() == kDeviceStateIdle) {
                     if (display_)
@@ -549,6 +544,10 @@ private:
                                            ". Bạn muốn thay timer này không?");
                 if (p["label"].value<std::string>().size() > 240)
                     return std::unexpected("Nhãn hẹn giờ quá dài.");
+                auto& app = Application::GetInstance();
+                if (!seconds && !countdown_deadline_us_ && app.IsAlarmActive() &&
+                    std::string_view(last_alarm_) == "timer")
+                    app.StopNotification();
                 countdown_deadline_us_ =
                     seconds ? esp_timer_get_time() + int64_t(seconds) * 1000000 : 0;
                 countdown_label_ = seconds ? p["label"].value<std::string>() : "";
@@ -571,7 +570,7 @@ private:
                            PropertyList({Property("seconds", kPropertyTypeInteger, 30, 1, 86400)}),
                            [this](const PropertyList& p) -> ToolResult {
                                const auto now = esp_timer_get_time();
-                               const int left = SecondsLeft(countdown_deadline_us_, now);
+                               const int left = jarvis::SecondsLeft(countdown_deadline_us_, now);
                                if (!left)
                                    return std::unexpected("Không có timer đang đếm để gia hạn.");
                                const int extra = p["seconds"].value<int>();
@@ -696,7 +695,9 @@ private:
                     return std::unexpected("Chưa có đường dẫn phát nhạc.");
                 auto& app = Application::GetInstance();
                 const int id = properties["request_id"].value<int>();
-                if (id && !app.AcceptsMusicRequest(id))
+                const int url_id = MusicUrlTurn(url);
+                if (url_id < 0 || (url_id && id && url_id != id) ||
+                    ((id || url_id) && !app.AcceptsMusicRequest(id ? id : url_id)))
                     return std::string("Lượt nhạc đã kết thúc. Không phát và không nhắc lại.");
                 if (!app.StartNotification(std::move(url), {}, true)) {
                     app.CancelMusicRequest();
