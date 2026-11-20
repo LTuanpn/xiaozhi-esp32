@@ -37,8 +37,8 @@ input[type=range]{padding:0;accent-color:var(--text)}label{display:block;margin:
   <section><h2>Hẹn giờ và GUARD</h2><p id="timer-status"></p>
     <form id="timer"><label for="seconds">Số giây</label><input id="seconds" type="number" min="1" max="86400" value="60" required>
       <label for="timer-label">Nhãn hẹn giờ</label><input id="timer-label" maxlength="60" value="Hết giờ rồi!">
-      <div class="row"><button class="primary">Đặt giờ</button><button type="button" id="cancel-timer">Hủy hẹn giờ</button></div>
-    </form><div class="row"><button id="guard" aria-pressed="false">Bật GUARD</button><span id="alarm"></span></div>
+      <div class="row"><button class="primary">Đặt giờ</button><button type="button" id="extend-timer" disabled>Thêm 30 giây</button><button type="button" id="cancel-timer">Hủy hẹn giờ</button></div>
+    </form><p id="workout-status"></p><p id="guard-status"></p><div class="row"><button id="guard" aria-pressed="false">Bật GUARD</button><span id="alarm"></span><button id="dismiss-alarm" hidden>Tắt chuông</button></div>
   </section>
   <section><h2>Biểu cảm</h2><label for="emotion">Biểu cảm trên TFT</label><select id="emotion"></select>
     <label for="expression-seconds">Số giây mỗi biểu cảm</label>
@@ -124,6 +124,16 @@ async function readStatus() {
     savedOtaUrl = state.ota_url || "";
     updateOtaButton();
     $("timer-status").textContent = state.timer_seconds ? state.timer_label + " · " + state.timer_seconds + " giây còn lại" : "Chưa có hẹn giờ";
+    const running = state.timer_state === "running";
+    $("extend-timer").disabled = !running;
+    $("timer").dataset.running = String(running || state.timer_state === "pending_alarm");
+    if (state.timer_state === "ringing") $("timer-status").textContent = "Đã hết giờ · " + state.last_alarm_label;
+    if (state.timer_state === "pending_alarm") $("timer-status").textContent = "Đã hết giờ, đang chờ báo · " + state.timer_label;
+    $("workout-status").textContent = state.workout_state === "running"
+      ? "Hiệp tập còn " + state.workout_remaining_seconds + " giây" : "";
+    const phases = {arming:"GUARD đang ổn định", listening:"GUARD đang nghe", paused_for_speaker:"GUARD tạm ngưng khi loa phát", paused_for_mic:"Mic chưa sẵn sàng", pending_alarm:"Đang chờ báo động"};
+    $("guard-status").textContent = phases[state.guard_state] || "";
+    $("dismiss-alarm").hidden = !state.alarm;
     guard = state.guard;
     $("guard").textContent = guard ? "Tắt GUARD" : "Bật GUARD";
     $("guard").setAttribute("aria-pressed", String(guard));
@@ -167,8 +177,12 @@ $("reset-emotion").onclick = () => tool("self.screen.set_default_emotion",
 $("listen").onclick = () => tool("self.lan.start_listening");
 $("timer").onsubmit = event => {
   event.preventDefault();
-  void tool("self.timer.set_countdown",{seconds:Number($("seconds").value),label:$("timer-label").value});
+  const replace = $("timer").dataset.running === "true";
+  if (replace && !confirm("Thay hẹn giờ hiện tại?")) return;
+  void tool("self.timer.set_countdown",{seconds:Number($("seconds").value),label:$("timer-label").value,replace});
 };
+$("extend-timer").onclick = () => tool("self.timer.extend",{seconds:30});
+$("dismiss-alarm").onclick = () => tool("self.alarm.dismiss");
 $("cancel-timer").onclick = () => tool("self.timer.set_countdown",{seconds:0});
 $("guard").onclick = () => tool("self.security.guard_mode",{enable:!guard});
 function expressionDuration() {

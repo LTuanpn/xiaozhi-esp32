@@ -89,19 +89,70 @@ private:
     esp_lcd_panel_handle_t panel_ = nullptr;
 
     // Timers & States for 7 MCP Tools
-    esp_timer_handle_t countdown_timer_ = nullptr;
     esp_timer_handle_t guard_timer_ = nullptr;
-    esp_timer_handle_t workout_timer_ = nullptr;
     bool guard_mode_active_ = false;
     int64_t guard_arm_until_us_ = 0;
     int64_t countdown_deadline_us_ = 0;
     int64_t workout_deadline_us_ = 0;
     std::string countdown_label_;
     std::atomic_bool guard_poll_pending_{false};
-    std::atomic_bool workout_poll_pending_{false};
     int guard_noise_level_ = 0;
     int guard_hits_ = 0;
-    int workout_remaining_sec_ = 0;
+
+    int workout_duration_ = 0;
+    int workout_beep_interval_ = 0;
+    int64_t guard_alert_us_ = 0;
+    const char* last_alarm_ = "none";
+    std::string alarm_label_;
+
+    static int SecondsLeft(int64_t deadline, int64_t now) {
+        return deadline > now ? static_cast<int>((deadline - now + 999999) / 1000000) : 0;
+    }
+
+    const char* GuardState() {
+        auto& app = Application::GetInstance();
+        auto& audio = app.GetAudioService();
+        if (!guard_mode_active_)
+            return guard_alert_us_ ? "pending_alarm" : "off";
+        if (app.GetDeviceState() == kDeviceStateSpeaking ||
+            app.GetDeviceState() == kDeviceStateNotifying || !audio.IsPlaybackIdle())
+            return "paused_for_speaker";
+        if (!audio.IsWakeWordRunning() && !audio.IsAudioProcessorRunning())
+            return "paused_for_mic";
+        return esp_timer_get_time() < guard_arm_until_us_ ? "arming" : "listening";
+    }
+
+    std::string GetDeviceStatusJson() override {
+        CJsonUniquePtr root(cJSON_Parse(WifiBoard::GetDeviceStatusJson().c_str()));
+        if (!root)
+            return "{}";
+        auto& app = Application::GetInstance();
+        const auto now = esp_timer_get_time();
+        const int timer = SecondsLeft(countdown_deadline_us_, now);
+        const int workout = SecondsLeft(workout_deadline_us_, now);
+        auto state = [&](int64_t deadline, int left, std::string_view kind) {
+            if (deadline)
+                return left ? "running" : "pending_alarm";
+            return app.IsAlarmActive() && kind == last_alarm_ ? "ringing" : "idle";
+        };
+        cJSON_AddNumberToObject(root.get(), "timer_seconds", timer);
+        cJSON_AddStringToObject(root.get(), "timer_label", countdown_label_.c_str());
+        cJSON_AddStringToObject(root.get(), "timer_state",
+                                state(countdown_deadline_us_, timer, "timer"));
+        cJSON_AddNumberToObject(root.get(), "workout_remaining_seconds", workout);
+        cJSON_AddNumberToObject(root.get(), "workout_elapsed_seconds",
+                                workout_deadline_us_ ? workout_duration_ - workout : 0);
+        cJSON_AddStringToObject(root.get(), "workout_state",
+                                state(workout_deadline_us_, workout, "workout"));
+        cJSON_AddBoolToObject(root.get(), "guard", guard_mode_active_);
+        cJSON_AddStringToObject(root.get(), "guard_state", GuardState());
+        cJSON_AddBoolToObject(root.get(), "alarm", app.IsAlarmActive());
+        cJSON_AddStringToObject(root.get(), "last_alarm", last_alarm_);
+        cJSON_AddStringToObject(root.get(), "last_alarm_label", alarm_label_.c_str());
+        cJSON_AddStringToObject(root.get(), "music", app.MusicStatus());
+        CJsonStringUniquePtr json(cJSON_PrintUnformatted(root.get()));
+        return json ? json.get() : "{}";
+    }
 
     cJSON* ControlStatus() {
         auto& app = Application::GetInstance();
@@ -113,17 +164,12 @@ private:
         cJSON_AddStringToObject(status.get(), "state",
                                 DeviceStateMachine::GetStateName(app.GetDeviceState()));
         cJSON_AddBoolToObject(status.get(), "wake_word", audio.IsWakeWordRunning());
-        cJSON_AddBoolToObject(status.get(), "guard", guard_mode_active_);
-        cJSON_AddBoolToObject(status.get(), "alarm", app.IsAlarmActive());
         cJSON_AddBoolToObject(status.get(), "standby", display_ && display_->IsStandbyClockActive());
         if (display_)
             cJSON_AddStringToObject(status.get(), "default_emotion", display_->DefaultEmotion().c_str());
 #ifdef CONFIG_BREAD_COMPACT_LCD_KCX
         cJSON_AddItemToObject(status.get(), "bluetooth", kcx_.Status());
 #endif
-        const int64_t left = countdown_deadline_us_ - esp_timer_get_time();
-        cJSON_AddNumberToObject(status.get(), "timer_seconds", left > 0 ? (left + 999999) / 1000000 : 0);
-        cJSON_AddStringToObject(status.get(), "timer_label", countdown_label_.c_str());
         cJSON_AddStringToObject(status.get(), "ota_url", Ota::GetCheckVersionUrl().c_str());
         Settings lan("lan_control");
         cJSON_AddStringToObject(status.get(), "https_origin", lan.GetString("https_origin").c_str());
@@ -269,7 +315,47 @@ private:
 #endif
     }
 
-    void RaiseAlarm(bool guard) {
+    void OnClockTick() override {
+        auto& app = Application::GetInstance();
+        const auto now = esp_timer_get_time();
+        if (app.IsAlarmActive() || app.GetDeviceState() == kDeviceStateUpgrading ||
+            app.GetDeviceState() == kDeviceStateWifiConfiguring)
+            return;
+        // A due deadline doubles as a bounded pending alarm until playback accepts it.
+        int64_t* first = nullptr;
+        for (auto* deadline : {&countdown_deadline_us_, &workout_deadline_us_, &guard_alert_us_}) {
+            if (*deadline && *deadline <= now && (!first || *deadline < *first))
+                first = deadline;
+        }
+        if (!first) {
+            if (workout_deadline_us_) {
+                const int left = SecondsLeft(workout_deadline_us_, now);
+                const int interval = (workout_duration_ - left) / 10;
+                if (app.GetDeviceState() == kDeviceStateIdle) {
+                    if (display_)
+                        display_->ShowNotification("[TAP LUYEN] Con " + std::to_string(left) + "s",
+                                                   1100);
+                    if (interval > workout_beep_interval_ && app.GetAudioService().IsPlaybackIdle())
+                        app.PlaySound(Lang::Sounds::OGG_POPUP);
+                }
+                workout_beep_interval_ = interval;
+            }
+            return;
+        }
+        const bool guard = first == &guard_alert_us_;
+        const bool timer = first == &countdown_deadline_us_;
+        const std::string label = guard ? "[CANH BAO] TIENG DONG BAT THUONG"
+                                        : (timer ? countdown_label_ : "[TAP LUYEN] HOAN THANH");
+        if (RaiseAlarm(guard, label)) {
+            *first = 0;
+            last_alarm_ = guard ? "guard" : (timer ? "timer" : "workout");
+            alarm_label_ = label;
+            if (timer && display_)
+                display_->SetCountdownTimer(0, "IDLE");
+        }
+    }
+
+    bool RaiseAlarm(bool guard, const std::string& label) {
         auto& app = Application::GetInstance();
         const bool started = guard
             ? app.StartLocalAlarm({Lang::Sounds::OGG_GUARD_ALERT_VI,
@@ -280,10 +366,10 @@ private:
                                    Lang::Sounds::OGG_TIMER_REMINDER_3_VI});
         if (started && display_) {
             display_->SetAlarmEmotion(guard);
-            display_->ShowNotification(
-                guard ? "[CANH BAO] TIENG DONG BAT THUONG" : countdown_label_, 15000);
+            display_->ShowNotification(label, 15000);
         }
         ESP_LOGI(TAG, "Local alarm kind=%s accepted=%d", guard ? "guard" : "timer", started);
+        return started;
     }
 
     ToolResult ShowStandby() {
@@ -323,7 +409,8 @@ private:
             esp_timer_stop(guard_timer_);
             if (display_)
                 display_->SetGuardMode(false);
-            RaiseAlarm(true);
+            guard_alert_us_ = esp_timer_get_time();
+            OnClockTick();
         }
     }
 
@@ -399,6 +486,10 @@ private:
                     EnterWifiConfigMode();
                     return;
                 }
+                if (app.IsAlarmActive()) {
+                    app.StopNotification();
+                    return;
+                }
                 app.ToggleChatState();
             });
         });
@@ -424,70 +515,74 @@ private:
             "self.audio.prepare_music",
             "Báo một lần rằng robot đang chuẩn bị nhạc. Gọi trước play_song nếu người dùng "
             "muốn phát nhạc, rồi tiếp tục tìm bài. Robot tự nói câu chuẩn bị, không nói lặp.",
-            PropertyList(), [](const PropertyList&) -> ReturnValue {
-                Application::GetInstance().PrepareMusicRequest();
-                return "Đã báo chuẩn bị. Tiếp tục gọi play_song trong cùng lượt.";
+            PropertyList(), [](const PropertyList&) -> ToolResult {
+                const int id = Application::GetInstance().PrepareMusicRequest();
+                if (!id)
+                    return std::unexpected("Robot đang bận, chưa thể chuẩn bị nhạc.");
+                return "Gọi play_song ngay với request_id=" + std::to_string(id) +
+                       ". Không đọc mã này.";
+            });
+        mcp_server.AddTool(
+            "self.audio.finish_music_request",
+            "Kết thúc lượt tìm không phát được hoặc cần hỏi chọn. Chỉ đọc user_message nếu kết quả "
+            "là accepted.",
+            PropertyList({Property("request_id", kPropertyTypeInteger, 1, 2147483647)}),
+            [](const PropertyList& p) -> ReturnValue {
+                auto& app = Application::GetInstance();
+                if (!app.AcceptsMusicRequest(p["request_id"].value<int>()))
+                    return "stale: kết thúc im lặng";
+                app.CancelMusicRequest();
+                return "accepted";
             });
 
-        // 1. TOOL ĐẾM NGƯỢC / BÁO THỨC POMODORO TRỰC TIẾP TRÊN MẠCH
         mcp_server.AddTool(
             "self.timer.set_countdown",
-            "Đặt bộ đếm ngược thời gian hoặc hẹn giờ báo thức (tính bằng giây). Khi hết giờ, robot sẽ tự động phát âm thanh báo động và đổi biểu cảm trên màn hình. Truyền seconds = 0 nếu muốn hủy hẹn giờ.",
-            PropertyList({
-                Property("seconds", kPropertyTypeInteger, 60, 0, 86400),
-                Property("label", kPropertyTypeString, "Hết giờ rồi!")
-            }),
-            [this](const PropertyList& properties) -> ReturnValue {
-                int seconds = properties["seconds"].value<int>();
-                std::string label = properties["label"].value<std::string>();
-
-                if (countdown_timer_ == nullptr) {
-                    esp_timer_create_args_t timer_args = {
-                        .callback = [](void* arg) {
-                            auto* board = static_cast<CompactWifiBoardLCD*>(arg);
-                            Application::GetInstance().Schedule([board]() {
-                                if (board->countdown_deadline_us_ == 0 ||
-                                    esp_timer_get_time() < board->countdown_deadline_us_)
-                                    return;
-                                board->countdown_deadline_us_ = 0;
-                                if (board->display_)
-                                    board->display_->SetCountdownTimer(0, "IDLE");
-                                board->RaiseAlarm(false);
-                            });
-                        },
-                        .arg = this,
-                        .dispatch_method = ESP_TIMER_TASK,
-                        .name = "pomodoro_timer",
-                        .skip_unhandled_events = true
-                    };
-                    esp_timer_create(&timer_args, &countdown_timer_);
-                } else {
-                    esp_timer_stop(countdown_timer_);
-                }
-
-                countdown_label_ = label;
+            "Đặt hoặc hủy (seconds=0) timer. Nếu đang chạy, hỏi trước khi thay rồi truyền "
+            "replace=true. Hỏi thời gian còn lại dùng self.get_device_status.",
+            PropertyList({Property("seconds", kPropertyTypeInteger, 60, 0, 86400),
+                          Property("label", kPropertyTypeString, "Hết giờ rồi!"),
+                          Property("replace", kPropertyTypeBoolean, false)}),
+            [this](const PropertyList& p) -> ToolResult {
+                const int seconds = p["seconds"].value<int>();
+                if (seconds && countdown_deadline_us_ && !p["replace"].value<bool>())
+                    return std::unexpected("Đã có timer " + countdown_label_ +
+                                           ". Bạn muốn thay timer này không?");
+                if (p["label"].value<std::string>().size() > 240)
+                    return std::unexpected("Nhãn hẹn giờ quá dài.");
                 countdown_deadline_us_ =
-                    seconds > 0 ? esp_timer_get_time() + static_cast<int64_t>(seconds) * 1000000
-                                : 0;
-                if (seconds <= 0) {
-                    if (display_ != nullptr) {
-                        display_->SetCountdownTimer(0, "IDLE");
-                        display_->ShowNotification("Đã hủy hẹn giờ", 3000);
-                    }
-                    return "Đã hủy bộ đếm ngược";
-                }
-
-                esp_timer_start_once(countdown_timer_, static_cast<uint64_t>(seconds) * 1000000ULL);
-
-                if (display_ != nullptr) {
-                    display_->SetCountdownTimer(seconds, label);
-                    std::string notify_msg = "[HEN GIO] " + std::to_string(seconds) + "s: " + label;
-                    display_->ShowNotification(notify_msg.c_str(), 5000);
-                    display_->SetEmotion("target");
-                }
-                return "Đã bật đếm ngược " + std::to_string(seconds) + " giây cho: " + label + "";
-            }
-        );
+                    seconds ? esp_timer_get_time() + int64_t(seconds) * 1000000 : 0;
+                countdown_label_ = seconds ? p["label"].value<std::string>() : "";
+                if (display_)
+                    display_->SetCountdownTimer(seconds, seconds ? countdown_label_ : "IDLE");
+                return seconds ? "Đã đặt " + countdown_label_ + " trong " +
+                                     std::to_string(seconds) + " giây."
+                               : std::string("Đã hủy bộ đếm ngược.");
+            });
+        mcp_server.AddTool("self.alarm.dismiss", "Tắt chuông đang reo, giữ các hẹn giờ khác.",
+                           PropertyList(), [](const PropertyList&) -> ReturnValue {
+                               auto& app = Application::GetInstance();
+                               if (!app.IsAlarmActive())
+                                   return "Không có chuông đang reo.";
+                               app.StopNotification();
+                               return "Đã tắt chuông.";
+                           });
+        mcp_server.AddTool("self.timer.extend",
+                           "Cộng số giây vào timer đang chạy. Giữ nguyên nhãn.",
+                           PropertyList({Property("seconds", kPropertyTypeInteger, 30, 1, 86400)}),
+                           [this](const PropertyList& p) -> ToolResult {
+                               const auto now = esp_timer_get_time();
+                               const int left = SecondsLeft(countdown_deadline_us_, now);
+                               if (!left)
+                                   return std::unexpected("Không có timer đang đếm để gia hạn.");
+                               const int extra = p["seconds"].value<int>();
+                               if (left + extra > 86400)
+                                   return std::unexpected("Thời gian còn lại tối đa 24 giờ.");
+                               countdown_deadline_us_ += int64_t(extra) * 1000000;
+                               if (display_)
+                                   display_->SetCountdownTimer(left + extra, countdown_label_);
+                               return "Timer " + countdown_label_ + " còn " +
+                                      std::to_string(left + extra) + " giây.";
+                           });
 
         // 2. TOOL GHIM GHI CHÚ / HIỂN THỊ IP, WIFI, MÃ QR
         mcp_server.AddTool(
@@ -593,14 +688,20 @@ private:
             "self.audio.play_url",
             "Phát âm thanh/nhạc trực tiếp từ một đường dẫn URL (HTTP/HTTPS luồng Ogg Opus). "
             "Khi cần phát bài hát hoặc âm thanh từ server nhạc, hãy gọi tool này với tham số url.",
-            PropertyList({Property("url", kPropertyTypeString, "")}),
+            PropertyList({Property("url", kPropertyTypeString, ""),
+                          Property("request_id", kPropertyTypeInteger, 0, 0, 2147483647)}),
             [](const PropertyList& properties) -> ToolResult {
                 std::string url = properties["url"].value<std::string>();
                 if (url.empty())
                     return std::unexpected("Chưa có đường dẫn phát nhạc.");
                 auto& app = Application::GetInstance();
-                if (!app.StartNotification(std::move(url), {}, true))
+                const int id = properties["request_id"].value<int>();
+                if (id && !app.AcceptsMusicRequest(id))
+                    return std::string("Lượt nhạc đã kết thúc. Không phát và không nhắc lại.");
+                if (!app.StartNotification(std::move(url), {}, true)) {
+                    app.CancelMusicRequest();
                     return std::unexpected("Robot chưa thể mở luồng nhạc.");
+                }
                 return "Robot đang mở luồng. Kết thúc lượt, không nói đè nhạc.";
             });
 
@@ -626,15 +727,11 @@ private:
             [this](const PropertyList& properties) -> ReturnValue {
                 ESP_LOGI("Board", "self.audio.stop_playback");
                 auto& app = Application::GetInstance();
-                app.Schedule([this, &app]() {
-                    if (app.IsAlarmActive())
-                        return;
-                    app.CancelMusicRequest();
+                if (app.IsAlarmActive())
+                    return "Robot đang báo động. Có thể xác nhận chuông bằng nút BOOT.";
+                app.CancelMusicRequest();
+                if (app.GetDeviceState() == kDeviceStateNotifying)
                     app.StopNotification();
-                    if (display_ != nullptr) {
-                        display_->SetEmotion("neutral");
-                    }
-                });
                 return "Đã dừng phát âm thanh";
             }
         );
@@ -661,20 +758,6 @@ private:
                     return "Đã tắt chế độ canh phòng";
                 }
 
-                // Chuyển bot sang Idle và ngắt phiên thu âm ngay lập tức
-                guard_arm_until_us_ = esp_timer_get_time() + 6000000;
-                guard_noise_level_ = 0;
-                guard_hits_ = 0;
-                Application::GetInstance().Schedule(
-                    []() { Application::GetInstance().EndConversation(); });
-
-                if (display_ != nullptr) {
-                    auto* p_disp = static_cast<PocketLcdDisplay*>(display_);
-                    p_disp->SetGuardMode(true);
-                    p_disp->ShowStandbyClock(true /* manual_lock */);
-                    p_disp->ShowNotification("[CANH GAC] SENTRY MODE: ON", 5000);
-                }
-
                 if (guard_timer_ == nullptr) {
                     esp_timer_create_args_t timer_args = {
                         .callback = [](void* arg) {
@@ -691,64 +774,56 @@ private:
                         .name = "guard_timer",
                         .skip_unhandled_events = true
                     };
-                    esp_timer_create(&timer_args, &guard_timer_);
+                    if (esp_timer_create(&timer_args, &guard_timer_) != ESP_OK) {
+                        guard_mode_active_ = false;
+                        return "Không tạo được bộ theo dõi GUARD.";
+                    }
                 }
-                esp_timer_start_periodic(guard_timer_, 50 * 1000); // Kiểm tra mỗi 50ms bắt trúng đỉnh xung vỗ tay!
+                if (esp_timer_start_periodic(guard_timer_, 50000) != ESP_OK) {
+                    guard_mode_active_ = false;
+                    if (display_)
+                        display_->SetGuardMode(false);
+                    return "Không thể khởi động GUARD.";
+                }
+                // Chuyển bot sang Idle và ngắt phiên thu âm ngay lập tức
+                guard_arm_until_us_ = esp_timer_get_time() + 6000000;
+                guard_noise_level_ = 0;
+                guard_hits_ = 0;
+                Application::GetInstance().Schedule(
+                    []() { Application::GetInstance().EndConversation(); });
+
+                if (display_ != nullptr) {
+                    auto* p_disp = static_cast<PocketLcdDisplay*>(display_);
+                    p_disp->SetGuardMode(true);
+                    p_disp->ShowStandbyClock(true /* manual_lock */);
+                    p_disp->ShowNotification("[CANH GAC] SENTRY MODE: ON", 5000);
+                }
+
                 return "Đã kích hoạt chế độ canh gác phòng bằng cảm biến âm thanh";
             });
 
-        // 5. TOOL ĐẾM GIÂY ĐU XÀ / WORKOUT (BÍP MỖI 10 GIÂY + CẢNH BÁO TIẾN ĐỘ)
         mcp_server.AddTool(
             "self.fitness.start_workout",
-            "Bắt đầu bộ đếm thời gian tập thể dục, đu xà đơn, plank (tính bằng giây). Robot sẽ hiển thị tiến trình và phát tiếng bíp mỗi 10 giây để báo tiến độ.",
+            "Bắt đầu đếm hiệp tập, hiện tiến độ và báo khi xong. Hỏi tiến độ dùng "
+            "self.get_device_status.",
             PropertyList({Property("seconds", kPropertyTypeInteger, 45, 5, 600)}),
-            [this](const PropertyList& properties) -> ReturnValue {
-                workout_remaining_sec_ = properties["seconds"].value<int>();
-                workout_deadline_us_ =
-                    esp_timer_get_time() + static_cast<int64_t>(workout_remaining_sec_) * 1000000;
-                if (workout_timer_ != nullptr) {
-                    esp_timer_stop(workout_timer_);
-                }
-
-                if (workout_timer_ == nullptr) {
-                    esp_timer_create_args_t timer_args = {
-                        .callback = [](void* arg) {
-                            auto* board = static_cast<CompactWifiBoardLCD*>(arg);
-                            if (board->workout_poll_pending_.exchange(true))
-                                return;
-                            Application::GetInstance().Schedule([board]() {
-                                const int rem = static_cast<int>(std::max<int64_t>(
-                                    0,
-                                    (board->workout_deadline_us_ - esp_timer_get_time() + 999999) /
-                                        1000000));
-                                board->workout_remaining_sec_ = rem;
-                                if (rem == 0) {
-                                    esp_timer_stop(board->workout_timer_);
-                                    board->countdown_label_ = "[TAP LUYEN] HOAN THANH";
-                                    board->RaiseAlarm(false);
-                                } else if (board->display_) {
-                                    board->display_->ShowNotification(
-                                        "[TAP LUYEN] Con " + std::to_string(rem) + "s", 1500);
-                                }
-                                board->workout_poll_pending_.store(false);
-                            });
-                        },
-                        .arg = this,
-                        .dispatch_method = ESP_TIMER_TASK,
-                        .name = "workout_timer",
-                        .skip_unhandled_events = true
-                    };
-                    esp_timer_create(&timer_args, &workout_timer_);
-                }
-                esp_timer_start_periodic(workout_timer_, 1000 * 1000);
-                if (display_ != nullptr) {
+            [this](const PropertyList& p) -> ToolResult {
+                if (workout_deadline_us_)
+                    return std::unexpected("Đã có một hiệp tập đang chạy hoặc chờ báo.");
+                workout_beep_interval_ = 0;
+                workout_duration_ = p["seconds"].value<int>();
+                workout_deadline_us_ = esp_timer_get_time() + int64_t(workout_duration_) * 1000000;
+                if (display_)
                     display_->SetEmotion("excited");
-                }
-                return "Đã bắt đầu đếm hiệp tập " + std::to_string(workout_remaining_sec_) +
-                       " giây";
-            }
-        );
-
+                return "Đã bắt đầu hiệp tập " + std::to_string(workout_duration_) + " giây.";
+            });
+        mcp_server.AddTool("self.fitness.stop_workout", "Hủy hiệp tập đang đếm.", PropertyList(),
+                           [this](const PropertyList&) -> ToolResult {
+                               if (!workout_deadline_us_)
+                                   return std::string("Không có hiệp tập đang đếm.");
+                               workout_deadline_us_ = 0;
+                               return std::string("Đã hủy hiệp tập.");
+                           });
         // 6. TOOL VÒNG QUAY QUYẾT ĐỊNH SỐ PHẬN (DECISION ROULETTE)
         mcp_server.AddTool(
             "self.fun.pick_random",
@@ -1025,6 +1100,8 @@ private:
             url.pop_back();
         auto http = GetNetwork()->CreateHttp(0);
         http->SetTimeout(3000);
+        http->SetHeader("Client-Id", GetUuid());
+        http->SetHeader("X-Music-Report", std::to_string(Application::GetInstance().MusicReport()));
         if (!http->Open("GET", url + "/health"))
             return ServiceStatus::Unverified;
         const auto code = http->GetStatusCode();

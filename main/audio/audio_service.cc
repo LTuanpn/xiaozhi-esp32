@@ -391,10 +391,6 @@ void AudioService::AudioOutputTask() {
             codec_->EnableOutput(true);
         }
 
-        if (task.playback_id != 0 && callbacks_.on_playback_progress) {
-            callbacks_.on_playback_progress(task.playback_id, task.media_position_ms);
-        }
-
         codec_->SelectOutput(task.output_kind);
         const auto level = ComputePcmLevel(task.pcm);
         output_level_.store(level, std::memory_order_relaxed);
@@ -405,6 +401,9 @@ void AudioService::AudioOutputTask() {
                              std::memory_order_relaxed);
 #endif
         codec_->OutputData(task.pcm);
+        if (task.playback_id != 0 && callbacks_.on_playback_progress) {
+            callbacks_.on_playback_progress(task.playback_id, task.media_position_ms);
+        }
 
         /* Update the last output time */
         last_output_time_ = std::chrono::steady_clock::now();

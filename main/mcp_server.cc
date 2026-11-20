@@ -39,7 +39,8 @@ void McpServer::AddCommonTools() {
 
     AddTool("self.get_device_status",
             "Provides the real-time information of the device, including the current status of the "
-            "audio speaker, screen, battery, network, etc.\n"
+            "audio speaker, screen, battery, network, etc. On Jarvis LCD use this for remaining "
+            "timer/workout seconds, guard, last alarm and music playback.\n"
             "Use this tool for: \n"
             "1. Answering questions about current condition (e.g. what is the current volume of "
             "the audio speaker?)\n"

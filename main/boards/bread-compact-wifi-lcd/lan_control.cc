@@ -93,6 +93,8 @@ bool Allowed(std::string_view name) {
         "self.audio_speaker.set_volume",
         "self.screen.set_brightness",
         "self.timer.set_countdown",
+        "self.timer.extend",
+        "self.alarm.dismiss",
         "self.security.guard_mode",
         "self.screen.set_emotion",
         "self.screen.set_standby",

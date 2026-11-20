@@ -129,7 +129,11 @@ public:
     AudioService& GetAudioService() { return audio_service_; }
     bool StartNotification(std::string audio_url, std::vector<NotifySubtitle> subtitles = {},
                            bool music = false);
-    void PrepareMusicRequest();
+    int PrepareMusicRequest();
+    bool AcceptsMusicRequest(int id) const;
+    const char* MusicStatus() const;
+    // Packed request id and phase can be sampled together by the Fleet worker.
+    uint32_t MusicReport() const { return music_report_.load(); }
     void CancelMusicRequest();
     // Call on main task. Embedded sound must outlive playback.
     bool StartLocalAlarm(std::vector<std::string_view> clips);
@@ -163,6 +167,10 @@ private:
     NotifyPlayer notify_player_;
     uint32_t notification_playback_id_ = 0;
     bool notification_is_music_ = false;
+    int music_request_id_ = 0;
+    int playing_request_id_ = 0;
+    std::atomic<uint32_t> music_report_{0};
+    bool music_output_started_ = false;
     bool music_cue_active_ = false;
     int64_t music_deadline_us_ = 0;
     std::string pending_music_url_;

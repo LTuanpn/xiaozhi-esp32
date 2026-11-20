@@ -3357,7 +3357,7 @@ bool PocketLcdDisplay::TryShowQrCode(const std::string& text, const std::string&
         lv_obj_set_pos(qr_canvas_, (width_ - kCanvasSize) / 2, (height_ - kCanvasSize) / 2);
         qr_url_label_ = lv_label_create(qr_container_);
         lv_obj_set_width(qr_url_label_, width_ - 12);
-        lv_label_set_long_mode(qr_url_label_, LV_LABEL_LONG_CLIP);
+        lv_label_set_long_mode(qr_url_label_, LV_LABEL_LONG_SCROLL_CIRCULAR);
         lv_obj_set_style_text_color(qr_url_label_, lv_color_black(), 0);
         lv_obj_set_style_text_align(qr_url_label_, LV_TEXT_ALIGN_CENTER, 0);
         lv_obj_set_pos(qr_url_label_, 6, height_ - 21);
@@ -3368,8 +3368,9 @@ bool PocketLcdDisplay::TryShowQrCode(const std::string& text, const std::string&
     lv_canvas_set_buffer(qr_canvas_, qr_cbuf_, kCanvasSize, kCanvasSize, LV_COLOR_FORMAT_RGB565);
     free(old);
     lv_label_set_text(qr_title_label_, title.empty() ? "QUET MA QR" : title.c_str());
-    lv_label_set_text(qr_url_label_, text.rfind("WIFI:", 0) == 0 ? "Quet de ket noi Wi-Fi"
-                                                                 : "Quet de mo lien ket");
+    lv_label_set_text(qr_url_label_, text.rfind("WIFI:", 0) == 0
+                                         ? "Mo Wi-Fi, chon ten tren | BOOT: thoat"
+                                         : "Quet de mo lien ket");
     lv_obj_remove_flag(qr_container_, LV_OBJ_FLAG_HIDDEN);
     lv_obj_move_foreground(qr_container_);
     lv_obj_invalidate(qr_canvas_);

@@ -15,6 +15,7 @@
 
 #include <driver/gpio.h>
 #include <esp_log.h>
+#include <esp_random.h>
 #include <arpa/inet.h>
 #include <cJSON.h>
 #include <algorithm>
@@ -97,6 +98,17 @@ void Application::Initialize() {
     };
     callbacks.on_playback_progress = [this](uint32_t playback_id, uint32_t media_position_ms) {
         notify_player_.OnPlaybackProgress(playback_id, media_position_ms);
+        if (media_position_ms == 0) {
+            Schedule([this, playback_id]() {
+                if (notification_playback_id_ == playback_id && notification_is_music_) {
+                    music_output_started_ = true;
+                    music_report_ = (uint32_t(playing_request_id_) << 4) | 3;
+                    ESP_LOGI(TAG, "Music output started, playback=%lu",
+                             static_cast<unsigned long>(playback_id));
+                    Board::GetInstance().GetDisplay()->SetEmotion("music");
+                }
+            });
+        }
     };
     audio_service_.SetCallbacks(callbacks);
 
@@ -306,6 +318,7 @@ void Application::Run() {
 
         if (bits & MAIN_EVENT_CLOCK_TICK) {
             CheckPhoneTalk();
+            Board::GetInstance().OnClockTick();
             CheckMusicRequest();
             if (IsAlarmActive() && next_alarm_clip_us_ != 0 &&
                 esp_timer_get_time() >= next_alarm_clip_us_) {
@@ -761,11 +774,6 @@ void Application::InitializeProtocol() {
                             notify_player_.IsActive()) {
                             return;
                         }
-                        if (message.find("chuẩn bị") == std::string::npos &&
-                            message.find("đang tìm") == std::string::npos &&
-                            message.find("Đang tìm") == std::string::npos) {
-                            music_deadline_us_ = 0;
-                        }
                         display->AddTextGlyphs(glyphs, bpp);
                         display->SetChatMessage("assistant", message.c_str());
                     });
@@ -788,10 +796,9 @@ void Application::InitializeProtocol() {
                         return;
                     display->AddTextGlyphs(glyphs, bpp);
                     display->SetChatMessage("user", message.c_str());
+                    CancelMusicRequest();
                     if (Board::GetInstance().SupportsMusicRequests() && IsMusicRequest(message))
                         PrepareMusicRequest();
-                    else
-                        CancelMusicRequest();
                 });
             }
         } else if (strcmp(type->valuestring, "llm") == 0) {
@@ -1456,25 +1463,52 @@ bool Application::StartNotification(std::string audio_url, std::vector<NotifySub
         pending_music_url_ = std::move(audio_url);
         return true;
     }
-    return StartPlayback(std::move(audio_url), std::move(subtitles), {}, music);
+    const int request = music_request_id_;
+    const bool accepted = StartPlayback(std::move(audio_url), std::move(subtitles), {}, music);
+    if (music) {
+        playing_request_id_ = request;
+        music_report_ = (uint32_t(request) << 4) | (accepted ? 2 : 5);
+    }
+    return accepted;
 }
 
-void Application::PrepareMusicRequest() {
+const char* Application::MusicStatus() const {
+    if (notification_is_music_)
+        return music_output_started_ ? "playing" : "opening";
+    if (!pending_music_url_.empty())
+        return "opening";
+    return music_deadline_us_ ? "searching" : "idle";
+}
+
+bool Application::AcceptsMusicRequest(int id) const {
+    return id > 0 && id == music_request_id_ && music_deadline_us_ > esp_timer_get_time();
+}
+
+int Application::PrepareMusicRequest() {
     const auto state = GetDeviceState();
-    if (music_deadline_us_ != 0 || music_cue_active_ ||
-        (state != kDeviceStateListening && state != kDeviceStateIdle) || IsAlarmActive())
-        return;
-    ESP_LOGI(TAG, "Waiting for Music MCP and stream URL");
+    if (AcceptsMusicRequest(music_request_id_))
+        return music_request_id_;
+    if ((state != kDeviceStateListening && state != kDeviceStateIdle &&
+         state != kDeviceStateSpeaking) ||
+        IsAlarmActive())
+        return 0;
+    music_request_id_ = static_cast<int>(esp_random() % 134217727U) + 1;
+    music_report_ = (uint32_t(music_request_id_) << 4) | 1;
+    ESP_LOGI(TAG, "Waiting for Music MCP and stream URL, request=%d", music_request_id_);
     music_deadline_us_ = esp_timer_get_time() + 24000000;
     Board::GetInstance().GetDisplay()->ShowNotification("Đang chuẩn bị nhạc…");
-    if (audio_service_.IsPlaybackIdle()) {
+    if (!music_cue_active_ && audio_service_.IsPlaybackIdle()) {
         music_cue_active_ = true;
         audio_service_.EnableVoiceProcessing(false);
         audio_service_.PlaySound(Lang::Sounds::OGG_MUSIC_PREPARE_VI);
     }
+    return music_request_id_;
 }
 
 void Application::CancelMusicRequest() {
+    if (music_request_id_)
+        music_report_ = (uint32_t(music_request_id_) << 4) | 6;
+    music_request_id_ = 0;
     music_deadline_us_ = 0;
     pending_music_url_.clear();
 }
@@ -1531,8 +1565,9 @@ bool Application::StartPlayback(std::string audio_url, std::vector<NotifySubtitl
         return false;
     }
     notification_is_music_ = music;
+    music_output_started_ = false;
     if (music)
-        board.GetDisplay()->SetEmotion("music");
+        board.GetDisplay()->ShowNotification("Đang mở luồng nhạc…", 1200);
     return true;
 }
 
@@ -1566,6 +1601,8 @@ bool Application::QueueNotificationClip(std::string audio_url,
 }
 
 void Application::StopNotification() {
+    if (notification_is_music_)
+        music_report_ = (uint32_t(playing_request_id_) << 4) | 6;
     alarm_active_ = false;
     alarm_clips_.clear();
     next_alarm_clip_us_ = 0;
@@ -1595,9 +1632,13 @@ void Application::HandleNotificationFinished(uint32_t playback_id, bool success)
         return;
     }
     const bool music = notification_is_music_;
+    const bool interrupted = music_output_started_;
     StopNotification();
+    if (music)
+        music_report_ = (uint32_t(playing_request_id_) << 4) | (success ? 4 : 5);
     if (!success && music) {
-        ReportMusicFailure("Không mở được luồng nhạc từ máy chủ.");
+        ReportMusicFailure(interrupted ? "Luồng nhạc vừa bị ngắt."
+                                       : "Không mở được luồng nhạc từ máy chủ.");
     } else if (!success) {
         // Show after the idle state handler clears the previous conversation.
         Schedule([]() {
