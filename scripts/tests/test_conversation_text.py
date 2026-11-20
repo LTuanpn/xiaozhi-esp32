@@ -21,6 +21,8 @@ int main() {
     assert(CleanAssistantText("%emotion:happy").empty());
     assert(CleanAssistantText("  %TOOL {...}\r\nĐã bật đèn.") == "Đã bật đèn.");
     assert(CleanAssistantText("Đã bật đèn. %mcp.self.light") == "Đã bật đèn.");
+    assert(CleanAssistantText("% self.screen.open_lan_control...").empty());
+    assert(CleanAssistantText("Đang tìm nhạc. % play_song(...)") == "Đang tìm nhạc.");
     assert(CleanAssistantText("Âm lượng 30%.") == "Âm lượng 30%.");
     std::deque<std::string> recent;
     assert(RememberAssistantSentence(recent, "Đã bật đèn."));

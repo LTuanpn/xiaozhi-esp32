@@ -492,7 +492,9 @@ private:
         // 2. TOOL GHIM GHI CHÚ / HIỂN THỊ IP, WIFI, MÃ QR
         mcp_server.AddTool(
             "self.screen.pin_memo",
-            "Ghim ghi chú lên màn hình. ĐẶC BIỆT: Khi người dùng hỏi hoặc muốn xem IP, WiFi hoặc mã QR cấu hình, hãy gọi tool này với text='ip', 'wifi' hoặc 'qr' để phần cứng tự động trích xuất thông tin thật và hiển thị lên màn hình đồng thời trả về kết quả cho bạn.",
+            "Ghim ghi chú hoặc hiển thị IP (text='ip') lên màn hình. "
+            "Để kiểm tra kết nối Wi-Fi, OTA hoặc MCP Music, dùng self.network.check. "
+            "Để mở QR, dùng các tool QR chuyên dụng.",
             PropertyList({
                 Property("text", kPropertyTypeString, ""),
                 Property("duration_seconds", kPropertyTypeInteger, 600, 10, 3600)

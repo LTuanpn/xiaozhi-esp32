@@ -18,14 +18,17 @@ inline std::string CleanAssistantText(std::string_view text) {
         const auto end = text.find('\n');
         auto line = text.substr(0, end);
         for (size_t pos = 0; (pos = line.find('%', pos)) != std::string_view::npos; ++pos) {
-            auto marker = line.substr(pos, 8);
-            std::string lower(marker);
+            const auto command = TrimConversationText(line.substr(pos + 1));
+            std::string lower(command.substr(0, 18));
             for (auto& c : lower) {
                 if (c >= 'A' && c <= 'Z')
                     c += 'a' - 'A';
             }
-            if (lower.starts_with("%emotion") || lower.starts_with("%tool") ||
-                lower.starts_with("%mcp")) {
+            if (lower.starts_with("emotion") || lower.starts_with("tool") ||
+                lower.starts_with("mcp") || lower.starts_with("self.") ||
+                lower.starts_with("play_song") || lower.starts_with("play_youtube_music") ||
+                lower.starts_with("play_zing_mp3") || lower.starts_with("stop_music") ||
+                lower.starts_with("search_music") || lower.starts_with("get_player_status")) {
                 line = line.substr(0, pos);
                 break;
             }
