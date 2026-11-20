@@ -4,6 +4,7 @@
 #include "audio_codec.h"
 #include "board.h"
 #include "cjson_utils.h"
+#include "conversation_text.h"
 #include "display.h"
 #include "mcp_server.h"
 #include "mqtt_protocol.h"
@@ -19,6 +20,7 @@
 #include <algorithm>
 #include <cstring>
 #include <limits>
+#include <utility>
 
 #define TAG "Application"
 
@@ -233,6 +235,18 @@ void Application::Run() {
         if (bits & MAIN_EVENT_PLAYBACK_DRAINED) {
             if (audio_service_.IsPlaybackIdle()) {
                 notify_player_.OnPlaybackDrained();
+                if (music_cue_active_) {
+                    music_cue_active_ = false;
+                    if (!pending_music_url_.empty()) {
+                        auto url = std::exchange(pending_music_url_, {});
+                        if (!StartNotification(std::move(url), {}, true))
+                            ReportMusicFailure("Robot chưa thể mở luồng nhạc.");
+                    } else if (GetDeviceState() == kDeviceStateListening &&
+                               !pending_listening_start_) {
+                        audio_service_.EnableVoiceProcessing(true);
+                        ConfigureWakeWordForListening();
+                    }
+                }
             }
             // Deferred listening start (auto mode): the playback queue has
             // drained, so it is now safe to enable voice processing.
@@ -292,6 +306,7 @@ void Application::Run() {
 
         if (bits & MAIN_EVENT_CLOCK_TICK) {
             CheckPhoneTalk();
+            CheckMusicRequest();
             if (IsAlarmActive() && next_alarm_clip_us_ != 0 &&
                 esp_timer_get_time() >= next_alarm_clip_us_) {
                 next_alarm_clip_us_ = 0;
@@ -615,7 +630,7 @@ void Application::InitializeProtocol() {
     });
 
     protocol_->OnIncomingAudio([this](std::unique_ptr<AudioStreamPacket> packet) {
-        if (GetDeviceState() == kDeviceStateSpeaking) {
+        if (GetDeviceState() == kDeviceStateSpeaking && !suppress_cloud_audio_.load()) {
             audio_service_.PushPacketToDecodeQueue(std::move(packet));
         }
     });
@@ -651,6 +666,11 @@ void Application::InitializeProtocol() {
         if (!cJSON_IsString(type)) {
             ESP_LOGW(TAG, "Incoming JSON message has no type");
             return;
+        }
+        auto session = cJSON_GetObjectItem(root, "session_id");
+        if (cJSON_IsString(session) && tts_session_ != session->valuestring) {
+            tts_session_ = session->valuestring;
+            recent_tts_sentences_.clear();
         }
         if (strcmp(type->valuestring, "notify") == 0) {
             auto audio_url = cJSON_GetObjectItem(root, "audio_url");
@@ -691,6 +711,7 @@ void Application::InitializeProtocol() {
                 return;
             }
             if (strcmp(state->valuestring, "start") == 0) {
+                suppress_cloud_audio_ = false;
                 Schedule([this]() {
                     if (conversation_paused_ || GetDeviceState() == kDeviceStateNotifying ||
                         notify_player_.IsActive()) {
@@ -719,17 +740,31 @@ void Application::InitializeProtocol() {
                 }
                 auto text = cJSON_GetObjectItem(root, "text");
                 if (cJSON_IsString(text)) {
+                    auto message = CleanAssistantText(text->valuestring);
+                    suppress_cloud_audio_ =
+                        !RememberAssistantSentence(recent_tts_sentences_, message);
+                    if (suppress_cloud_audio_.load()) {
+                        ESP_LOGI(TAG, "%s",
+                                 message.empty() ? "Ignored internal assistant directive"
+                                                 : "Ignored repeated reply in this turn");
+                        return;
+                    }
                     std::vector<TextGlyph> glyphs;
                     uint8_t bpp = 0;
                     if (!TextGlyphPayload::Parse(root, glyphs, bpp)) {
                         glyphs.clear();
                     }
-                    ESP_LOGI(TAG, "<< %s", text->valuestring);
-                    Schedule([this, display, message = std::string(text->valuestring),
+                    ESP_LOGI(TAG, "<< %s", message.c_str());
+                    Schedule([this, display, message = std::move(message),
                               glyphs = std::move(glyphs), bpp]() {
                         if (conversation_paused_ || GetDeviceState() == kDeviceStateNotifying ||
                             notify_player_.IsActive()) {
                             return;
+                        }
+                        if (message.find("chuẩn bị") == std::string::npos &&
+                            message.find("đang tìm") == std::string::npos &&
+                            message.find("Đang tìm") == std::string::npos) {
+                            music_deadline_us_ = 0;
                         }
                         display->AddTextGlyphs(glyphs, bpp);
                         display->SetChatMessage("assistant", message.c_str());
@@ -739,6 +774,8 @@ void Application::InitializeProtocol() {
         } else if (strcmp(type->valuestring, "stt") == 0) {
             auto text = cJSON_GetObjectItem(root, "text");
             if (cJSON_IsString(text)) {
+                recent_tts_sentences_.clear();
+                suppress_cloud_audio_ = false;
                 std::vector<TextGlyph> glyphs;
                 uint8_t bpp = 0;
                 if (!TextGlyphPayload::Parse(root, glyphs, bpp)) {
@@ -751,6 +788,10 @@ void Application::InitializeProtocol() {
                         return;
                     display->AddTextGlyphs(glyphs, bpp);
                     display->SetChatMessage("user", message.c_str());
+                    if (Board::GetInstance().SupportsMusicRequests() && IsMusicRequest(message))
+                        PrepareMusicRequest();
+                    else
+                        CancelMusicRequest();
                 });
             }
         } else if (strcmp(type->valuestring, "llm") == 0) {
@@ -1384,6 +1425,7 @@ void Application::ConfigureWakeWordForListening() {
 void Application::EndConversation() {
     if (IsAlarmActive())
         return;
+    CancelMusicRequest();
     if (phone_session_)
         CancelPhoneTalk(phone_session_);
     // Main-task operation: notify the peer before changing the local state.
@@ -1407,7 +1449,50 @@ bool Application::StartNotification(std::string audio_url, std::vector<NotifySub
     if (IsAlarmActive() ||
         (!audio_url.starts_with("http://") && !audio_url.starts_with("https://")))
         return false;
+    if (music && music_cue_active_ && !audio_service_.IsPlaybackIdle() && subtitles.empty()) {
+        if (!pending_music_url_.empty())
+            return false;
+        music_deadline_us_ = 0;
+        pending_music_url_ = std::move(audio_url);
+        return true;
+    }
     return StartPlayback(std::move(audio_url), std::move(subtitles), {}, music);
+}
+
+void Application::PrepareMusicRequest() {
+    const auto state = GetDeviceState();
+    if (music_deadline_us_ != 0 || music_cue_active_ ||
+        (state != kDeviceStateListening && state != kDeviceStateIdle) || IsAlarmActive())
+        return;
+    ESP_LOGI(TAG, "Waiting for Music MCP and stream URL");
+    music_deadline_us_ = esp_timer_get_time() + 24000000;
+    Board::GetInstance().GetDisplay()->ShowNotification("Đang chuẩn bị nhạc…");
+    if (audio_service_.IsPlaybackIdle()) {
+        music_cue_active_ = true;
+        audio_service_.EnableVoiceProcessing(false);
+        audio_service_.PlaySound(Lang::Sounds::OGG_MUSIC_PREPARE_VI);
+    }
+}
+
+void Application::CancelMusicRequest() {
+    music_deadline_us_ = 0;
+    pending_music_url_.clear();
+}
+
+void Application::CheckMusicRequest() {
+    if (music_deadline_us_ == 0 || esp_timer_get_time() < music_deadline_us_)
+        return;
+    if (GetDeviceState() == kDeviceStateSpeaking)
+        return;
+    CancelMusicRequest();
+    if (GetDeviceState() == kDeviceStateListening || GetDeviceState() == kDeviceStateIdle)
+        ReportMusicFailure("Chưa nhận được phản hồi từ máy chủ nhạc.");
+}
+
+void Application::ReportMusicFailure(const char* message) {
+    ESP_LOGW(TAG, "%s", message);
+    StartPlayback({}, {}, Lang::Sounds::OGG_MUSIC_UNAVAILABLE_VI);
+    Board::GetInstance().GetDisplay()->ShowNotification(message, 6000);
 }
 
 bool Application::StartLocalAlarm(std::vector<std::string_view> clips) {
@@ -1445,6 +1530,9 @@ bool Application::StartPlayback(std::string audio_url, std::vector<NotifySubtitl
         StopNotification();
         return false;
     }
+    notification_is_music_ = music;
+    if (music)
+        board.GetDisplay()->SetEmotion("music");
     return true;
 }
 
@@ -1481,6 +1569,7 @@ void Application::StopNotification() {
     alarm_active_ = false;
     alarm_clips_.clear();
     next_alarm_clip_us_ = 0;
+    notification_is_music_ = false;
     notify_player_.Stop();
     audio_service_.ResetDecoder();
     auto& board = Board::GetInstance();
@@ -1505,8 +1594,11 @@ void Application::HandleNotificationFinished(uint32_t playback_id, bool success)
         next_alarm_clip_us_ = esp_timer_get_time() + 3000000;
         return;
     }
+    const bool music = notification_is_music_;
     StopNotification();
-    if (!success) {
+    if (!success && music) {
+        ReportMusicFailure("Không mở được luồng nhạc từ máy chủ.");
+    } else if (!success) {
         // Show after the idle state handler clears the previous conversation.
         Schedule([]() {
             auto& app = Application::GetInstance();

@@ -84,7 +84,7 @@ std::unique_ptr<Http> Ota::SetupHttp() {
 /* 
  * Specification: https://ccnphfhqs21z.feishu.cn/wiki/FjW6wZmisimNBBkov6OcmfvknVd
  */
-NetworkResult<> Ota::CheckVersion(const std::string& url) {
+NetworkResult<> Ota::CheckVersion(const std::string& url, bool apply_config) {
     auto& board = Board::GetInstance();
     auto app_desc = esp_app_get_description();
 
@@ -131,6 +131,16 @@ NetworkResult<> Ota::CheckVersion(const std::string& url) {
         cJSON_Delete(root);
         ESP_LOGE(TAG, "Failed to parse JSON response");
         return std::unexpected(NetworkError::ProtocolError());
+    }
+    if (!apply_config) {
+        const auto* firmware = cJSON_GetObjectItem(root, "firmware");
+        const auto* version = cJSON_GetObjectItem(firmware, "version");
+        if (cJSON_IsString(version)) {
+            firmware_version_ = version->valuestring;
+            has_new_version_ = IsNewVersionAvailable(current_version_, firmware_version_);
+        }
+        cJSON_Delete(root);
+        return {};
     }
     checked_url_ = url;
 

@@ -15,7 +15,7 @@ public:
     Ota();
     ~Ota();
 
-    NetworkResult<> CheckVersion(const std::string& url);
+    NetworkResult<> CheckVersion(const std::string& url, bool apply_config = true);
     esp_err_t Activate();
     bool HasActivationChallenge() { return has_activation_challenge_; }
     bool HasNewVersion() { return has_new_version_; }

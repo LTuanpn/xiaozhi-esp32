@@ -82,6 +82,7 @@ public:
     virtual void SetPowerSaveLevel(PowerSaveLevel level) = 0;
     virtual std::string GetBoardJson() = 0;
     virtual size_t ReservedAssetsTail() const { return 0; }
+    virtual bool SupportsMusicRequests() const { return false; }
     virtual void ApplyFleetExpressions(const std::string& url, const std::string& digest) {}
     virtual std::string GetDeviceStatusJson() = 0;
 };

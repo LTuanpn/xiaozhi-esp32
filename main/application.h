@@ -129,6 +129,8 @@ public:
     AudioService& GetAudioService() { return audio_service_; }
     bool StartNotification(std::string audio_url, std::vector<NotifySubtitle> subtitles = {},
                            bool music = false);
+    void PrepareMusicRequest();
+    void CancelMusicRequest();
     // Call on main task. Embedded sound must outlive playback.
     bool StartLocalAlarm(std::vector<std::string_view> clips);
     bool IsAlarmActive() const { return alarm_active_.load(); }
@@ -160,6 +162,13 @@ private:
     AudioService audio_service_;
     NotifyPlayer notify_player_;
     uint32_t notification_playback_id_ = 0;
+    bool notification_is_music_ = false;
+    bool music_cue_active_ = false;
+    int64_t music_deadline_us_ = 0;
+    std::string pending_music_url_;
+    std::deque<std::string> recent_tts_sentences_;
+    std::string tts_session_;
+    std::atomic_bool suppress_cloud_audio_{false};
     std::vector<std::string_view> alarm_clips_;
     std::atomic_bool alarm_active_{false};
     size_t alarm_clip_index_ = 0;
@@ -208,6 +217,8 @@ private:
     bool QueueNotificationClip(std::string audio_url, std::vector<NotifySubtitle> subtitles,
                                std::string_view local_audio, bool music = false);
     void HandleNotificationFinished(uint32_t playback_id, bool success);
+    void CheckMusicRequest();
+    void ReportMusicFailure(const char* message);
 
     // Activation task (runs in background)
     void ActivationTask();

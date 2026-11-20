@@ -409,6 +409,25 @@ private:
         static LampController lamp(LAMP_GPIO);
 #endif
         auto& mcp_server = McpServer::GetInstance();
+        mcp_server.AddTool(
+            "self.network.check",
+            "Kiểm tra kết nối thật của robot. 'kiểm tra Wi-Fi', 'kiểm tra OTA', 'kiểm tra MCP "
+            "Music' "
+            "gọi tool này với service lần lượt là wifi, ota, music. Dùng all khi hỏi chung. "
+            "Đọc kết quả một lần, không suy đoán hay cài bản cập nhật.",
+            PropertyList({Property("service", kPropertyTypeString, "all")}),
+            [this](const PropertyList& properties) -> ToolResult {
+                return CheckConnections(properties["service"].value<std::string>());
+            },
+            true);
+        mcp_server.AddTool(
+            "self.audio.prepare_music",
+            "Báo một lần rằng robot đang chuẩn bị nhạc. Gọi trước play_song nếu người dùng "
+            "muốn phát nhạc, rồi tiếp tục tìm bài. Robot tự nói câu chuẩn bị, không nói lặp.",
+            PropertyList(), [](const PropertyList&) -> ReturnValue {
+                Application::GetInstance().PrepareMusicRequest();
+                return "Đã báo chuẩn bị. Tiếp tục gọi play_song trong cùng lượt.";
+            });
 
         // 1. TOOL ĐẾM NGƯỢC / BÁO THỨC POMODORO TRỰC TIẾP TRÊN MẠCH
         mcp_server.AddTool(
@@ -573,19 +592,15 @@ private:
             "Phát âm thanh/nhạc trực tiếp từ một đường dẫn URL (HTTP/HTTPS luồng Ogg Opus). "
             "Khi cần phát bài hát hoặc âm thanh từ server nhạc, hãy gọi tool này với tham số url.",
             PropertyList({Property("url", kPropertyTypeString, "")}),
-            [this](const PropertyList& properties) -> ReturnValue {
+            [](const PropertyList& properties) -> ToolResult {
                 std::string url = properties["url"].value<std::string>();
-                if (url.empty()) {
-                    return "Lỗi: url không được để trống";
-                }
+                if (url.empty())
+                    return std::unexpected("Chưa có đường dẫn phát nhạc.");
                 auto& app = Application::GetInstance();
-                const bool accepted = app.StartNotification(url, {}, true);
-                if (accepted && display_)
-                    display_->SetEmotion("music");
-                return accepted ? "Đã tiếp nhận luồng nhạc; đang kết nối."
-                                : "Không thể bắt đầu luồng nhạc.";
-            }
-        );
+                if (!app.StartNotification(std::move(url), {}, true))
+                    return std::unexpected("Robot chưa thể mở luồng nhạc.");
+                return "Robot đang mở luồng. Kết thúc lượt, không nói đè nhạc.";
+            });
 
         mcp_server.AddUserOnlyTool(
             "self.audio.get_mic_status", "Inspect the current microphone and wake word state.",
@@ -612,6 +627,7 @@ private:
                 app.Schedule([this, &app]() {
                     if (app.IsAlarmActive())
                         return;
+                    app.CancelMusicRequest();
                     app.StopNotification();
                     if (display_ != nullptr) {
                         display_->SetEmotion("neutral");
@@ -999,44 +1015,91 @@ private:
             "serial_cli_lcd", 4096, display_, 1, nullptr);
     }
 
+    ServiceStatus CheckMusicStatus(std::string url) {
+        const auto path = url.find("/fleet/ota/");
+        if (path == std::string::npos || url.find_first_of("?#", path) != std::string::npos)
+            return ServiceStatus::Unverified;
+        while (url.ends_with('/'))
+            url.pop_back();
+        auto http = GetNetwork()->CreateHttp(0);
+        http->SetTimeout(3000);
+        if (!http->Open("GET", url + "/health"))
+            return ServiceStatus::Unverified;
+        const auto code = http->GetStatusCode();
+        const auto size = http->GetBodyLength();
+        const auto result =
+            code && *code == 200 && size > 0 && size <= 15 ? http->ReadAll() : std::string();
+        http->Close();
+        if (result == "online")
+            return ServiceStatus::Online;
+        if (result == "connecting")
+            return ServiceStatus::Connecting;
+        if (result == "offline")
+            return ServiceStatus::Offline;
+        return ServiceStatus::Unverified;
+    }
+
+    ToolResult CheckConnections(const std::string& service) {
+        if (service != "wifi" && service != "ota" && service != "music" && service != "all")
+            return std::unexpected("Chọn wifi, ota, music hoặc all.");
+        auto& wifi = WifiManager::GetInstance();
+        const auto ip = wifi.IsConnected() ? wifi.GetIpAddress() : std::string();
+        const bool connected = !ip.empty() && ip != "0.0.0.0";
+        if (!connected)
+            return std::string("Robot chưa có kết nối Wi-Fi, nên chưa thể kiểm tra các máy chủ.");
+        std::string reply;
+        if (service == "wifi" || service == "all") {
+            reply = "Wi-Fi đã kết nối, địa chỉ IP " + ip + ", tín hiệu " +
+                    std::to_string(wifi.GetRssi()) + " dBm.";
+        }
+        if (service == "ota" || service == "all") {
+            Ota check;
+            auto result = check.CheckVersion(Ota::GetCheckVersionUrl(), false);
+            display_->SetServiceStatus(DisplayService::Ota,
+                                       result ? ServiceStatus::Online : ServiceStatus::Offline);
+            if (!reply.empty())
+                reply += ' ';
+            if (!result)
+                reply += "Không nhận được phản hồi OTA hợp lệ.";
+            else if (check.HasNewVersion())
+                reply += "OTA phản hồi, có bản " + check.GetFirmwareVersion() + ".";
+            else
+                reply += "OTA phản hồi, hiện không có bản mới.";
+        }
+        if (service == "music" || service == "all") {
+            const auto state = CheckMusicStatus(Ota::GetCheckVersionUrl());
+            display_->SetServiceStatus(DisplayService::MusicMcp, state);
+            if (!reply.empty())
+                reply += ' ';
+            switch (state) {
+                case ServiceStatus::Online:
+                    reply += "Fleet xác nhận MCP Music đang kết nối.";
+                    break;
+                case ServiceStatus::Connecting:
+                    reply += "MCP Music đang kết nối lại.";
+                    break;
+                case ServiceStatus::Offline:
+                    reply += "MCP Music đang mất kết nối với Xiaozhi Cloud.";
+                    break;
+                default:
+                    reply += "Chưa xác minh được MCP Music qua Fleet.";
+                    break;
+            }
+        }
+        return reply;
+    }
+
     void StartMusicStatusMonitor() {
         if (xTaskCreate(
                 [](void* arg) {
                     auto& board = *static_cast<CompactWifiBoardLCD*>(arg);
-                    std::string previous_url;
                     while (true) {
                         vTaskDelay(pdMS_TO_TICKS(15000));
                         if (!WifiManager::GetInstance().IsConnected())
                             continue;
-                        auto url = Ota::GetCheckVersionUrl();
-                        auto state = ServiceStatus::Unverified;
-                        auto path = url.find("/fleet/ota/");
-                        if (path != std::string::npos &&
-                            url.find_first_of("?#", path) == std::string::npos) {
-                            while (url.ends_with('/'))
-                                url.pop_back();
-                            if (url != previous_url)
-                                board.display_->SetServiceStatus(DisplayService::MusicMcp,
-                                                                 ServiceStatus::Connecting);
-                            auto http = board.GetNetwork()->CreateHttp(0);
-                            http->SetTimeout(3000);
-                            if (http->Open("GET", url + "/health")) {
-                                const auto code = http->GetStatusCode();
-                                const auto size = http->GetBodyLength();
-                                if (code && *code == 200 && size > 0 && size <= 15) {
-                                    const auto result = http->ReadAll();
-                                    if (result == "online")
-                                        state = ServiceStatus::Online;
-                                    else if (result == "connecting")
-                                        state = ServiceStatus::Connecting;
-                                    else if (result == "offline")
-                                        state = ServiceStatus::Offline;
-                                }
-                            }
-                            http->Close();
-                        }
-                        previous_url = std::move(url);
-                        board.display_->SetServiceStatus(DisplayService::MusicMcp, state);
+                        board.display_->SetServiceStatus(
+                            DisplayService::MusicMcp,
+                            board.CheckMusicStatus(Ota::GetCheckVersionUrl()));
                     }
                 },
                 "mcp_health", 4096, this, 1, nullptr) != pdPASS) {
@@ -1045,6 +1108,8 @@ private:
     }
 
 public:
+    bool SupportsMusicRequests() const override { return true; }
+
     size_t ReservedAssetsTail() const override {
         return display_ && display_->width() == 240 && display_->height() == 240
                    ? ExpressionPack::kReserved : 0;

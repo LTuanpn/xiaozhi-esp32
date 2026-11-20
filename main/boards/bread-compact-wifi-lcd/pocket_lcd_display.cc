@@ -2,6 +2,7 @@
 #include "pocket_lcd_display.h"
 #include "application.h"
 #include "assets/lang_config.h"
+#include "conversation_text.h"
 #include "display/lvgl_display/lvgl_theme.h"
 #include "qrcodegen.h"
 #include <ctime>
@@ -34,14 +35,6 @@ namespace {
 
 constexpr uint32_t kAnimationPeriodMs = 50;  // 20 FPS
 constexpr uint32_t kAutoSleepTimeoutTicks = 3600;  // ~3 minutes
-
-bool IsToolDirective(std::string_view line) {
-    const auto start = line.find_first_not_of(" \t\r");
-    if (start == std::string_view::npos)
-        return false;
-    line.remove_prefix(start);
-    return line.starts_with("%emotion") || line.starts_with("%tool") || line.starts_with("%mcp");
-}
 
 inline int Ease(int current, int target) {
     int diff = target - current;
@@ -740,26 +733,11 @@ void PocketLcdDisplay::SetChatMessage(const char* role, const char* content) {
         return;
     }
 
-    std::string raw_text = content;
-    if (role != nullptr && std::strcmp(role, "assistant") == 0) {
-        std::string visible;
-        std::string_view text = raw_text;
-        while (!text.empty()) {
-            const auto end = text.find('\n');
-            const auto line = text.substr(0, end);
-            if (!IsToolDirective(line)) {
-                if (!visible.empty())
-                    visible += '\n';
-                visible += line;
-            }
-            if (end == std::string_view::npos)
-                break;
-            text.remove_prefix(end + 1);
-        }
-        if (visible.find_first_not_of(" \t\r\n") == std::string::npos)
-            return;
-        raw_text = std::move(visible);
-    }
+    const bool assistant =
+        role && (std::strcmp(role, "assistant") == 0 || std::strcmp(role, "system") == 0);
+    std::string raw_text = assistant ? CleanAssistantText(content) : content;
+    if (raw_text.empty())
+        return;
     std::string clean_text;
     std::string target_emotion;
     clean_text.reserve(raw_text.size());

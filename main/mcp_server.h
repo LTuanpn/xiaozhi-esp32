@@ -264,17 +264,23 @@ private:
     PropertyList properties_;
     ToolCallback callback_;
     bool user_only_ = false;
+    bool background_ = false;
 
 public:
     McpTool(const std::string& name, const std::string& description, const PropertyList& properties,
-            ToolCallback callback)
-        : name_(name), description_(description), properties_(properties), callback_(callback) {}
+            ToolCallback callback, bool background = false)
+        : name_(name),
+          description_(description),
+          properties_(properties),
+          callback_(std::move(callback)),
+          background_(background) {}
 
     void set_user_only(bool user_only) { user_only_ = user_only; }
     inline const std::string& name() const { return name_; }
     inline const std::string& description() const { return description_; }
     inline const PropertyList& properties() const { return properties_; }
     inline bool user_only() const { return user_only_; }
+    inline bool background() const { return background_; }
 
     std::string to_json() const {
         std::vector<std::string> required = properties_.GetRequired();
@@ -437,7 +443,7 @@ public:
     void LogToolInventory() const;
     void AddTool(std::unique_ptr<McpTool> tool);
     void AddTool(const std::string& name, const std::string& description,
-                 const PropertyList& properties, ToolCallback callback);
+                 const PropertyList& properties, ToolCallback callback, bool background = false);
     void AddUserOnlyTool(const std::string& name, const std::string& description,
                          const PropertyList& properties, ToolCallback callback);
     void ParseMessage(const cJSON* json, ResponseSender response_sender = nullptr);
@@ -461,6 +467,7 @@ private:
                     ResponseSender response_sender);
 
     std::vector<std::unique_ptr<McpTool>> tools_;
+    bool background_busy_ = false;  // Accessed on the application task.
 };
 
 #endif  // MCP_SERVER_H

@@ -373,8 +373,9 @@ void McpServer::AddTool(std::unique_ptr<McpTool> tool) {
 }
 
 void McpServer::AddTool(const std::string& name, const std::string& description,
-                        const PropertyList& properties, ToolCallback callback) {
-    AddTool(std::make_unique<McpTool>(name, description, properties, std::move(callback)));
+                        const PropertyList& properties, ToolCallback callback, bool background) {
+    AddTool(
+        std::make_unique<McpTool>(name, description, properties, std::move(callback), background));
 }
 
 void McpServer::AddUserOnlyTool(const std::string& name, const std::string& description,
@@ -655,16 +656,52 @@ void McpServer::DoToolCall(int id, const std::string& tool_name, const cJSON* to
         }
     }
 
-    // Use main thread to call the tool
     auto& app = Application::GetInstance();
     app.Schedule([this, id, tool, arguments = std::move(arguments),
-                  response_sender = std::move(response_sender)]() {
-        auto result = tool->Call(arguments);
-        if (!result) {
-            ESP_LOGE(TAG, "tools/call: %s", result.error().c_str());
-            ReplyError(id, result.error(), response_sender);
+                  response_sender = std::move(response_sender)]() mutable {
+        auto execute = [this, id, tool, &app = Application::GetInstance(),
+                        arguments = std::move(arguments), response_sender]() {
+            auto result = tool->Call(arguments);
+            auto reply = [this, id, result = std::move(result), response_sender,
+                          background = tool->background()]() {
+                if (background)
+                    background_busy_ = false;
+                if (result) {
+                    ReplyResult(id, *result, response_sender);
+                } else {
+                    ESP_LOGE(TAG, "tools/call: %s", result.error().c_str());
+                    ReplyError(id, result.error(), response_sender);
+                }
+            };
+            if (tool->background()) {
+                app.Schedule(std::move(reply));
+            } else {
+                reply();
+            }
+        };
+        if (!tool->background()) {
+            execute();
             return;
         }
-        ReplyResult(id, *result, response_sender);
+        if (background_busy_) {
+            ReplyError(id, "Robot đang kiểm tra kết nối. Thử lại sau giây lát.", response_sender);
+            return;
+        }
+        auto job = std::make_unique<std::function<void()>>(std::move(execute));
+        background_busy_ = true;
+        if (xTaskCreate(
+                [](void* arg) {
+                    std::unique_ptr<std::function<void()>> work(
+                        static_cast<std::function<void()>*>(arg));
+                    (*work)();
+                    work.reset();
+                    vTaskDelete(nullptr);
+                },
+                "mcp_check", 8192, job.get(), 2, nullptr) == pdPASS) {
+            job.release();
+        } else {
+            background_busy_ = false;
+            ReplyError(id, "Không thể khởi động kiểm tra kết nối.", response_sender);
+        }
     });
 }
