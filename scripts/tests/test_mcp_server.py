@@ -68,6 +68,14 @@ class McpServerTest(unittest.TestCase):
                     void SetString(const std::string&, const std::string&) {}
                 };
                 inline void vTaskDelay(int) { std::abort(); }
+                inline constexpr int pdPASS = 1;
+                inline std::function<void()> background_task;
+                inline int xTaskCreate(void (*task)(void*), const char*, unsigned, void* arg,
+                                       unsigned, void**) {
+                    background_task = [task, arg] { task(arg); };
+                    return pdPASS;
+                }
+                inline void vTaskDelete(void*) {}
                 #define pdMS_TO_TICKS(value) (value)
             ''',
             "esp_system.h": r'''
@@ -128,6 +136,8 @@ class McpServerTest(unittest.TestCase):
                     [](const PropertyList& args) -> ToolResult {
                         return std::unexpected(args["message"].value<std::string>());
                     });
+                server.AddTool("test.background", "Return from a worker", PropertyList(),
+                    [](const PropertyList&) -> ReturnValue { return "online"; }, true);
                 McpServer::ResponseSender sender;
                 if (argc > 1) {
                     sender = [](const std::string& payload) {
@@ -138,6 +148,11 @@ class McpServerTest(unittest.TestCase):
                 while (std::getline(std::cin, request)) {
                     server.ParseMessage(request, sender);
                     Application::GetInstance().Drain();
+                    if (background_task) {
+                        auto run = std::exchange(background_task, {});
+                        run();
+                        Application::GetInstance().Drain();
+                    }
                 }
             }
         '''), encoding="utf-8")
@@ -155,7 +170,7 @@ class McpServerTest(unittest.TestCase):
             raise unittest.SkipTest("requires C++23, cJSON and mbedTLS development headers: "
                                     + probe.stderr)
         cls.executable = build / "mcp_test"
-        subprocess.run(
+        compiled = subprocess.run(
             compiler + ["-std=c++23", "-fno-exceptions", *cjson_flags,
                         f"-I{build}", f"-I{ROOT / 'main'}",
                         f"-I{ROOT / 'main/boards/common'}",
@@ -163,8 +178,10 @@ class McpServerTest(unittest.TestCase):
                         str(ROOT / "main/mcp_server.cc"),
                         str(ROOT / "main/boards/common/press_to_talk_mcp_tool.cc"),
                         *libs, "-o", str(cls.executable)],
-            check=True, capture_output=True, text=True,
+            capture_output=True, text=True,
         )
+        if compiled.returncode:
+            raise RuntimeError(compiled.stderr)
 
     def responses(self, requests, custom_sender=True):
         process = subprocess.run(
@@ -200,6 +217,14 @@ class McpServerTest(unittest.TestCase):
                     request = self.call(42, "test.error", {"message": message})
                     response, = self.responses([request], custom_sender)
                     self.assert_error(response, 42, -32603, message)
+
+    def test_background_tool_releases_slot_and_responds_once(self):
+        requests = [self.call(request_id, "test.background", {}) for request_id in (7, 8)]
+        for custom_sender in (True, False):
+            responses = self.responses(requests, custom_sender)
+            for request, response in zip(requests, responses):
+                self.assertEqual(response, {"jsonrpc": "2.0", "id": request["id"],
+                    "result": {"isError": False, "content": [{"type": "text", "text": "online"}]}})
 
     def test_real_press_to_talk_error_and_subsequent_success(self):
         mode = '"press_to_talk"'
