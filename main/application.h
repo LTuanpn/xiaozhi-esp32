@@ -131,7 +131,7 @@ public:
                            bool music = false);
     // Call on main task. Embedded sound must outlive playback.
     bool StartLocalAlarm(std::vector<std::string_view> clips);
-    bool IsAlarmActive() const { return !alarm_clips_.empty(); }
+    bool IsAlarmActive() const { return alarm_active_.load(); }
     void EndConversation();
     void StopNotification();
 
@@ -161,6 +161,7 @@ private:
     NotifyPlayer notify_player_;
     uint32_t notification_playback_id_ = 0;
     std::vector<std::string_view> alarm_clips_;
+    std::atomic_bool alarm_active_{false};
     size_t alarm_clip_index_ = 0;
     int64_t next_alarm_clip_us_ = 0;
     std::unique_ptr<Ota> ota_;

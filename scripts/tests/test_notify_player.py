@@ -15,6 +15,7 @@ class NotifyPlayerTest(unittest.TestCase):
             'freertos/FreeRTOS.h': '''#pragma once
 using UBaseType_t = unsigned; using BaseType_t = int; using TaskHandle_t = void*;
 constexpr int pdPASS = 1;
+constexpr int pdMS_TO_TICKS(int ms) { return ms; }
 ''',
             'freertos/task.h': '''#pragma once
 #include "FreeRTOS.h"
@@ -24,6 +25,7 @@ inline int xTaskCreate(void (*fn)(void*), const char*, unsigned, void* arg, unsi
     pending_task = fn; pending_arg = arg; *h = arg; return pdPASS;
 }
 inline void vTaskDelete(void*) {}
+inline void vTaskDelay(int) {}
 ''',
             'esp_log.h': '#define ESP_LOGE(...) ((void)0)\n#define ESP_LOGW(...) ((void)0)\n#define ESP_LOGD(...) ((void)0)\n',
             'audio_service.h': '''#pragma once
@@ -57,10 +59,13 @@ public:
 #include <optional>
 #include <string>
 inline std::function<void()> during_read;
+inline int open_failures = 0;
+inline int opened_count = 0;
+inline int last_timeout = 0;
 class Http {
 public:
-    void SetTimeout(int) {} void SetHeader(const char*, const char*) {}
-    bool Open(const char*, const std::string&) { return true; }
+    void SetTimeout(int timeout) { last_timeout = timeout; } void SetHeader(const char*, const char*) {}
+    bool Open(const char*, const std::string&) { ++opened_count; return open_failures-- <= 0; }
     std::optional<int> GetStatusCode() { return 200; }
     std::optional<int> Read(char*, size_t) {
         if (during_read) { auto fn = std::move(during_read); during_read = {}; fn(); }
@@ -128,6 +133,12 @@ int main(int argc, char** argv) {
     player.OnPlaybackDrained(); assert(finishes == 2);
     assert(player.Start({}, {}, 6, {}, done, ogg));
     RunWorker(); player.OnPlaybackDrained(); assert(finishes == 3);
+
+    open_failures = 1; opened_count = 0;
+    assert(player.Start("https://music.test/retry.ogg", {}, 7, {},
+        [&](uint32_t id, bool ok) { assert(id == 7 && !ok); ++finishes; }, {}, true));
+    RunWorker();
+    assert(opened_count == 2 && last_timeout > 10000 && finishes == 4);
 }
 '''
         }

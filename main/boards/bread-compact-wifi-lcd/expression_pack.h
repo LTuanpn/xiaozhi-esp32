@@ -4,6 +4,7 @@
 #include <lvgl.h>
 
 #include <cstdint>
+#include <optional>
 #include <string>
 #include <string_view>
 
@@ -25,7 +26,7 @@ public:
     uint32_t pixels_sent() const { return pixels_sent_; }
     uint64_t draw_us() const { return draw_us_; }
     unsigned fps() const;
-    uint32_t MouthAccent() const;
+    std::optional<uint32_t> MouthAccent() const;
     uint8_t RestMouth() const;
 
 private:

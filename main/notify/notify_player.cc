@@ -13,6 +13,8 @@
 
 namespace {
 constexpr int kHttpTimeoutMs = 5000;
+// The music proxy waits up to 10 seconds for FFmpeg before sending HTTP headers.
+constexpr int kMusicHttpTimeoutMs = 12000;
 constexpr size_t kHttpReadBufferSize = 1024;
 constexpr uint32_t kNotifyTaskStackSize = 6144;
 constexpr UBaseType_t kNotifyTaskPriority = 2;
@@ -243,38 +245,57 @@ void NotifyPlayer::WorkerTask() {
                 packet_error = packet_error || demuxer->HasError();
             }
             success = !packet_error && !IsCancelled(playback_id) && demuxer->Finish();
-        } else if (!IsCancelled(playback_id)) {
-            auto http = Board::GetInstance().GetNetwork()->CreateHttp(0);
-            if (http) {
-                http->SetTimeout(kHttpTimeoutMs);
-                http->SetHeader("Accept", "audio/ogg, application/ogg");
-                http->SetHeader("Accept-Encoding", "identity");
-                auto opened = http->Open("GET", audio_url);
-                if (opened) {
-                    auto status = http->GetStatusCode();
-                    if (status && *status >= 200 && *status < 300) {
-                        std::array<char, kHttpReadBufferSize> buffer;
-                        while (!packet_error && !IsCancelled(playback_id)) {
-                            auto size = http->Read(buffer.data(), buffer.size());
-                            if (!size) {
-                                ESP_LOGW(TAG, "Playback HTTP read failed");
-                                break;
+        } else {
+            const int attempts = music ? 2 : 1;
+            for (int attempt = 0; attempt < attempts && !IsCancelled(playback_id); ++attempt) {
+                bool retry = false;
+                auto http = Board::GetInstance().GetNetwork()->CreateHttp(0);
+                if (http) {
+                    http->SetTimeout(music ? kMusicHttpTimeoutMs : kHttpTimeoutMs);
+                    http->SetHeader("Accept", "audio/ogg, application/ogg");
+                    http->SetHeader("Accept-Encoding", "identity");
+                    auto opened = http->Open("GET", audio_url);
+                    if (opened) {
+                        auto status = http->GetStatusCode();
+                        const int code = status.value_or(0);
+                        if (code >= 200 && code < 300) {
+                            std::array<char, kHttpReadBufferSize> buffer;
+                            while (!packet_error && !IsCancelled(playback_id)) {
+                                auto size = http->Read(buffer.data(), buffer.size());
+                                if (!size) {
+                                    ESP_LOGW(TAG, "Playback %lu HTTP read failed at %lu ms",
+                                             static_cast<unsigned long>(playback_id),
+                                             static_cast<unsigned long>(media_position_ms));
+                                    retry = true;
+                                    break;
+                                }
+                                if (*size == 0) {
+                                    success = demuxer->Finish();
+                                    retry = !success && !demuxer->HasError();
+                                    break;
+                                }
+                                demuxer->Process(reinterpret_cast<const uint8_t*>(buffer.data()),
+                                                 *size);
+                                packet_error = packet_error || demuxer->HasError();
                             }
-                            if (*size == 0) {
-                                success = demuxer->Finish();
-                                break;
-                            }
-                            demuxer->Process(reinterpret_cast<const uint8_t*>(buffer.data()),
-                                             *size);
-                            packet_error = packet_error || demuxer->HasError();
+                        } else {
+                            ESP_LOGW(TAG, "Playback %lu HTTP status %d",
+                                     static_cast<unsigned long>(playback_id), code);
+                            retry = code == 0 || code == 409 || code == 502 || code == 503 ||
+                                    code == 504;
                         }
                     } else {
-                        ESP_LOGW(TAG, "Playback HTTP rejected or missing status");
+                        ESP_LOGW(TAG, "Playback %lu HTTP connection failed",
+                                 static_cast<unsigned long>(playback_id));
+                        retry = true;
                     }
-                } else {
-                    ESP_LOGW(TAG, "Playback HTTP connection failed");
+                    http->Close();
                 }
-                http->Close();
+                if (!retry || success || packet_error || media_position_ms != 0 ||
+                    attempt + 1 == attempts || IsCancelled(playback_id))
+                    break;
+                demuxer->Reset();
+                vTaskDelay(pdMS_TO_TICKS(400));
             }
         }
 

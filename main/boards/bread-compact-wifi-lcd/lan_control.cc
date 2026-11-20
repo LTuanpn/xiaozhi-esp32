@@ -90,20 +90,31 @@ struct Reply {
 
 bool Allowed(std::string_view name) {
     static constexpr std::string_view tools[] = {
-        "self.audio_speaker.set_volume", "self.screen.set_brightness", "self.timer.set_countdown",
-        "self.security.guard_mode",      "self.screen.set_emotion",    "self.screen.set_standby",
+        "self.audio_speaker.set_volume",
+        "self.screen.set_brightness",
+        "self.timer.set_countdown",
+        "self.security.guard_mode",
+        "self.screen.set_emotion",
+        "self.screen.set_standby",
         "self.screen.set_default_emotion",
-        "self.screen.show_qr",           "self.set_ota_url",           "self.reboot",
-        "self.lan.start_listening",      "self.lan.set_https_origin",
+        "self.wifi.start_provisioning",
+        "self.set_ota_url",
+        "self.reboot",
+        "self.lan.start_listening",
+        "self.lan.set_https_origin",
 #ifdef CONFIG_BREAD_COMPACT_LCD_KCX
-        "self.bluetooth.status", "self.bluetooth.power", "self.bluetooth.device", "self.bluetooth.route",
+        "self.bluetooth.status",
+        "self.bluetooth.power",
+        "self.bluetooth.device",
+        "self.bluetooth.route",
 #endif
     };
     return std::find(std::begin(tools), std::end(tools), name) != std::end(tools);
 }
 }  // namespace
 
-std::string LanControl::Pair(const std::string& ip, const std::string& origin, Status status) {
+std::string LanControl::Pair(const std::string& ip, const std::string& origin, Status status,
+                             int duration_seconds) {
     if (!server_) {
         httpd_config_t config = HTTPD_DEFAULT_CONFIG();
         config.server_port = kPort;
@@ -132,7 +143,7 @@ std::string LanControl::Pair(const std::string& ip, const std::string& origin, S
     }
     std::lock_guard<std::mutex> lock(mutex_);
     pairing_ = Token();
-    pair_until_ = esp_timer_get_time() + 120000000;
+    pair_until_ = esp_timer_get_time() + static_cast<int64_t>(duration_seconds) * 1000000;
     const auto base = origin.empty() ? "http://" + ip + ":" + std::to_string(kPort) : origin;
     return base + "/#pair=" + pairing_;
 }
@@ -209,11 +220,8 @@ esp_err_t LanControl::HandleRequest(httpd_req_t* req) {
         const auto* args = cJSON_GetObjectItemCaseSensitive(call.get(), "arguments");
         if (!cJSON_IsString(name) || !Allowed(name->valuestring) || !cJSON_IsObject(args))
             return Error(req, "400 Bad Request", "Thao tác không được phép.");
-        const std::string_view tool(name->valuestring);
         CJsonUniquePtr params(cJSON_CreateObject());
-        // The LAN Wi-Fi button can only open the existing setup portal.
-        CJsonUniquePtr arguments(tool == "self.screen.show_qr" ? cJSON_CreateObject()
-                                                               : cJSON_Duplicate(args, true));
+        CJsonUniquePtr arguments(cJSON_Duplicate(args, true));
         CJsonUniquePtr rpc(cJSON_CreateObject());
         if (!rpc || !params || !arguments ||
             !cJSON_AddStringToObject(params.get(), "name", name->valuestring))

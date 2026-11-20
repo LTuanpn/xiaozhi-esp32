@@ -84,7 +84,7 @@ std::unique_ptr<Http> Ota::SetupHttp() {
 /* 
  * Specification: https://ccnphfhqs21z.feishu.cn/wiki/FjW6wZmisimNBBkov6OcmfvknVd
  */
-NetworkResult<> Ota::CheckVersion() {
+NetworkResult<> Ota::CheckVersion(const std::string& url) {
     auto& board = Board::GetInstance();
     auto app_desc = esp_app_get_description();
 
@@ -92,7 +92,6 @@ NetworkResult<> Ota::CheckVersion() {
     current_version_ = app_desc->version;
     ESP_LOGI(TAG, "Current version: %s", current_version_.c_str());
 
-    std::string url = GetCheckVersionUrl();
     if (url.length() < 10) {
         ESP_LOGE(TAG, "Check version URL is not properly set");
         return std::unexpected(NetworkError::InvalidArgument());
@@ -128,10 +127,12 @@ NetworkResult<> Ota::CheckVersion() {
     // If it is, set has_new_version_ to true and store the new version and URL
     
     cJSON *root = cJSON_Parse(data.c_str());
-    if (root == NULL) {
+    if (!cJSON_IsObject(root)) {
+        cJSON_Delete(root);
         ESP_LOGE(TAG, "Failed to parse JSON response");
         return std::unexpected(NetworkError::ProtocolError());
     }
+    checked_url_ = url;
 
     expression_url_.clear();
     expression_digest_.clear();
@@ -527,7 +528,7 @@ esp_err_t Ota::Activate() {
         return ESP_FAIL;
     }
 
-    std::string url = GetCheckVersionUrl();
+    std::string url = checked_url_;
     if (url.back() != '/') {
         url += "/activate";
     } else {

@@ -31,6 +31,7 @@ public:
     bool SetDefaultEmotion(const std::string& emotion);
     std::string DefaultEmotion();
     bool TryShowQrCode(const std::string& text, const std::string& title, int duration_ms);
+    bool IsQrDisplayed(std::string_view title);
     void SetChatMessage(const char* role, const char* content) override;
     void ClearChatMessages() override;
     void RemoveChatMessage(const char* role, const char* content) override;
@@ -41,7 +42,8 @@ public:
     void HideQrCode() override;
     void HideQrCode(bool force);
     void ShowStandbyClock() override;
-    void ShowStandbyClock(bool manual_lock);
+    bool ShowStandbyClock(bool manual_lock);
+    void SetAlarmEmotion(bool guard);
     void HideStandbyClock() override;
     void HideStandbyClock(bool force);
     bool ShowFace();
@@ -156,6 +158,7 @@ private:
     uint32_t mouth_accent_ = 0;
     ExpressionPack expression_pack_;
     std::string expression_name_ = "neutral";
+    bool alarm_is_guard_ = false;
     lv_obj_t* chat_line_ = nullptr;
     lv_obj_t* activity_label_ = nullptr;
 

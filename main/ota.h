@@ -15,7 +15,7 @@ public:
     Ota();
     ~Ota();
 
-    NetworkResult<> CheckVersion();
+    NetworkResult<> CheckVersion(const std::string& url);
     esp_err_t Activate();
     bool HasActivationChallenge() { return has_activation_challenge_; }
     bool HasNewVersion() { return has_new_version_; }
@@ -47,6 +47,7 @@ private:
     bool has_serial_number_ = false;
     bool has_activation_challenge_ = false;
     std::string current_version_;
+    std::string checked_url_;
     std::string firmware_version_;
     std::string firmware_url_;
     std::string expression_url_;

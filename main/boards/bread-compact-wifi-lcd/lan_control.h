@@ -11,7 +11,8 @@
 class LanControl {
 public:
     using Status = std::function<cJSON*()>;
-    std::string Pair(const std::string& ip, const std::string& origin, Status status);
+    std::string Pair(const std::string& ip, const std::string& origin, Status status,
+                     int duration_seconds);
 
 private:
     static esp_err_t Handle(httpd_req_t* request);

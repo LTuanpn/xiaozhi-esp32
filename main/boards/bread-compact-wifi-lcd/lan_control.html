@@ -218,7 +218,7 @@ $("preview-all").onclick = async () => {
 };
 $("wifi").onclick = () => {
   if (confirm("Robot sẽ chuyển sang hotspot Xiaozhi để đổi Wi-Fi. Tiếp tục?"))
-    void tool("self.screen.show_qr",{},"Quét QR Wi-Fi mới trên robot.");
+    void tool("self.wifi.start_provisioning",{},"Quét QR Wi-Fi mới trên robot.");
 };
 let bluetooth;
 function renderBluetooth(state) {

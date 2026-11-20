@@ -494,7 +494,8 @@ void Application::CheckAssetsVersion() {
 void Application::CheckNewVersion() {
     const int MAX_RETRY = 2;
     int retry_count = 0;
-    int retry_delay = 2;  // Keep startup recovery bounded.
+    const auto configured_url = Ota::GetCheckVersionUrl();
+    bool recovery = false;
 
     auto& board = Board::GetInstance();
     while (true) {
@@ -502,7 +503,7 @@ void Application::CheckNewVersion() {
         display->SetStatus(Lang::Strings::CHECKING_NEW_VERSION);
         display->SetServiceStatus(DisplayService::Ota, ServiceStatus::Connecting);
 
-        auto check = ota_->CheckVersion();
+        auto check = ota_->CheckVersion(recovery ? CONFIG_OTA_URL : configured_url);
         if (!check) {
             display->SetServiceStatus(DisplayService::Ota, ServiceStatus::Offline);
             Settings mqtt("mqtt", false);
@@ -511,54 +512,31 @@ void Application::CheckNewVersion() {
                 ESP_LOGW(TAG, "OTA unavailable; continuing with saved AI connection");
                 return;
             }
-            retry_count++;
-            if (retry_count >= MAX_RETRY) {
-                ESP_LOGE(TAG, "Too many retries, exit version check");
+            if (++retry_count >= MAX_RETRY) {
+                ESP_LOGE(TAG, "OTA unavailable and no saved AI connection");
                 return;
             }
-
-            const auto& err = check.error();
-            char error_message[160];
-            int error_message_length =
-                snprintf(error_message, sizeof(error_message), "%s", err.ToString().c_str());
-            if (error_message_length < 0 ||
-                error_message_length >= static_cast<int>(sizeof(error_message))) {
-                snprintf(error_message, sizeof(error_message), "%s", err.Message());
-            }
-
-            char buffer[320];
-            int alert_message_length =
-                snprintf(buffer, sizeof(buffer), Lang::Strings::CHECK_NEW_VERSION_FAILED,
-                         retry_delay, error_message);
-            if (alert_message_length < 0 ||
-                alert_message_length >= static_cast<int>(sizeof(buffer))) {
-                snprintf(buffer, sizeof(buffer), "%s", err.Message());
-            }
-            Alert(Lang::Strings::ERROR, buffer, "cloud_off", Lang::Sounds::OGG_EXCLAMATION);
-
-            ESP_LOGW(TAG, "Check new version failed, retry in %d seconds (%d/%d)", retry_delay,
-                     retry_count, MAX_RETRY);
-            for (int i = 0; i < retry_delay; i++) {
-                vTaskDelay(pdMS_TO_TICKS(1000));
-                if (GetDeviceState() == kDeviceStateIdle) {
-                    break;
-                }
-            }
-            // Retry delay stays bounded during startup.
+            recovery = configured_url != CONFIG_OTA_URL;
+            ESP_LOGW(
+                TAG, "%s: %s",
+                recovery ? "Trying the default AI provisioning endpoint" : "Retrying OTA check",
+                check.error().ToString().c_str());
+            vTaskDelay(pdMS_TO_TICKS(2000));
             continue;
         }
         retry_count = 0;
-        retry_delay = 2;  // Reset retry delay
-        display->SetServiceStatus(DisplayService::Ota, ServiceStatus::Online);
+        // Recovery fetches AI credentials only. Fleet remains the configured update source.
+        display->SetServiceStatus(DisplayService::Ota,
+                                  recovery ? ServiceStatus::Offline : ServiceStatus::Online);
 
-        if (ota_->HasNewVersion()) {
+        if (!recovery && ota_->HasNewVersion()) {
             if (UpgradeFirmware(ota_->GetFirmwareUrl(), ota_->GetFirmwareVersion())) {
                 return;  // This line will never be reached after reboot
             }
             // If upgrade failed, continue to normal operation
         }
 
-        if (!ota_->GetExpressionUrl().empty())
+        if (!recovery && !ota_->GetExpressionUrl().empty())
             board.ApplyFleetExpressions(ota_->GetExpressionUrl(), ota_->GetExpressionDigest());
 
         // No new version, mark the current version as valid
@@ -749,7 +727,7 @@ void Application::InitializeProtocol() {
                     ESP_LOGI(TAG, "<< %s", text->valuestring);
                     Schedule([this, display, message = std::string(text->valuestring),
                               glyphs = std::move(glyphs), bpp]() {
-                        if (GetDeviceState() == kDeviceStateNotifying ||
+                        if (conversation_paused_ || GetDeviceState() == kDeviceStateNotifying ||
                             notify_player_.IsActive()) {
                             return;
                         }
@@ -767,8 +745,10 @@ void Application::InitializeProtocol() {
                     glyphs.clear();
                 }
                 ESP_LOGI(TAG, ">> %s", text->valuestring);
-                Schedule([display, message = std::string(text->valuestring),
+                Schedule([this, display, message = std::string(text->valuestring),
                           glyphs = std::move(glyphs), bpp]() {
+                    if (conversation_paused_)
+                        return;
                     display->AddTextGlyphs(glyphs, bpp);
                     display->SetChatMessage("user", message.c_str());
                 });
@@ -777,7 +757,8 @@ void Application::InitializeProtocol() {
             auto emotion = cJSON_GetObjectItem(root, "emotion");
             if (cJSON_IsString(emotion)) {
                 Schedule([this, display, emotion_str = std::string(emotion->valuestring)]() {
-                    if (GetDeviceState() == kDeviceStateNotifying || notify_player_.IsActive()) {
+                    if (conversation_paused_ || GetDeviceState() == kDeviceStateNotifying ||
+                        notify_player_.IsActive()) {
                         return; // Đang phát nhạc thì không để cảm xúc LLM đè mất biểu cảm music
                     }
                     display->SetEmotion(emotion_str.c_str());
@@ -1436,6 +1417,7 @@ bool Application::StartLocalAlarm(std::vector<std::string_view> clips) {
         return false;
     alarm_clips_ = std::move(clips);
     alarm_clip_index_ = 0;
+    alarm_active_ = true;
     return true;
 }
 
@@ -1496,6 +1478,7 @@ bool Application::QueueNotificationClip(std::string audio_url,
 }
 
 void Application::StopNotification() {
+    alarm_active_ = false;
     alarm_clips_.clear();
     next_alarm_clip_us_ = 0;
     notify_player_.Stop();
@@ -1524,7 +1507,12 @@ void Application::HandleNotificationFinished(uint32_t playback_id, bool success)
     }
     StopNotification();
     if (!success) {
-        Board::GetInstance().GetDisplay()->ShowNotification("Audio stream unavailable");
+        // Show after the idle state handler clears the previous conversation.
+        Schedule([]() {
+            auto& app = Application::GetInstance();
+            if (app.GetDeviceState() == kDeviceStateIdle)
+                Board::GetInstance().GetDisplay()->ShowNotification("Audio stream unavailable");
+        });
     }
 }
 

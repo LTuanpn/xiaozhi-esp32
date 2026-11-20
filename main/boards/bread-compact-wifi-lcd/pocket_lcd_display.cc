@@ -12,13 +12,14 @@
 
 #include <esp_err.h>
 #include <esp_log.h>
+#include <esp_sntp.h>
 #include <esp_timer.h>
+#include <nvs.h>
+#include <sys/time.h>
 #include <algorithm>
 #include <cmath>
 #include <cstring>
-#include <nvs.h>
-#include <esp_sntp.h>
-#include <sys/time.h>
+#include <tuple>
 
 #define TAG "PocketLcdDisplay"
 
@@ -33,6 +34,14 @@ namespace {
 
 constexpr uint32_t kAnimationPeriodMs = 50;  // 20 FPS
 constexpr uint32_t kAutoSleepTimeoutTicks = 3600;  // ~3 minutes
+
+bool IsToolDirective(std::string_view line) {
+    const auto start = line.find_first_not_of(" \t\r");
+    if (start == std::string_view::npos)
+        return false;
+    line.remove_prefix(start);
+    return line.starts_with("%emotion") || line.starts_with("%tool") || line.starts_with("%mcp");
+}
 
 inline int Ease(int current, int target) {
     int diff = target - current;
@@ -420,7 +429,6 @@ void PocketLcdDisplay::SetupUI() {
     lv_obj_remove_flag(resting_tongue_, LV_OBJ_FLAG_SCROLLABLE);
     lv_obj_set_size(resting_tongue_, 16, 10);
     lv_obj_set_style_radius(resting_tongue_, LV_RADIUS_CIRCLE, 0);
-    lv_obj_set_style_bg_color(resting_tongue_, lv_color_hex(0xF66B8F), 0);
     lv_obj_set_style_bg_opa(resting_tongue_, LV_OPA_COVER, 0);
     lv_obj_add_flag(resting_tongue_, LV_OBJ_FLAG_HIDDEN);
     default_emotion_ = Settings("face").GetString("default_emotion");
@@ -560,6 +568,17 @@ bool PocketLcdDisplay::SetManualEmotion(const std::string& emotion, int duration
     return true;
 }
 
+void PocketLcdDisplay::SetAlarmEmotion(bool guard) {
+    DisplayLockGuard lock(this);
+    if (!lock)
+        return;
+    alarm_is_guard_ = guard;
+    manual_emotion_until_us_ = 0;
+    emotion_timeline_.clear();
+    ShowFace();
+    SetFaceMode(guard ? FaceMode::kFurious : FaceMode::kThunderShock);
+}
+
 std::span<const std::string_view> PocketLcdDisplay::ManualEmotions() {
     static constexpr std::string_view names[] = {"happy",
                                                  "sad",
@@ -682,8 +701,7 @@ bool PocketLcdDisplay::SetEmotion(const char* emotion) {
     DisplayLockGuard lock(this);
     if (!lock) return false;
     if (emotion != nullptr && std::strcmp(emotion, "standby") == 0) {
-        ShowStandbyClock(true /* manual_lock */);
-        return true;
+        return ShowStandbyClock(true);
     }
     if (boot_standby_locked_ || manual_standby_locked_) {
         return false;  // Standby owns the screen; this emotion was not applied.
@@ -722,6 +740,25 @@ void PocketLcdDisplay::SetChatMessage(const char* role, const char* content) {
     }
 
     std::string raw_text = content;
+    if (role != nullptr && std::strcmp(role, "assistant") == 0) {
+        std::string visible;
+        std::string_view text = raw_text;
+        while (!text.empty()) {
+            const auto end = text.find('\n');
+            const auto line = text.substr(0, end);
+            if (!IsToolDirective(line)) {
+                if (!visible.empty())
+                    visible += '\n';
+                visible += line;
+            }
+            if (end == std::string_view::npos)
+                break;
+            text.remove_prefix(end + 1);
+        }
+        if (visible.find_first_not_of(" \t\r\n") == std::string::npos)
+            return;
+        raw_text = std::move(visible);
+    }
     std::string clean_text;
     std::string target_emotion;
     clean_text.reserve(raw_text.size());
@@ -898,6 +935,8 @@ void PocketLcdDisplay::SetFaceMode(FaceMode mode) {
 }
 
 std::string_view PocketLcdDisplay::ActiveExpressionName() const {
+    if (Application::GetInstance().IsAlarmActive())
+        return alarm_is_guard_ ? "furious" : "thunder";
     if (esp_timer_get_time() < manual_emotion_until_us_)
         return expression_name_;
     if (UsesDefaultEmotion())
@@ -1471,8 +1510,10 @@ void PocketLcdDisplay::UpdateAnimationFrame() {
 
     // 1. Temporary Emotion Timeout (do not reset if speaking or notifying)
     if (dev_state == kDeviceStateNotifying) {
-        emotion_mode_ = FaceMode::kMusic;
-        SetFaceMode(FaceMode::kMusic);
+        emotion_mode_ = app.IsAlarmActive()
+                            ? (alarm_is_guard_ ? FaceMode::kFurious : FaceMode::kThunderShock)
+                            : FaceMode::kMusic;
+        SetFaceMode(emotion_mode_);
     } else if (temporary_emotion_until_tick_ > 0 && animation_tick_ >= temporary_emotion_until_tick_) {
         if (!is_speaking_ && dev_state != kDeviceStateSpeaking) {
             temporary_emotion_until_tick_ = 0;
@@ -1531,7 +1572,7 @@ void PocketLcdDisplay::UpdateAnimationFrame() {
         next_emotion_tick_ = animation_tick_ + segment.duration_ticks;
     }
 
-    if (expression_visible_ && !qr_until_tick_ && !standby_active_ && !app.IsAlarmActive())
+    if (expression_visible_ && !qr_until_tick_ && !standby_active_)
         return;
     if (UsesDefaultEmotion())
         SetFaceMode(FaceModeFromEmotion(default_emotion_.c_str()));
@@ -3122,7 +3163,7 @@ void PocketLcdDisplay::UpdateAnimationFrame() {
 
 void PocketLcdDisplay::UpdateVisualFrame() {
     auto& app = Application::GetInstance();
-    const bool face_visible = !qr_until_tick_ && !standby_active_ && !app.IsAlarmActive();
+    const bool face_visible = !qr_until_tick_ && !standby_active_;
     if (face_visible)
         expression_visible_ = expression_pack_.Draw(face_layer_, ActiveExpressionName());
     else {
@@ -3148,7 +3189,7 @@ void PocketLcdDisplay::UpdateVisualFrame() {
             lv_obj_add_flag(resting_mouth_, LV_OBJ_FLAG_HIDDEN);
         rest_shape_ = 0;
     } else {
-        const auto color = lv_color_hex(expression_pack_.MouthAccent());
+        const auto color = lv_color_hex(expression_pack_.MouthAccent().value_or(EyeAccent()));
         if (rest_shape_ != rest || lv_color_to_int(lv_obj_get_style_arc_color(resting_mouth_, LV_PART_MAIN)) != lv_color_to_int(color)) {
             const bool small = rest == 3 || rest == 4;
             const bool ring = rest == 3 || rest == 5;
@@ -3161,6 +3202,7 @@ void PocketLcdDisplay::UpdateVisualFrame() {
             const int end = rest == 2 ? 345 : ring ? 360 : 172;
             lv_arc_set_bg_angles(resting_mouth_, start, end);
             if (rest == 6) {
+                lv_obj_set_style_bg_color(resting_tongue_, color, 0);
                 lv_obj_set_pos(resting_tongue_, 12, 12);
                 lv_obj_remove_flag(resting_tongue_, LV_OBJ_FLAG_HIDDEN);
             } else {
@@ -3204,8 +3246,7 @@ void PocketLcdDisplay::UpdateSpeakingMouth(uint16_t motion) {
     const int target_width = std::clamp(20 + brightness / 4 - opening / 3, 17, 43);
     const int width = height == 0 ? 0 : EaseLid(mouth_width_ ? mouth_width_ : target_width, target_width);
     if (height) {
-        const auto accent = expression_pack_.MouthAccent();
-        const auto color = accent ? accent : EyeAccent();
+        const auto color = expression_pack_.MouthAccent().value_or(EyeAccent());
         if (color != mouth_accent_) {
             mouth_accent_ = color;
             lv_obj_set_style_border_color(speaking_mouth_, lv_color_hex(color), 0);
@@ -3271,6 +3312,12 @@ uint32_t PocketLcdDisplay::NextRandom() {
 
 void PocketLcdDisplay::ShowQrCode(const std::string& text, const std::string& title, int duration_ms) {
     TryShowQrCode(text, title, duration_ms);
+}
+
+bool PocketLcdDisplay::IsQrDisplayed(std::string_view title) {
+    DisplayLockGuard lock(this);
+    return lock && qr_until_tick_ > animation_tick_ && qr_title_label_ &&
+           title == lv_label_get_text(qr_title_label_);
 }
 
 bool PocketLcdDisplay::TryShowQrCode(const std::string& text, const std::string& title,
@@ -3411,56 +3458,56 @@ void PocketLcdDisplay::UpdateStandbyServiceStatus() {
     };
     constexpr uint32_t green = 0x32D74B, blue = 0x64C8FF, amber = 0xFFD060, red = 0xFF6964;
     constexpr Label labels[][5] = {
-        {{"NO WI-FI", "Waiting for Wi-Fi", amber},
-         {"WI-FI...", "Connecting to Wi-Fi", blue},
-         {"WI-FI OK", "Wi-Fi connected", green},
-         {"WI-FI OFF", "Wi-Fi disconnected", red},
-         {"WI-FI ?", "Wi-Fi not verified", amber}},
-        {{"OTA WAIT", "Waiting for OTA check", amber},
-         {"OTA...", "Checking for updates", blue},
-         {"OTA OK", "OTA check passed", green},
-         {"OTA ERR", "OTA check or update failed", red},
-         {"OTA ?", "OTA not verified", amber}},
-        {{"AI WAIT", "Waiting for AI server", amber},
-         {"AI...", "Connecting to AI server", blue},
-         {"AI OK", "AI server connected", green},
-         {"AI ERR", "AI connection lost or failed", red},
-         {"AI WAIT", "Say Jarvis to connect AI", amber}},
-        {{"MCP WAIT", "Waiting for Music MCP status", amber},
-         {"MCP...", "Music MCP connecting", blue},
-         {"MCP OK", "Music MCP connected", green},
-         {"MCP ERR", "Music MCP disconnected / retrying", red},
-         {"MCP ?", "Music MCP status unavailable", amber}},
+        {{"NO WI-FI", "WAITING FOR WI-FI", amber},
+         {"WI-FI...", "CONNECTING TO WI-FI", blue},
+         {"WI-FI OK", "WI-FI CONNECTED", green},
+         {"WI-FI OFF", "WI-FI DISCONNECTED", red},
+         {"WI-FI ?", "WI-FI NOT VERIFIED", amber}},
+        {{"OTA WAIT", "WAITING FOR OTA CHECK", amber},
+         {"OTA...", "CHECKING FOR UPDATES", blue},
+         {"OTA OK", "OTA CHECK COMPLETE", green},
+         {"OTA ERR", "OTA UNAVAILABLE", red},
+         {"OTA ?", "OTA NOT VERIFIED", amber}},
+        {{"AI WAIT", "WAITING FOR AI SERVER", amber},
+         {"AI...", "CONNECTING TO AI SERVER", blue},
+         {"AI OK", "AI SERVER CONNECTED", green},
+         {"AI ERR", "AI CONNECTION UNAVAILABLE", red},
+         {"AI WAIT", "SAY JARVIS TO CONNECT AI", amber}},
+        {{"MCP WAIT", "WAITING FOR MUSIC MCP STATUS", amber},
+         {"MCP...", "MUSIC MCP CONNECTING", blue},
+         {"MCP OK", "MUSIC MCP CONNECTED", green},
+         {"MCP ERR", "MUSIC MCP DISCONNECTED - RETRYING", red},
+         {"MCP ?", "MUSIC MCP STATUS UNAVAILABLE", amber}},
     };
     Label label{"READY", "READY - SAY WAKE WORD", green};
     const auto state = Application::GetInstance().GetDeviceState();
     const auto now = esp_timer_get_time();
     if (state == kDeviceStateListening) {
-        label = {"LISTENING", "Listening to you", blue};
+        label = {"LISTENING", "LISTENING TO YOU", blue};
     } else if (state == kDeviceStateSpeaking) {
-        label = {"TALKING", "Jarvis is speaking", amber};
+        label = {"TALKING", "JARVIS IS SPEAKING", amber};
     } else if (state == kDeviceStateNotifying) {
-        label = {"PLAYING", "Audio playing", blue};
+        label = {"PLAYING", "AUDIO PLAYING", blue};
     } else if (state == kDeviceStateConnecting) {
-        label = {"AI...", "Opening AI session", blue};
+        label = {"AI...", "OPENING AI SESSION", blue};
     } else if (state == kDeviceStateUpgrading) {
-        label = {"UPDATE...", "Installing firmware", blue};
+        label = {"UPDATE...", "INSTALLING FIRMWARE", blue};
     } else if (state == kDeviceStateFatalError) {
-        label = {"ERROR", "Jarvis stopped", red};
+        label = {"ERROR", "JARVIS STOPPED", red};
     } else if (state == kDeviceStateWifiConfiguring) {
-        label = {"WI-FI SET", "Set up Wi-Fi", amber};
+        label = {"WI-FI SET", "SET UP WI-FI", amber};
     } else if (services_[0] == ServiceStatus::Offline) {
         label = labels[0][static_cast<size_t>(ServiceStatus::Offline)];
     } else {
         if (!service_events_.empty() && now >= next_service_event_us_) {
             if (next_service_event_us_)
                 service_events_.pop_front();
-            next_service_event_us_ = service_events_.empty() ? 0 : now + 1800000;
+            next_service_event_us_ = service_events_.empty() ? 0 : now + 3200000;
         }
         if (!service_events_.empty()) {
             const auto& event = service_events_.front();
             label = labels[static_cast<size_t>(event.service)][static_cast<size_t>(event.status)];
-        } else {
+        } else if (state != kDeviceStateIdle) {
             for (size_t i = 0; i < services_.size(); ++i) {
                 if (services_[i] != ServiceStatus::Online) {
                     label = labels[i][static_cast<size_t>(services_[i])];
@@ -3468,21 +3515,24 @@ void PocketLcdDisplay::UpdateStandbyServiceStatus() {
                 }
             }
             if (label.color == green && state != kDeviceStateIdle)
-                label = {"WAIT...", "Starting Jarvis", blue};
+                label = {"WAIT...", "STARTING JARVIS", blue};
+        } else if (services_[2] == ServiceStatus::Offline) {
+            label = labels[2][static_cast<size_t>(ServiceStatus::Offline)];
         }
     }
-    const char* detail = label.detail;
-    if (std::strcmp(label.short_text, "READY") == 0 && !pinned_memo_.empty())
-        detail = pinned_memo_.c_str();
+    const bool ready = std::strcmp(label.short_text, "READY") == 0;
+    const std::string detail =
+        ready && !pinned_memo_.empty() ? "READY - " + pinned_memo_ : label.detail;
+    const uint32_t detail_color = label.color == red ? 0xFF453A : ready ? 0xFFD60A : 0xC2B5FF;
     if (std::strcmp(lv_label_get_text(status_ready_label_), label.short_text) != 0)
         ESP_LOGI(TAG, "Standby status: %s", label.short_text);
-    for (const auto& [widget, value] : {std::pair{status_ready_label_, label.short_text},
-                                        std::pair{pinned_memo_label_, detail}}) {
+    for (const auto& [widget, value, color] :
+         {std::tuple{status_ready_label_, label.short_text, label.color},
+          std::tuple{pinned_memo_label_, detail.c_str(), detail_color}}) {
         if (std::strcmp(lv_label_get_text(widget), value) != 0)
             lv_label_set_text(widget, value);
-        const auto color = lv_color_hex(label.color);
-        if (lv_color_to_int(lv_obj_get_style_text_color(widget, LV_PART_MAIN)) != label.color)
-            lv_obj_set_style_text_color(widget, color, LV_PART_MAIN);
+        if (lv_color_to_int(lv_obj_get_style_text_color(widget, LV_PART_MAIN)) != color)
+            lv_obj_set_style_text_color(widget, lv_color_hex(color), LV_PART_MAIN);
     }
 }
 
@@ -3576,12 +3626,13 @@ void PocketLcdDisplay::ShowStandbyClock() {
     ShowStandbyClock(false);
 }
 
-void PocketLcdDisplay::ShowStandbyClock(bool manual_lock) {
+bool PocketLcdDisplay::ShowStandbyClock(bool manual_lock) {
     DisplayLockGuard lock(this);
-    if (!lock) return;
+    if (!lock || Application::GetInstance().IsAlarmActive())
+        return false;
     if (!manual_lock && !default_emotion_.empty()) {
         HideStandbyClock(true);
-        return;
+        return false;
     }
 
     if (manual_lock) {
@@ -3795,6 +3846,7 @@ void PocketLcdDisplay::ShowStandbyClock(bool manual_lock) {
     lv_obj_remove_flag(standby_container_, LV_OBJ_FLAG_HIDDEN);
     lv_obj_move_foreground(standby_container_);
     UpdateStandbyClock();
+    return true;
 }
 
 void PocketLcdDisplay::HideStandbyClock() {
