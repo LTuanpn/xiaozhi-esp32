@@ -48,6 +48,7 @@ bool WifiSetupPortal::Start(const esp_netif_ip_info_t& network) {
     config.lru_purge_enable = true;
     config.uri_match_fn = httpd_uri_match_wildcard;
     config.global_user_ctx = this;
+    config.global_user_ctx_free_fn = [](void*) {};  // The board owns the portal.
     config.open_fn = [](httpd_handle_t server, int fd) {
         const auto ipv4 = [fd](bool local) -> uint32_t {
             sockaddr_storage socket_address{};
