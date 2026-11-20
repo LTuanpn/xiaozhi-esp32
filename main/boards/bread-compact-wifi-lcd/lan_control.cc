@@ -148,6 +148,12 @@ std::string LanControl::Pair(const std::string& ip, const std::string& origin, S
     return base + "/#pair=" + pairing_;
 }
 
+void LanControl::CancelPairing() {
+    std::lock_guard<std::mutex> lock(mutex_);
+    pairing_.clear();
+    pair_until_ = 0;
+}
+
 esp_err_t LanControl::Handle(httpd_req_t* request) {
     return static_cast<LanControl*>(request->user_ctx)->HandleRequest(request);
 }

@@ -3314,12 +3314,6 @@ void PocketLcdDisplay::ShowQrCode(const std::string& text, const std::string& ti
     TryShowQrCode(text, title, duration_ms);
 }
 
-bool PocketLcdDisplay::IsQrDisplayed(std::string_view title) {
-    DisplayLockGuard lock(this);
-    return lock && qr_until_tick_ > animation_tick_ && qr_title_label_ &&
-           title == lv_label_get_text(qr_title_label_);
-}
-
 bool PocketLcdDisplay::TryShowQrCode(const std::string& text, const std::string& title,
                                      int duration_ms) {
     constexpr int kCanvasSize = 192;

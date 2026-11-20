@@ -31,7 +31,6 @@ public:
     bool SetDefaultEmotion(const std::string& emotion);
     std::string DefaultEmotion();
     bool TryShowQrCode(const std::string& text, const std::string& title, int duration_ms);
-    bool IsQrDisplayed(std::string_view title);
     void SetChatMessage(const char* role, const char* content) override;
     void ClearChatMessages() override;
     void RemoveChatMessage(const char* role, const char* content) override;

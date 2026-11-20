@@ -9,6 +9,9 @@
 #include "mcp_server.h"
 #include "lamp_controller.h"
 #include "lan_control.h"
+#ifdef CONFIG_USE_HOTSPOT_WIFI_PROVISIONING
+#include "wifi_setup_portal.h"
+#endif
 #include "kcx_audio.h"
 #include "settings.h"
 #include <esp_app_desc.h>
@@ -17,7 +20,6 @@
 
 #include <driver/i2c_master.h>
 #include <driver/spi_common.h>
-#include <esp_event.h>
 #include <esp_lcd_panel_io.h>
 #include <esp_lcd_panel_ops.h>
 #include <esp_lcd_panel_vendor.h>
@@ -82,7 +84,7 @@ private:
 #ifdef CONFIG_USE_HOTSPOT_WIFI_PROVISIONING
     esp_netif_t* config_hotspot_ = nullptr;
     esp_timer_handle_t config_hotspot_timer_ = nullptr;
-    esp_event_handler_instance_t config_hotspot_ip_event_ = nullptr;
+    WifiSetupPortal config_portal_;
     int64_t config_hotspot_until_us_ = 0;
 #endif
 #ifdef CONFIG_BREAD_COMPACT_LCD_KCX
@@ -158,14 +160,26 @@ private:
         return display_->TryShowQrCode(payload, ssid, duration_ms);
     }
 
+    ToolResult CloseQr() {
+        if (!display_)
+            return std::unexpected("Màn hình chưa sẵn sàng.");
+        display_->HideQrCode(true);
+        lan_control_.CancelPairing();
+#ifdef CONFIG_USE_HOTSPOT_WIFI_PROVISIONING
+        StopConfigHotspot();
+#endif
+        return std::string("Đã tắt mã QR.");
+    }
+
     ToolResult ShowLanConfigQr(int duration) {
         const auto ip = WifiManager::GetInstance().GetIpAddress();
         if (ip.empty() || ip == "0.0.0.0" || !display_)
             return std::unexpected("Robot chưa có IP hoặc màn hình chưa sẵn sàng.");
+        CloseQr();
         Settings settings("lan_control");
         const auto url = lan_control_.Pair(
             ip, settings.GetString("https_origin"), [this]() { return ControlStatus(); }, duration);
-        if (url.empty() || !display_->TryShowQrCode(url, "CAU HINH JARVIS", duration * 1000))
+        if (url.empty() || !display_->TryShowQrCode(url, "DIEU KHIEN JARVIS", duration * 1000))
             return std::unexpected("Không thể mở QR cấu hình Jarvis.");
         return std::string("Quét QR bằng điện thoại cùng Wi-Fi để mở cấu hình Jarvis.");
     }
@@ -175,6 +189,7 @@ private:
         if (!config_hotspot_)
             return;
         esp_timer_stop(config_hotspot_timer_);
+        config_portal_.Stop();
         if (esp_wifi_set_mode(WIFI_MODE_STA) != ESP_OK) {
             ESP_LOGW(TAG, "Could not leave temporary AP+STA mode");
             esp_timer_start_once(config_hotspot_timer_, 1000000);
@@ -186,16 +201,14 @@ private:
     }
 
     bool ShowHotspotJoinQr(int duration) {
-        if (!config_hotspot_ip_event_)
+        if (!config_hotspot_timer_)
             InitializeConfigHotspot();
-        if (!display_ || !config_hotspot_timer_ || !config_hotspot_ip_event_)
+        if (!config_hotspot_timer_ || config_hotspot_)
             return false;
-        if (!config_hotspot_) {
-            wifi_mode_t mode;
-            if (esp_wifi_get_mode(&mode) != ESP_OK || mode != WIFI_MODE_STA)
-                return false;
-            config_hotspot_ = esp_netif_create_default_wifi_ap();
-        }
+        wifi_mode_t mode;
+        if (esp_wifi_get_mode(&mode) != ESP_OK || mode != WIFI_MODE_STA)
+            return false;
+        config_hotspot_ = esp_netif_create_default_wifi_ap();
 
         esp_netif_ip_info_t sta{}, ap{};
         if (esp_netif_get_ip_info(esp_netif_get_handle_from_ifkey("WIFI_STA_DEF"), &sta) !=
@@ -207,11 +220,22 @@ private:
             return false;
         }
 
+        uint8_t offer_dns = 1;
+        esp_netif_dns_info_t dns{};
+        dns.ip.type = ESP_IPADDR_TYPE_V4;
+        dns.ip.u_addr.ip4 = ap.ip;
+        if (esp_netif_dhcps_option(config_hotspot_, ESP_NETIF_OP_SET, ESP_NETIF_DOMAIN_NAME_SERVER,
+                                   &offer_dns, sizeof(offer_dns)) != ESP_OK ||
+            esp_netif_set_dns_info(config_hotspot_, ESP_NETIF_DNS_MAIN, &dns) != ESP_OK) {
+            StopConfigHotspot();
+            return false;
+        }
+
         wifi_config_t config{};
         uint8_t mac[6]{};
         esp_wifi_get_mac(WIFI_IF_STA, mac);
         char ssid[16], password[17];
-        snprintf(ssid, sizeof(ssid), "Jarvis-%02X%02X", static_cast<unsigned>(mac[4]),
+        snprintf(ssid, sizeof(ssid), "Xiaozhi-%02X%02X", static_cast<unsigned>(mac[4]),
                  static_cast<unsigned>(mac[5]));
         snprintf(password, sizeof(password), "%08x%08x", static_cast<unsigned>(esp_random()),
                  static_cast<unsigned>(esp_random()));
@@ -221,9 +245,9 @@ private:
         config.ap.authmode = WIFI_AUTH_WPA2_PSK;
         config.ap.max_connection = 1;
         if (esp_wifi_set_mode(WIFI_MODE_APSTA) != ESP_OK ||
-            esp_wifi_set_config(WIFI_IF_AP, &config) != ESP_OK ||
+            esp_wifi_set_config(WIFI_IF_AP, &config) != ESP_OK || !config_portal_.Start(ap.ip) ||
             !display_->TryShowQrCode(std::string("WIFI:T:WPA;S:") + ssid + ";P:" + password + ";;",
-                                     "1. KET NOI WI-FI JARVIS", duration * 1000)) {
+                                     ssid, duration * 1000)) {
             StopConfigHotspot();
             return false;
         }
@@ -249,63 +273,23 @@ private:
             .arg = this,
             .name = "cfg_ap_timeout",
         };
-        if (!config_hotspot_timer_ && esp_timer_create(&timeout, &config_hotspot_timer_) != ESP_OK)
-            return;
-        esp_event_handler_instance_register(
-            IP_EVENT, IP_EVENT_AP_STAIPASSIGNED,
-            [](void* arg, esp_event_base_t, int32_t, void*) {
-                auto* board = static_cast<CompactWifiBoardLCD*>(arg);
-                Application::GetInstance().Schedule([board]() {
-                    const auto remaining =
-                        (board->config_hotspot_until_us_ - esp_timer_get_time()) / 1000;
-                    if (!board->config_hotspot_ || remaining < 1000 ||
-                        !board->display_->IsQrDisplayed("1. KET NOI WI-FI JARVIS"))
-                        return;
-                    esp_netif_ip_info_t ap{};
-                    if (esp_netif_get_ip_info(board->config_hotspot_, &ap) != ESP_OK)
-                        return;
-                    char ip[16];
-                    snprintf(ip, sizeof(ip), IPSTR, IP2STR(&ap.ip));
-                    const auto url = board->lan_control_.Pair(
-                        ip, {}, [board]() { return board->ControlStatus(); },
-                        static_cast<int>(remaining / 1000));
-                    if (!url.empty())
-                        board->display_->TryShowQrCode(url, "2. QUET DE MO CAU HINH",
-                                                       static_cast<int>(remaining));
-                });
-            },
-            this, &config_hotspot_ip_event_);
+        esp_timer_create(&timeout, &config_hotspot_timer_);
     }
 #endif
 
-    ToolResult ShowConfigQr(int duration) {
-        auto& app = Application::GetInstance();
-        if (app.IsAlarmActive()) {
-            return std::unexpected("Gọi Jarvis để xác nhận báo động trước khi mở cấu hình.");
-        }
+    ToolResult ShowWifiQr(int duration) {
+#ifdef CONFIG_USE_HOTSPOT_WIFI_PROVISIONING
+        if (!display_ || Application::GetInstance().IsAlarmActive())
+            return std::unexpected("Màn hình đang bận.");
         auto& wifi = WifiManager::GetInstance();
-        if (wifi.IsConnected() && !wifi.IsConfigMode()) {
-#ifdef CONFIG_USE_HOTSPOT_WIFI_PROVISIONING
-            if (ShowHotspotJoinQr(duration))
-                return std::string(
-                    "Quét QR để vào Wi-Fi Jarvis, rồi quét QR thứ hai để mở trang cấu hình.");
-#endif
-            return ShowLanConfigQr(duration);
-        }
-#ifdef CONFIG_USE_HOTSPOT_WIFI_PROVISIONING
-        if (wifi.IsConfigMode()) {
-            if (!ShowProvisioningQr(duration * 1000)) {
-                return std::unexpected("Không thể hiển thị mã Wi-Fi Xiaozhi.");
-            }
-            return std::string("Quét QR để kết nối vào Wi-Fi Xiaozhi và mở trang cấu hình.");
-        }
-
-        app.Schedule([this]() {
-            StopConfigHotspot();
-            if (!config_hotspot_)
-                EnterWifiConfigMode();
-        });
-        return std::string("Robot sẽ mở hotspot. Quét QR để kết nối vào Wi-Fi Xiaozhi.");
+        CloseQr();
+        const bool shown = wifi.IsConfigMode() ? ShowProvisioningQr(duration * 1000)
+                                               : wifi.IsConnected() && ShowHotspotJoinQr(duration);
+        if (!shown)
+            return std::unexpected("Không thể mở hotspot cấu hình Xiaozhi.");
+        return std::string(
+            "Quét QR để vào Wi-Fi Xiaozhi. Điện thoại sẽ mở trang cấu hình. "
+            "Nếu trang chưa mở, nhập http://192.168.4.1.");
 #else
         return std::unexpected("Bản firmware này không hỗ trợ cấu hình Wi-Fi bằng hotspot.");
 #endif
@@ -536,11 +520,23 @@ private:
                     return ShowStandby();
                 }
 
-                // TRƯỜNG HỢP 1: Yêu cầu hiển thị Mã QR
-                if (lower_text.find("qr") != std::string::npos ||
-                    lower_text.find("trang cấu hình") != std::string::npos ||
-                    lower_text.find("trang cau hinh") != std::string::npos) {
-                    return ShowConfigQr(duration);
+                if (lower_text.find("qr") != std::string::npos) {
+                    if (lower_text.find("tắt") != std::string::npos ||
+                        lower_text.find("đóng") != std::string::npos ||
+                        lower_text.find("ẩn") != std::string::npos ||
+                        lower_text.starts_with("tat ") || lower_text.starts_with("dong ") ||
+                        lower_text.starts_with("an "))
+                        return CloseQr();
+                    if (lower_text.find("điều khiển") != std::string::npos ||
+                        lower_text.find("dieu khien") != std::string::npos)
+                        return ShowLanConfigQr(duration);
+                    if (lower_text.find("wifi") != std::string::npos ||
+                        lower_text.find("wi-fi") != std::string::npos ||
+                        lower_text.find("cấu hình") != std::string::npos ||
+                        lower_text.find("cau hinh") != std::string::npos)
+                        return ShowWifiQr(duration);
+                    return std::unexpected(
+                        "Bạn muốn QR Wi-Fi, QR trang điều khiển hay QR của đường dẫn nào?");
                 }
 
                 // TRƯỜNG HỢP 2: Yêu cầu thông tin IP / WiFi
@@ -857,7 +853,7 @@ private:
                 if (app.IsAlarmActive())
                     return std::unexpected("Hãy xác nhận báo động trước khi đổi Wi-Fi.");
                 if (WifiManager::GetInstance().IsConfigMode())
-                    return ShowConfigQr(180);
+                    return ShowWifiQr(180);
                 StopConfigHotspot();
                 if (config_hotspot_)
                     return std::unexpected("Hotspot đang đóng. Thử lại sau giây lát.");
@@ -901,24 +897,37 @@ private:
             });
 
         mcp_server.AddTool(
+            "self.screen.show_wifi_qr",
+            "Chỉ mở mã QR vào hotspot Xiaozhi và trang cấu hình Wi-Fi. Dùng cho 'mã QR Wi-Fi', "
+            "'mã QR trang cấu hình Wi-Fi', 'mở hotspot' hoặc 'mở trang cấu hình'.",
+            PropertyList({Property("duration_seconds", kPropertyTypeInteger, 180, 10, 600)}),
+            [this](const PropertyList& properties) {
+                return ShowWifiQr(properties["duration_seconds"].value<int>());
+            });
+
+        mcp_server.AddTool(
+            "self.screen.close_qr",
+            "Đóng mã QR đang hiện và dừng hotspot tạm. Dùng khi người dùng bảo 'tắt mã QR', "
+            "'đóng mã QR' hoặc 'ẩn mã QR'.",
+            PropertyList(), [this](const PropertyList&) { return CloseQr(); });
+
+        mcp_server.AddTool(
             "self.screen.show_qr",
-            "Nếu url rỗng, mở hotspot và QR cấu hình Jarvis, giữ kết nối Wi-Fi hiện tại. "
-            "Chỉ truyền url khi người dùng đưa một địa chỉ web cụ thể.",
+            "Chỉ tạo QR cho URL HTTP hoặc HTTPS cụ thể do người dùng đưa. Nếu họ chỉ nói 'mở mã "
+            "QR', "
+            "hãy hỏi muốn QR Wi-Fi, QR trang điều khiển hay QR của đường dẫn nào.",
             PropertyList({Property("url", kPropertyTypeString, ""),
                           Property("duration_seconds", kPropertyTypeInteger, 180, 10, 600)}),
             [this](const PropertyList& properties) -> ToolResult {
                 const auto url = properties["url"].value<std::string>();
                 const int duration = properties["duration_seconds"].value<int>();
-                if (url.empty() || url == "config" || url == "wifi" || url == "qr" ||
-                    url == "http://192.168.4.1" || url == "http://192.168.4.1/") {
-                    return ShowConfigQr(duration);
-                }
-                if (!url.starts_with("https://") && !url.starts_with("http://")) {
+                if (url.empty())
+                    return std::unexpected(
+                        "Bạn muốn QR Wi-Fi, QR trang điều khiển hay QR của đường dẫn nào?");
+                if (!url.starts_with("https://") && !url.starts_with("http://"))
                     return std::unexpected("QR trang web cần địa chỉ HTTP hoặc HTTPS.");
-                }
-                if (!display_ || !display_->TryShowQrCode(url, "QUET MA QR", duration * 1000)) {
+                if (!CloseQr() || !display_->TryShowQrCode(url, "QUET MA QR", duration * 1000))
                     return std::unexpected("Không thể hiển thị QR.");
-                }
                 return std::string("Đã hiển thị QR trang web.");
             });
         mcp_server.AddTool(
