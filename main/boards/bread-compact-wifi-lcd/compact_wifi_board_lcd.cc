@@ -9,9 +9,6 @@
 #include "mcp_server.h"
 #include "lamp_controller.h"
 #include "lan_control.h"
-#ifdef CONFIG_USE_HOTSPOT_WIFI_PROVISIONING
-#include "wifi_setup_portal.h"
-#endif
 #include "kcx_audio.h"
 #include "settings.h"
 #include <esp_app_desc.h>
@@ -24,15 +21,14 @@
 #include <esp_lcd_panel_ops.h>
 #include <esp_lcd_panel_vendor.h>
 #include <esp_log.h>
-#include <esp_netif.h>
 #include <esp_random.h>
 #include <esp_timer.h>
-#include <esp_wifi.h>
 #include <algorithm>
 #include <atomic>
 #include <cctype>
 #include <cstring>
 #include <string>
+#include <utility>
 #include <vector>
 
 #if defined(LCD_TYPE_ILI9341_SERIAL)
@@ -82,10 +78,9 @@ private:
     Button boot_button_;
     LanControl lan_control_;
 #ifdef CONFIG_USE_HOTSPOT_WIFI_PROVISIONING
-    esp_netif_t* config_hotspot_ = nullptr;
-    esp_timer_handle_t config_hotspot_timer_ = nullptr;
-    WifiSetupPortal config_portal_;
-    int64_t config_hotspot_until_us_ = 0;
+    esp_timer_handle_t wifi_qr_timer_ = nullptr;
+    int pending_wifi_qr_ms_ = 0;  // -1 cancels a provisioning request already queued.
+    int64_t native_wifi_qr_until_us_ = 0;
 #endif
 #ifdef CONFIG_BREAD_COMPACT_LCD_KCX
     KcxAudio kcx_;
@@ -142,6 +137,17 @@ private:
     }
 
     bool ShowProvisioningQr(int duration_ms) override {
+#ifdef CONFIG_USE_HOTSPOT_WIFI_PROVISIONING
+        const int pending = std::exchange(pending_wifi_qr_ms_, 0);
+        if (pending < 0) {
+            ArmWifiQrTimeout(1);
+            return true;
+        }
+        if (pending > 0)
+            duration_ms = pending;
+        if (pending > 0 || native_wifi_qr_until_us_ > 0)
+            ArmWifiQrTimeout(duration_ms);
+#endif
         auto& wifi = WifiManager::GetInstance();
         const auto ssid = wifi.GetApSsid();
         if (ssid.empty() || !display_) {
@@ -166,7 +172,20 @@ private:
         display_->HideQrCode(true);
         lan_control_.CancelPairing();
 #ifdef CONFIG_USE_HOTSPOT_WIFI_PROVISIONING
-        StopConfigHotspot();
+        if (pending_wifi_qr_ms_ > 0)
+            pending_wifi_qr_ms_ = -1;
+        if (native_wifi_qr_until_us_ > 0) {
+            if (IsInWifiConfigMode() && xTaskCreate(
+                                            [](void*) {
+                                                WifiManager::GetInstance().StopConfigAp();
+                                                vTaskDelete(nullptr);
+                                            },
+                                            "wifi_qr_close", 4096, nullptr, 2, nullptr) != pdPASS) {
+                return std::unexpected("Không thể đóng hotspot Xiaozhi. Vui lòng thử lại.");
+            }
+            esp_timer_stop(wifi_qr_timer_);
+            native_wifi_qr_until_us_ = 0;
+        }
 #endif
         return std::string("Đã tắt mã QR.");
     }
@@ -185,111 +204,66 @@ private:
     }
 
 #ifdef CONFIG_USE_HOTSPOT_WIFI_PROVISIONING
-    void StopConfigHotspot() {
-        if (!config_hotspot_)
-            return;
-        esp_timer_stop(config_hotspot_timer_);
-        config_portal_.Stop();
-        if (esp_wifi_set_mode(WIFI_MODE_STA) != ESP_OK) {
-            ESP_LOGW(TAG, "Could not leave temporary AP+STA mode");
-            esp_timer_start_once(config_hotspot_timer_, 1000000);
-            return;
-        }
-        esp_netif_destroy_default_wifi(config_hotspot_);
-        config_hotspot_ = nullptr;
-        config_hotspot_until_us_ = 0;
-    }
-
-    bool ShowHotspotJoinQr(int duration) {
-        if (!config_hotspot_timer_)
-            InitializeConfigHotspot();
-        if (!config_hotspot_timer_ || config_hotspot_)
-            return false;
-        wifi_mode_t mode;
-        if (esp_wifi_get_mode(&mode) != ESP_OK || mode != WIFI_MODE_STA)
-            return false;
-        config_hotspot_ = esp_netif_create_default_wifi_ap();
-
-        esp_netif_ip_info_t sta{}, ap{};
-        if (esp_netif_get_ip_info(esp_netif_get_handle_from_ifkey("WIFI_STA_DEF"), &sta) !=
-                ESP_OK ||
-            esp_netif_get_ip_info(config_hotspot_, &ap) != ESP_OK ||
-            (sta.ip.addr & sta.netmask.addr) == (ap.ip.addr & sta.netmask.addr) ||
-            (sta.ip.addr & ap.netmask.addr) == (ap.ip.addr & ap.netmask.addr)) {
-            StopConfigHotspot();
-            return false;
-        }
-
-        uint8_t offer_dns = 1;
-        esp_netif_dns_info_t dns{};
-        dns.ip.type = ESP_IPADDR_TYPE_V4;
-        dns.ip.u_addr.ip4 = ap.ip;
-        if (esp_netif_dhcps_option(config_hotspot_, ESP_NETIF_OP_SET, ESP_NETIF_DOMAIN_NAME_SERVER,
-                                   &offer_dns, sizeof(offer_dns)) != ESP_OK ||
-            esp_netif_set_dns_info(config_hotspot_, ESP_NETIF_DNS_MAIN, &dns) != ESP_OK) {
-            StopConfigHotspot();
-            return false;
-        }
-
-        wifi_config_t config{};
-        uint8_t mac[6]{};
-        esp_wifi_get_mac(WIFI_IF_STA, mac);
-        char ssid[16], password[17];
-        snprintf(ssid, sizeof(ssid), "Xiaozhi-%02X%02X", static_cast<unsigned>(mac[4]),
-                 static_cast<unsigned>(mac[5]));
-        snprintf(password, sizeof(password), "%08x%08x", static_cast<unsigned>(esp_random()),
-                 static_cast<unsigned>(esp_random()));
-        memcpy(config.ap.ssid, ssid, strlen(ssid));
-        memcpy(config.ap.password, password, strlen(password));
-        config.ap.ssid_len = strlen(ssid);
-        config.ap.authmode = WIFI_AUTH_WPA2_PSK;
-        config.ap.max_connection = 1;
-        if (esp_wifi_set_mode(WIFI_MODE_APSTA) != ESP_OK ||
-            esp_wifi_set_config(WIFI_IF_AP, &config) != ESP_OK || !config_portal_.Start(ap) ||
-            !display_->TryShowQrCode(std::string("WIFI:T:WPA;S:") + ssid + ";P:" + password + ";;",
-                                     ssid, duration * 1000)) {
-            StopConfigHotspot();
-            return false;
-        }
-        esp_timer_stop(config_hotspot_timer_);
-        config_hotspot_until_us_ = esp_timer_get_time() + duration * 1000000LL;
-        if (esp_timer_start_once(config_hotspot_timer_, duration * 1000000ULL) != ESP_OK) {
-            StopConfigHotspot();
-            return false;
-        }
-        return true;
-    }
-
-    void InitializeConfigHotspot() {
+    bool PrepareWifiQrTimeout() {
+        if (wifi_qr_timer_)
+            return true;
         esp_timer_create_args_t timeout{
             .callback =
                 [](void* arg) {
                     auto* board = static_cast<CompactWifiBoardLCD*>(arg);
                     Application::GetInstance().Schedule([board]() {
-                        if (esp_timer_get_time() >= board->config_hotspot_until_us_)
-                            board->StopConfigHotspot();
+                        if (board->native_wifi_qr_until_us_ != 0 &&
+                            esp_timer_get_time() >= board->native_wifi_qr_until_us_ &&
+                            !board->CloseQr()) {
+                            esp_timer_start_once(board->wifi_qr_timer_, 1000000);
+                        }
                     });
                 },
             .arg = this,
-            .name = "cfg_ap_timeout",
+            .name = "wifi_qr_timeout",
         };
-        esp_timer_create(&timeout, &config_hotspot_timer_);
+        return esp_timer_create(&timeout, &wifi_qr_timer_) == ESP_OK;
+    }
+
+    void ArmWifiQrTimeout(int duration_ms) {
+        esp_timer_stop(wifi_qr_timer_);
+        const int64_t delay_us = duration_ms * 1000LL;
+        native_wifi_qr_until_us_ = esp_timer_get_time() + delay_us;
+        esp_timer_start_once(wifi_qr_timer_, delay_us);
     }
 #endif
 
     ToolResult ShowWifiQr(int duration) {
 #ifdef CONFIG_USE_HOTSPOT_WIFI_PROVISIONING
-        if (!display_ || Application::GetInstance().IsAlarmActive())
+        auto& app = Application::GetInstance();
+        if (!display_ || app.IsAlarmActive() || pending_wifi_qr_ms_ != 0)
             return std::unexpected("Màn hình đang bận.");
-        auto& wifi = WifiManager::GetInstance();
-        CloseQr();
-        const bool shown = wifi.IsConfigMode() ? ShowProvisioningQr(duration * 1000)
-                                               : wifi.IsConnected() && ShowHotspotJoinQr(duration);
-        if (!shown)
-            return std::unexpected("Không thể mở hotspot cấu hình Xiaozhi.");
+        if (IsInWifiConfigMode()) {
+            if (!ShowProvisioningQr(duration * 1000))
+                return std::unexpected("Không thể hiện mã QR Wi-Fi Xiaozhi.");
+        } else {
+            const auto state = app.GetDeviceState();
+            if (state != kDeviceStateIdle && state != kDeviceStateListening &&
+                state != kDeviceStateSpeaking && state != kDeviceStateNotifying)
+                return std::unexpected("Robot chưa sẵn sàng mở cấu hình Wi-Fi.");
+            if (!PrepareWifiQrTimeout() || !CloseQr())
+                return std::unexpected("Không thể mở cấu hình Wi-Fi.");
+            pending_wifi_qr_ms_ = duration * 1000;
+            app.Schedule([this, &app]() {
+                if (pending_wifi_qr_ms_ < 0 || app.IsAlarmActive()) {
+                    pending_wifi_qr_ms_ = 0;
+                    return;
+                }
+                app.EndConversation();
+                if (!EnterWifiConfigMode()) {
+                    pending_wifi_qr_ms_ = 0;
+                    display_->ShowNotification("KHONG MO DUOC CAU HINH WI-FI");
+                }
+            });
+        }
         return std::string(
-            "Quét QR để vào Wi-Fi Xiaozhi. Điện thoại sẽ mở trang cấu hình. "
-            "Nếu trang chưa mở, nhập http://192.168.4.1.");
+            "Quét QR để vào trang cấu hình gốc của Xiaozhi. "
+            "Jarvis tạm ngắt trong lúc cấu hình. Bấm BOOT để quay lại Wi-Fi đã lưu.");
 #else
         return std::unexpected("Bản firmware này không hỗ trợ cấu hình Wi-Fi bằng hotspot.");
 #endif
@@ -408,17 +382,25 @@ private:
 
     void InitializeButtons() {
         boot_button_.OnClick([this]() {
-            if (display_ != nullptr) {
-                auto* p_disp = static_cast<PocketLcdDisplay*>(display_);
-                p_disp->HideStandbyClock(true);
-                p_disp->HideQrCode(true);
-            }
             auto& app = Application::GetInstance();
-            if (app.GetDeviceState() == kDeviceStateStarting) {
-                EnterWifiConfigMode();
-                return;
-            }
-            app.ToggleChatState();
+            app.Schedule([this, &app]() {
+#ifdef CONFIG_USE_HOTSPOT_WIFI_PROVISIONING
+                if (pending_wifi_qr_ms_ != 0 ||
+                    (native_wifi_qr_until_us_ != 0 && IsInWifiConfigMode())) {
+                    CloseQr();
+                    return;
+                }
+#endif
+                if (display_) {
+                    display_->HideStandbyClock(true);
+                    display_->HideQrCode(true);
+                }
+                if (app.GetDeviceState() == kDeviceStateStarting) {
+                    EnterWifiConfigMode();
+                    return;
+                }
+                app.ToggleChatState();
+            });
         });
     }
 
@@ -844,28 +826,9 @@ private:
             "'mở trang điều khiển'. Đọc kết quả, không đọc mã ghép cặp.",
             PropertyList(), [this](const PropertyList&) { return ShowLanConfigQr(120); });
 
-        mcp_server.AddUserOnlyTool(
-            "self.wifi.start_provisioning",
-            "Switch to the Wi-Fi setup hotspot to replace network credentials.", PropertyList(),
-            [this](const PropertyList&) -> ToolResult {
-#ifdef CONFIG_USE_HOTSPOT_WIFI_PROVISIONING
-                auto& app = Application::GetInstance();
-                if (app.IsAlarmActive())
-                    return std::unexpected("Hãy xác nhận báo động trước khi đổi Wi-Fi.");
-                if (WifiManager::GetInstance().IsConfigMode())
-                    return ShowWifiQr(180);
-                StopConfigHotspot();
-                if (config_hotspot_)
-                    return std::unexpected("Hotspot đang đóng. Thử lại sau giây lát.");
-                app.Schedule([this, &app]() {
-                    app.EndConversation();
-                    EnterWifiConfigMode();
-                });
-                return std::string("Quét QR Wi-Fi Xiaozhi trên robot.");
-#else
-                return std::unexpected("Firmware chưa hỗ trợ hotspot cấu hình Wi-Fi.");
-#endif
-            });
+        mcp_server.AddUserOnlyTool("self.wifi.start_provisioning",
+                                   "Open the original Xiaozhi Wi-Fi setup hotspot.", PropertyList(),
+                                   [this](const PropertyList&) { return ShowWifiQr(180); });
 
         mcp_server.AddUserOnlyTool(
             "self.lan.set_https_origin", "Set the HTTPS reverse proxy origin used by the control QR.",
@@ -898,7 +861,8 @@ private:
 
         mcp_server.AddTool(
             "self.screen.show_wifi_qr",
-            "Chỉ mở mã QR vào hotspot Xiaozhi và trang cấu hình Wi-Fi. Dùng cho 'mã QR Wi-Fi', "
+            "Mở một mã QR cho trang cấu hình Wi-Fi gốc của Xiaozhi. Jarvis tạm ngắt. Dùng cho 'mã "
+            "QR Wi-Fi', "
             "'mã QR trang cấu hình Wi-Fi', 'mở hotspot' hoặc 'mở trang cấu hình'.",
             PropertyList({Property("duration_seconds", kPropertyTypeInteger, 180, 10, 600)}),
             [this](const PropertyList& properties) {

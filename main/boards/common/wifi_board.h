@@ -56,12 +56,12 @@ public:
     virtual void SetPowerSaveLevel(PowerSaveLevel level) override;
     virtual AudioCodec* GetAudioCodec() override { return nullptr; }
     virtual std::string GetDeviceStatusJson() override;
-    
+
     /**
-     * Enter WiFi configuration mode (thread-safe, can be called from any task)
+     * Enter WiFi configuration mode. Returns whether the transition was accepted.
      */
-    void EnterWifiConfigMode();
-    
+    bool EnterWifiConfigMode();
+
     /**
      * Check if in WiFi config mode
      */
