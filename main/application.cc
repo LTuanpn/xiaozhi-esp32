@@ -1481,11 +1481,29 @@ const char* Application::MusicStatus() const {
         return music_output_started_ ? "playing" : "opening";
     if (!pending_music_url_.empty())
         return "opening";
+    if (ReportedMusicPhase() == MusicPhase::Choosing)
+        return "choosing";
     return music_deadline_us_ ? "searching" : "idle";
 }
 
 bool Application::AcceptsMusicRequest(int id) const {
     return id > 0 && id == music_request_id_ && music_deadline_us_ > esp_timer_get_time();
+}
+
+bool Application::FinishMusicRequest(int id) {
+    if (!AcceptsMusicRequest(id) &&
+        !(id > 0 && id == music_request_id_ && ReportedMusicPhase() == MusicPhase::Choosing))
+        return false;
+    CancelMusicRequest();
+    return true;
+}
+
+void Application::AwaitMusicChoice(int id) {
+    if (!AcceptsMusicRequest(id))
+        return;
+    music_deadline_us_ = 0;
+    ReportMusicPhase(id, MusicPhase::Choosing);
+    ESP_LOGI(TAG, "Music choices received; waiting for user, request=%d", id);
 }
 
 int Application::PrepareMusicRequest() {
@@ -1500,7 +1518,7 @@ int Application::PrepareMusicRequest() {
     ReportMusicPhase(music_request_id_, MusicPhase::Searching);
     ESP_LOGI(TAG, "Waiting for Music MCP and stream URL, request=%d", music_request_id_);
     music_prepared_us_ = esp_timer_get_time();
-    music_deadline_us_ = music_prepared_us_ + 24000000;
+    music_deadline_us_ = music_prepared_us_ + 35000000;
     Board::GetInstance().GetDisplay()->ShowNotification("Đang chuẩn bị nhạc…");
     if (!music_cue_active_ && audio_service_.IsPlaybackIdle()) {
         music_cue_active_ = true;

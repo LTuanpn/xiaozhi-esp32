@@ -524,9 +524,8 @@ private:
             PropertyList({Property("request_id", kPropertyTypeInteger, 1, 2147483647)}),
             [](const PropertyList& p) -> ReturnValue {
                 auto& app = Application::GetInstance();
-                if (!app.AcceptsMusicRequest(p["request_id"].value<int>()))
+                if (!app.FinishMusicRequest(p["request_id"].value<int>()))
                     return "stale: kết thúc im lặng";
-                app.CancelMusicRequest();
                 return "accepted";
             });
 
@@ -1102,7 +1101,10 @@ private:
         auto http = GetNetwork()->CreateHttp(0);
         http->SetTimeout(3000);
         http->SetHeader("Client-Id", GetUuid());
-        http->SetHeader("X-Music-Report", std::to_string(Application::GetInstance().MusicReport()));
+        auto& app = Application::GetInstance();
+        const auto report = app.MusicReport();
+        http->SetHeader("X-Music-Report", std::to_string(report));
+        http->SetHeader("X-Music-Choice-Ack", "1");
         if (!http->Open("GET", url + "/health"))
             return ServiceStatus::Unverified;
         const auto code = http->GetStatusCode();
@@ -1110,6 +1112,12 @@ private:
         const auto result =
             code && *code == 200 && size > 0 && size <= 15 ? http->ReadAll() : std::string();
         http->Close();
+        if (result == "online-choice") {
+            app.Schedule([id = static_cast<int>(report >> 4)]() {
+                Application::GetInstance().AwaitMusicChoice(id);
+            });
+            return ServiceStatus::Online;
+        }
         if (result == "online")
             return ServiceStatus::Online;
         if (result == "connecting")
@@ -1173,10 +1181,17 @@ private:
         if (xTaskCreate(
                 [](void* arg) {
                     auto& board = *static_cast<CompactWifiBoardLCD*>(arg);
+                    int64_t last_probe_us = esp_timer_get_time();
                     while (true) {
-                        vTaskDelay(pdMS_TO_TICKS(15000));
+                        vTaskDelay(pdMS_TO_TICKS(1000));
                         if (!WifiManager::GetInstance().IsConnected())
                             continue;
+                        const auto now = esp_timer_get_time();
+                        const auto phase = Application::GetInstance().ReportedMusicPhase();
+                        const auto interval = phase == MusicPhase::Searching ? 2000000 : 15000000;
+                        if (now - last_probe_us < interval)
+                            continue;
+                        last_probe_us = now;
                         board.display_->SetServiceStatus(
                             DisplayService::MusicMcp,
                             board.CheckMusicStatus(Ota::GetCheckVersionUrl()));
