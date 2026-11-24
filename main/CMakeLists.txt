@@ -1237,7 +1237,9 @@ endif()
 
 # Use target_compile_definitions to define the reported board identity
 # If BOARD_NAME is empty, use BOARD_TYPE
-if(NOT BOARD_NAME)
+if(CONFIG_BREAD_COMPACT_LCD_MIC_SCK_GPIO4)
+    set(BOARD_NAME "bread-compact-wifi-lcd-240x240-mic-sck4")
+elseif(NOT BOARD_NAME)
     set(BOARD_NAME ${BOARD_TYPE})
 endif()
 if(NOT CMAKE_BUILD_EARLY_EXPANSION AND NOT BOARD_NAME MATCHES "^[a-z0-9.-]+$")
