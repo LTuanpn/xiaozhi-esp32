@@ -33,6 +33,11 @@
 #include <utility>
 #include <vector>
 
+#ifdef CONFIG_BREAD_COMPACT_LCD_MIC_SCK_GPIO4
+#include <esp_heap_caps.h>
+#include <mbedtls/base64.h>
+#endif
+
 #if defined(LCD_TYPE_ILI9341_SERIAL)
 #include "esp_lcd_ili9341.h"
 #endif
@@ -90,6 +95,51 @@ public:
     void RequestSlot(i2s_std_slot_mask_t slot) { requested_slot_.store(slot); }
     const char* SlotName() const { return active_slot_.load() == I2S_STD_SLOT_LEFT ? "left" : "right"; }
 
+    void CaptureForSerial(bool play_test_sound) {
+        auto& app = Application::GetInstance();
+        if (app.GetDeviceState() != kDeviceStateIdle || !app.GetAudioService().IsWakeWordRunning() ||
+            raw_count_.load() != kCaptureSamples) {
+            printf("MICRAW error busy\n");
+            return;
+        }
+        if (!raw_pcm_) {
+            raw_pcm_ = static_cast<int32_t*>(heap_caps_malloc(kCaptureSamples * sizeof(int32_t),
+                                                            MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT));
+            if (!raw_pcm_) {
+                printf("MICRAW error memory\n");
+                return;
+            }
+        }
+        printf("MICRAW begin %d %d\n", AUDIO_INPUT_SAMPLE_RATE, kCaptureSamples);
+        raw_count_.store(0);
+        if (play_test_sound) {
+            vTaskDelay(pdMS_TO_TICKS(350));
+            app.Schedule([&app]() { app.PlaySound(Lang::Sounds::OGG_SUCCESS); });
+        }
+        const int64_t deadline = esp_timer_get_time() + 3000000;
+        while (raw_count_.load() < kCaptureSamples && esp_timer_get_time() < deadline)
+            vTaskDelay(pdMS_TO_TICKS(20));
+        if (raw_count_.load() != kCaptureSamples) {
+            printf("MICRAW error timeout\n");
+            return;
+        }
+        for (int offset = 0; offset < kCaptureSamples; offset += 48) {
+            unsigned char encoded[257];
+            size_t length = 0;
+            const size_t bytes = std::min(48, kCaptureSamples - offset) * sizeof(int32_t);
+            if (mbedtls_base64_encode(encoded, sizeof(encoded), &length,
+                                     reinterpret_cast<const unsigned char*>(raw_pcm_ + offset),
+                                     bytes) != 0) {
+                printf("MICRAW error encoding\n");
+                return;
+            }
+            printf("MICRAW data %.*s\n", static_cast<int>(length),
+                   reinterpret_cast<const char*>(encoded));
+        }
+        printf("MICRAW end\n");
+        fflush(stdout);
+    }
+
 protected:
     int Read(int16_t* dest, int samples) override {
         const auto requested = requested_slot_.load();
@@ -109,10 +159,26 @@ protected:
                 ESP_LOGE(TAG, "Cannot select microphone slot: %s", esp_err_to_name(result));
             }
         }
-        return NoAudioCodecSimplex::Read(dest, samples);
+        const int offset = raw_count_.load();
+        if (offset >= kCaptureSamples)
+            return NoAudioCodecSimplex::Read(dest, samples);
+
+        // Send the captured words only over USB. WakeNet and Cloud receive silence
+        // during this short test, including while the local reference sound plays.
+        size_t bytes_read = 0;
+        const int count = std::min(samples, kCaptureSamples - offset);
+        if (i2s_channel_read(rx_handle_, raw_pcm_ + offset, count * sizeof(int32_t),
+                             &bytes_read, 200) != ESP_OK)
+            return 0;
+        std::fill_n(dest, samples, 0);
+        raw_count_.store(offset + bytes_read / sizeof(int32_t));
+        return bytes_read / sizeof(int32_t);
     }
 
 private:
+    static constexpr int kCaptureSamples = 28000;
+    int32_t* raw_pcm_ = nullptr;
+    std::atomic<int> raw_count_{kCaptureSamples};
     std::atomic<i2s_std_slot_mask_t> requested_slot_{I2S_STD_SLOT_LEFT};
     std::atomic<i2s_std_slot_mask_t> active_slot_{I2S_STD_SLOT_LEFT};
 };
@@ -1090,7 +1156,10 @@ private:
                             if (idx > 0) {
                                 buf[idx] = '\0';
 #ifdef CONFIG_BREAD_COMPACT_LCD_MIC_SCK_GPIO4
-                                if (std::strcmp(buf, "mic left") == 0 ||
+                                if (std::strcmp(buf, "mic quiet") == 0 ||
+                                    std::strcmp(buf, "mic tone") == 0) {
+                                    GetSwappedClockMic().CaptureForSerial(buf[4] == 't');
+                                } else if (std::strcmp(buf, "mic left") == 0 ||
                                     std::strcmp(buf, "mic right") == 0) {
                                     GetSwappedClockMic().RequestSlot(buf[4] == 'l' ? I2S_STD_SLOT_LEFT
                                                                                 : I2S_STD_SLOT_RIGHT);
