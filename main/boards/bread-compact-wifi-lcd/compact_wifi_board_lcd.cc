@@ -75,6 +75,54 @@ static const gc9a01_lcd_init_cmd_t gc9107_lcd_init_cmds[] = {
 
 #define TAG "CompactWifiBoardLCD"
 
+#ifdef CONFIG_BREAD_COMPACT_LCD_MIC_SCK_GPIO4
+class SwappedClockMicCodec final : public NoAudioCodecSimplex {
+public:
+    SwappedClockMicCodec()
+        : NoAudioCodecSimplex(AUDIO_INPUT_SAMPLE_RATE, AUDIO_OUTPUT_SAMPLE_RATE,
+                              AUDIO_I2S_SPK_GPIO_BCLK, AUDIO_I2S_SPK_GPIO_LRCK,
+                              AUDIO_I2S_SPK_GPIO_DOUT, AUDIO_I2S_MIC_GPIO_SCK,
+                              AUDIO_I2S_MIC_GPIO_WS, AUDIO_I2S_MIC_GPIO_DIN) {
+        ESP_LOGI(TAG, "I2S microphone: BCLK=%d WS=%d DIN=%d (left)",
+                 AUDIO_I2S_MIC_GPIO_SCK, AUDIO_I2S_MIC_GPIO_WS, AUDIO_I2S_MIC_GPIO_DIN);
+    }
+
+    void RequestSlot(i2s_std_slot_mask_t slot) { requested_slot_.store(slot); }
+    const char* SlotName() const { return active_slot_.load() == I2S_STD_SLOT_LEFT ? "left" : "right"; }
+
+protected:
+    int Read(int16_t* dest, int samples) override {
+        const auto requested = requested_slot_.load();
+        if (requested != active_slot_.load()) {
+            // Reconfigure on the audio input task between reads.
+            EnableInput(false);
+            i2s_std_slot_config_t config =
+                I2S_STD_PHILIPS_SLOT_DEFAULT_CONFIG(I2S_DATA_BIT_WIDTH_32BIT, I2S_SLOT_MODE_MONO);
+            config.slot_mask = requested;
+            const auto result = i2s_channel_reconfig_std_slot(rx_handle_, &config);
+            EnableInput(true);
+            if (result == ESP_OK) {
+                active_slot_.store(requested);
+                ESP_LOGI(TAG, "I2S microphone slot: %s", SlotName());
+            } else {
+                requested_slot_.store(active_slot_.load());
+                ESP_LOGE(TAG, "Cannot select microphone slot: %s", esp_err_to_name(result));
+            }
+        }
+        return NoAudioCodecSimplex::Read(dest, samples);
+    }
+
+private:
+    std::atomic<i2s_std_slot_mask_t> requested_slot_{I2S_STD_SLOT_LEFT};
+    std::atomic<i2s_std_slot_mask_t> active_slot_{I2S_STD_SLOT_LEFT};
+};
+
+static SwappedClockMicCodec& GetSwappedClockMic() {
+    static SwappedClockMicCodec mic;
+    return mic;
+}
+#endif
+
 class CompactWifiBoardLCD : public WifiBoard {
 private:
     Button boot_button_;
@@ -716,6 +764,12 @@ private:
                 cJSON_AddBoolToObject(status, "voice_processing", audio.IsAudioProcessorRunning());
                 cJSON_AddNumberToObject(status, "input_level", audio.GetInputLevel());
                 cJSON_AddBoolToObject(status, "alarm", app.IsAlarmActive());
+#ifdef CONFIG_BREAD_COMPACT_LCD_MIC_SCK_GPIO4
+                cJSON_AddNumberToObject(status, "bclk_gpio", AUDIO_I2S_MIC_GPIO_SCK);
+                cJSON_AddNumberToObject(status, "ws_gpio", AUDIO_I2S_MIC_GPIO_WS);
+                cJSON_AddNumberToObject(status, "din_gpio", AUDIO_I2S_MIC_GPIO_DIN);
+                cJSON_AddStringToObject(status, "mic_slot", GetSwappedClockMic().SlotName());
+#endif
                 return status;
             });
 
@@ -1035,6 +1089,13 @@ private:
                             }
                             if (idx > 0) {
                                 buf[idx] = '\0';
+#ifdef CONFIG_BREAD_COMPACT_LCD_MIC_SCK_GPIO4
+                                if (std::strcmp(buf, "mic left") == 0 ||
+                                    std::strcmp(buf, "mic right") == 0) {
+                                    GetSwappedClockMic().RequestSlot(buf[4] == 'l' ? I2S_STD_SLOT_LEFT
+                                                                                : I2S_STD_SLOT_RIGHT);
+                                } else
+#endif
                                 if (buf[0] == '{') {
                                     // Exercise the same validated dispatcher as Cloud, with replies
                                     // sent only to USB serial. DoToolCall schedules mutations on
@@ -1295,7 +1356,9 @@ public:
     }
 
     virtual AudioCodec* GetAudioCodec() override {
-#ifdef CONFIG_BREAD_COMPACT_LCD_KCX
+#if defined(CONFIG_BREAD_COMPACT_LCD_MIC_SCK_GPIO4)
+        auto& audio_codec = GetSwappedClockMic();
+#elif defined(CONFIG_BREAD_COMPACT_LCD_KCX)
         static KcxCodec audio_codec(kcx_);
 #elif defined(AUDIO_I2S_METHOD_SIMPLEX)
         static NoAudioCodecSimplex audio_codec(AUDIO_INPUT_SAMPLE_RATE, AUDIO_OUTPUT_SAMPLE_RATE,
